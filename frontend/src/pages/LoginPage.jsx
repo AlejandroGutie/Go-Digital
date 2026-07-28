@@ -8,9 +8,8 @@ import '../index.css';
 export default function LoginPage() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [mode, setMode] = useState('login');
   const [submitting, setSubmitting] = useState(false);
-  const { login, register, session, loading } = useAuth();
+  const { login, session, loading } = useAuth();
   const navigate = useNavigate();
   const { toasts, addToast, removeToast } = useToast();
 
@@ -52,11 +51,7 @@ export default function LoginPage() {
     e.preventDefault();
     setSubmitting(true);
     try {
-      if (mode === 'login') {
-        await login(email, password);
-      } else {
-        await register(email, password);
-      }
+      await login(email, password);
       navigate('/', { replace: true });
     } catch (err) {
       addToast(err.message || 'Error de autenticación', 'error');
@@ -99,13 +94,11 @@ export default function LoginPage() {
             textAlign: 'center',
           }}
         >
-          {mode === 'login' ? 'Iniciar sesión' : 'Crear cuenta'}
+          Iniciar sesión
         </h1>
 
         <p style={{ margin: '0 0 24px', fontSize: 14, color: 'var(--color-purple-light)', textAlign: 'center' }}>
-          {mode === 'login'
-            ? 'Ingresa con tu correo y contraseña.'
-            : 'Regístrate con tu correo y contraseña.'}
+          Ingresa con tu correo y contraseña.
         </p>
 
         <form onSubmit={handleSubmit}>
@@ -156,7 +149,7 @@ export default function LoginPage() {
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               required
-              autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
+              autoComplete="current-password"
               style={{
                 display: 'block',
                 width: '100%',
@@ -189,35 +182,9 @@ export default function LoginPage() {
               transition: 'background 0.2s ease',
             }}
           >
-            {submitting
-              ? 'Procesando…'
-              : mode === 'login'
-                ? 'Ingresar'
-                : 'Registrarse'}
+            {submitting ? 'Procesando…' : 'Ingresar'}
           </button>
         </form>
-
-        <button
-          type="button"
-          onClick={() => setMode(mode === 'login' ? 'register' : 'login')}
-          style={{
-            width: '100%',
-            marginTop: 12,
-            padding: '10px 16px',
-            fontSize: 13,
-            fontWeight: 500,
-            color: 'var(--color-entorno)',
-            background: 'transparent',
-            border: '1px solid var(--color-entorno)',
-            borderRadius: 8,
-            cursor: 'pointer',
-            transition: 'all 0.2s ease',
-          }}
-        >
-          {mode === 'login'
-            ? '¿No tienes cuenta? Registrarse'
-            : '¿Ya tienes cuenta? Iniciar sesión'}
-        </button>
       </div>
     </div>
   );

@@ -41,12 +41,6 @@ export function AuthProvider({ children }) {
     return data;
   }, []);
 
-  const register = useCallback(async (email, password) => {
-    const { data, error } = await supabase.auth.signUp({ email, password });
-    if (error) throw new Error(error.message);
-    return data;
-  }, []);
-
   const logout = useCallback(async () => {
     const { error } = await supabase.auth.signOut();
     if (error) throw new Error(error.message);
@@ -58,10 +52,9 @@ export function AuthProvider({ children }) {
       session,
       loading,
       login,
-      register,
       logout,
     }),
-    [user, session, loading, login, register, logout]
+    [user, session, loading, login, logout]
   );
 
   return (
