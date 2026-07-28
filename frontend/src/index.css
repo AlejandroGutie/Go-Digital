@@ -1,0 +1,71 @@
+@import './assets/fonts/fonts.css';
+
+/* ==========================================================================
+   VARIABLES DE MARCA (KIT DE VISUALIZACIÓN: PELU ELI)
+   ========================================================================== */
+:root {
+  --color-white: #FFFFFF;
+  --color-purple-light: #8D78A2;
+  
+  /*Pelu Eli*/
+  /*--color-entorno: #B74192; /*magenta*/
+  --color-yellow: #F4DE00;
+  --color-black: #000000;
+  
+  /*Go-Digital*/
+  /*--color-entorno: #606060; /*gris*/
+
+  /*Otro cliente*/
+  --color-entorno: #4f41b7;/*azul*/
+
+  /*Otro cliente*/
+  /*--color-entorno: #1ae60c;/*verde*/
+
+  --bg-main: #f8fafc;
+  --bg-selected: rgba(183, 65, 146, 0.1);
+  --bg-highlight: rgba(244, 222, 0, 0.35);
+  --text-main: #000000;
+
+  --font-brand-display: 'Bobby Jones', sans-serif;
+  --font-brand-body: 'Montserrat', sans-serif;
+  --font-fallback: 'Avenir LT Pro', 'Avenir Next', sans-serif;
+}
+
+/* ==========================================================================
+   RESETS Y CONFIGURACIÓN GLOBAL
+   ========================================================================== */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+body {
+  font-family: var(--font-brand-body), var(--font-fallback);
+  font-weight: 400;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  margin: 0;
+  background: var(--bg-main);
+  color: var(--text-main);
+}
+
+/* ==========================================================================
+   CLASES UTILITARIAS (Kit Pelu Eli)
+   ========================================================================== */
+.font-display {
+  font-family: var(--font-brand-display);
+  text-transform: uppercase;
+}
+
+.font-body {
+  font-family: var(--font-brand-body);
+}
+
+.text-brand-magenta { color: var(--color-magenta); }
+.text-brand-purple { color: var(--color-purple-light); }
+.text-brand-yellow { color: var(--color-yellow); }
+
+.bg-brand-magenta { background-color: var(--color-magenta); }
+.bg-brand-purple { background-color: var(--color-purple-light); }
+.bg-brand-yellow { background-color: var(--color-yellow); }

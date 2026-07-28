@@ -1,0 +1,122 @@
+/* ── Regular / Roman ── */
+@font-face {
+     font-family: 'Avenir LT Pro';
+     src: url('./AvenirLTProRoman.otf') format('opentype');
+     font-weight: 400;
+     font-style: normal;
+     font-display: swap;
+   }
+   
+   /* ── Regular Oblique ── */
+   @font-face {
+     font-family: 'Avenir LT Pro';
+     src: url('./AvenirLTProOblique.otf') format('opentype');
+     font-weight: 400;
+     font-style: italic;
+     font-display: swap;
+   }
+   
+   /* ── Book ── */
+   @font-face {
+     font-family: 'Avenir LT Pro';
+     src: url('./AvenirLTProBook.otf') format('opentype');
+     font-weight: 350;
+     font-style: normal;
+     font-display: swap;
+   }
+   
+   /* ── Book Oblique ── */
+   @font-face {
+     font-family: 'Avenir LT Pro';
+     src: url('./AvenirLTProBookOblique.otf') format('opentype');
+     font-weight: 350;
+     font-style: italic;
+     font-display: swap;
+   }
+   
+   /* ── Light ── */
+   @font-face {
+     font-family: 'Avenir LT Pro';
+     src: url('./AvenirLTProLight.otf') format('opentype');
+     font-weight: 300;
+     font-style: normal;
+     font-display: swap;
+   }
+   
+   /* ── Light Oblique ── */
+   @font-face {
+     font-family: 'Avenir LT Pro';
+     src: url('./AvenirLTProLightOblique.otf') format('opentype');
+     font-weight: 300;
+     font-style: italic;
+     font-display: swap;
+   }
+   
+   /* ── Medium ── */
+   @font-face {
+     font-family: 'Avenir LT Pro';
+     src: url('./AvenirLTProMedium.otf') format('opentype');
+     font-weight: 500;
+     font-style: normal;
+     font-display: swap;
+   }
+   
+   /* ── Medium Oblique ── */
+   @font-face {
+     font-family: 'Avenir LT Pro';
+     src: url('./AvenirLTProMediumOblique.otf') format('opentype');
+     font-weight: 500;
+     font-style: italic;
+     font-display: swap;
+   }
+   
+   /* ── Heavy ── */
+   @font-face {
+     font-family: 'Avenir LT Pro';
+     src: url('./AvenirLTProHeavy.otf') format('opentype');
+     font-weight: 600;
+     font-style: normal;
+     font-display: swap;
+   }
+   
+   /* ── Heavy Oblique ── */
+   @font-face {
+     font-family: 'Avenir LT Pro';
+     src: url('./AvenirLTProHeavyOblique.otf') format('opentype');
+     font-weight: 600;
+     font-style: italic;
+     font-display: swap;
+   }
+   
+   /* ── Black ── */
+   @font-face {
+     font-family: 'Avenir LT Pro';
+     src: url('./AvenirLTProBlack.otf') format('opentype');
+     font-weight: 900;
+     font-style: normal;
+     font-display: swap;
+   }
+   
+   /* ── Black Oblique ── */
+   @font-face {
+     font-family: 'Avenir LT Pro';
+     src: url('./AvenirLTProBlackOblique.otf') format('opentype');
+     font-weight: 900;
+     font-style: italic;
+     font-display: swap;
+   }
+   
+   /* ── Global reset ── */
+   *, *::before, *::after {
+     box-sizing: border-box;
+   }
+   
+   body {
+     font-family: 'Avenir LT Pro', 'Avenir Next', Avenir, sans-serif;
+     font-weight: 400;
+     -webkit-font-smoothing: antialiased;
+     -moz-osx-font-smoothing: grayscale;
+     margin: 0;
+     background: #f8fafc;
+     color: #0f172a;
+   }
