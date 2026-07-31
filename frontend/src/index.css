@@ -70,6 +70,25 @@ body {
 .bg-brand-purple { background-color: var(--color-purple-light); }
 .bg-brand-yellow { background-color: var(--color-yellow); }
 
+/* Escritorio: .fields-row en fila; móvil lo apila en la media query */
+.fields-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+}
+
+.table-scroll {
+  width: 100%;
+  max-width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
 /* ==========================================================================
    RESPONSIVE — Mobile & Tablet (< 768px)
    Solo CSS: anula estilos inline de React con !important donde hace falta.
@@ -209,19 +228,80 @@ body {
     max-width: 100% !important;
     box-sizing: border-box !important;
     min-height: 44px !important;
+    min-width: 0 !important;
   }
 
+  /* iOS/Safari: date/time tienen min-content ~140–180px y desbordan */
   main input[type="date"],
-  main input[type="time"] {
+  main input[type="time"],
+  main input[type="datetime-local"] {
+    min-height: 44px !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    min-width: 0 !important;
+    flex: 1 1 100% !important;
+    display: block !important;
+    -webkit-appearance: none;
+    appearance: none;
+  }
+
+  /* Filas de filtros / agenda / cobros */
+  .fields-row {
+    display: flex !important;
+    flex-direction: column !important;
+    flex-wrap: nowrap !important;
+    align-items: stretch !important;
+    gap: 10px !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    min-width: 0 !important;
+    box-sizing: border-box !important;
+  }
+
+  .fields-row > * {
+    width: 100% !important;
+    max-width: 100% !important;
+    min-width: 0 !important;
+    flex: none !important;
+    box-sizing: border-box !important;
+  }
+
+  .fields-row > button {
     min-height: 44px !important;
   }
 
-  /* Filas de búsqueda / filtros */
+  /* Contenedor con scroll horizontal para tablas */
+  .table-scroll {
+    display: block !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    overflow-x: auto !important;
+    -webkit-overflow-scrolling: touch;
+    margin-bottom: 8px;
+  }
+
+  .table-scroll table {
+    display: table !important;
+    width: max-content !important;
+    min-width: 100% !important;
+    max-width: none !important;
+    overflow: visible !important;
+  }
+
+  .table-scroll th,
+  .table-scroll td {
+    white-space: nowrap !important;
+  }
+
+  /* Filas de búsqueda / filtros (legado por atributos style) */
   main div[style*="margin-bottom: 16px"][style*="display: flex"],
   main div[style*="margin-bottom: 20px"][style*="display: flex"] {
     flex-direction: column !important;
     align-items: stretch !important;
     gap: 10px !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    min-width: 0 !important;
   }
 
   main div[style*="margin-bottom: 16px"][style*="display: flex"] > input,
@@ -231,7 +311,8 @@ body {
   main div[style*="margin-bottom: 20px"][style*="display: flex"] > select,
   main div[style*="margin-bottom: 20px"][style*="display: flex"] > button {
     width: 100% !important;
-    flex: 1 1 100% !important;
+    max-width: 100% !important;
+    flex: none !important;
     min-width: 0 !important;
   }
 
@@ -261,12 +342,28 @@ body {
   }
 
   /* Fila de agendar con fecha/hora */
+  main div[style*="flex-wrap: wrap"],
+  main div[style*="flex-wrap:wrap"] {
+    flex-direction: column !important;
+    align-items: stretch !important;
+    gap: 10px !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    min-width: 0 !important;
+  }
+
   main div[style*="flex-wrap: wrap"] > select,
   main div[style*="flex-wrap: wrap"] > input,
-  main div[style*="flex-wrap: wrap"] > button {
-    flex: 1 1 100% !important;
+  main div[style*="flex-wrap: wrap"] > button,
+  main div[style*="flex-wrap:wrap"] > select,
+  main div[style*="flex-wrap:wrap"] > input,
+  main div[style*="flex-wrap:wrap"] > button {
+    flex: none !important;
     width: 100% !important;
+    max-width: 100% !important;
+    min-width: 0 !important;
     min-height: 44px !important;
+    box-sizing: border-box !important;
   }
 
   /* ── Informes: tarjetas de métricas en una columna ────────── */
@@ -282,12 +379,7 @@ body {
     width: 100% !important;
   }
 
-  /* Filtros de fecha en informes */
-  main div[style*="flex-wrap: wrap"] {
-    flex-direction: column !important;
-    align-items: stretch !important;
-    gap: 10px !important;
-  }
+  /* Filtros de fecha en informes — ya cubierto por .fields-row / flex-wrap */
 
   /* ── Grids de modales (2 columnas → 1) ────────────────────── */
   main div[style*="1fr 1fr"] {
@@ -295,19 +387,9 @@ body {
     gap: 12px !important;
   }
 
-  /* ── Tablas: scroll horizontal sin romper layout ───────────── */
+  /* ── Tablas: preferir .table-scroll; fallback genérico ───── */
   main table {
-    display: block !important;
-    width: 100% !important;
-    max-width: 100% !important;
-    overflow-x: auto !important;
-    -webkit-overflow-scrolling: touch;
-  }
-
-  main thead,
-  main tbody,
-  main tr {
-    width: 100% !important;
+    max-width: 100%;
   }
 
   main td[style*="display: flex"],

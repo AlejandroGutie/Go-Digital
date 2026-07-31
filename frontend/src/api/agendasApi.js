@@ -4,6 +4,7 @@ import {
   successOk,
   throwIfError,
 } from '../lib/apiResponse';
+import { toDateOnly } from '../utils/format';
 
 function flattenAgendaRow(row) {
   const m = row.mascota;
@@ -11,7 +12,7 @@ function flattenAgendaRow(row) {
     id: row.id,
     id_profesional: row.id_profesional,
     id_mascota: row.id_mascota,
-    fecha: row.fecha,
+    fecha: toDateOnly(row.fecha),
     hora_inicio: row.hora_inicio,
     hora_fin: row.hora_fin,
     mascota_nombre: m?.nombre ?? row.mascota_nombre,
@@ -53,7 +54,8 @@ export async function crearCitaAgenda(idProfesional, payload) {
     .insert({
       id_profesional: idProfesional,
       id_mascota,
-      fecha,
+      // Guardar solo YYYY-MM-DD (tipo date) sin convertir a Date/UTC
+      fecha: toDateOnly(fecha) || fecha,
       hora_inicio,
       hora_fin,
     })

@@ -128,8 +128,10 @@ export default function CuidadoresPage() {
   async function refreshModalMascotas(cuidadorId) {
     setModalLoading(true);
     try {
-      const updatedMascotas = await getMascotasDeCuidador(cuidadorId);
-      setMascotasModal(prev => prev ? { ...prev, mascotas: updatedMascotas } : null);
+      const res = await getMascotasDeCuidador(cuidadorId);
+      setMascotasModal(prev =>
+        prev ? { ...prev, mascotas: normalizeListPayload(res) } : null
+      );
     } catch (e) {
       addToast('No se pudo actualizar la lista de mascotas del cuidador', 'error');
     } finally {

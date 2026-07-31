@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { listCuidadores, getMascotasDeCuidador, asignarMascota, desasignarMascota } from '../api/cuidadoresApi';
 import { listMascotas } from '../api/mascotasApi';
 import { normalizeListPayload } from '../api/normalize';
@@ -17,7 +17,10 @@ export default function AsignacionPage() {
   const [loading,          setLoading]          = useState(false);
   const [initLoading,      setInitLoading]      = useState(true);
   const [initError,        setInitError]        = useState(null);
+  const [busquedaCuidador, setBusquedaCuidador] = useState('');
+  const [listaAbierta,     setListaAbierta]     = useState(false);
   const { toasts, addToast, removeToast } = useToast();
+  const buscadorRef = useRef(null);
 
   // Cargar cuidadores y mascotas disponibles al montar
   useEffect(() => {
@@ -44,9 +47,32 @@ export default function AsignacionPage() {
     init();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Cerrar lista al hacer clic fuera del buscador
+  useEffect(() => {
+    function handleClickOutside(e) {
+      if (buscadorRef.current && !buscadorRef.current.contains(e.target)) {
+        setListaAbierta(false);
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  const cuidadoresFiltrados = cuidadores.filter((c) => {
+    const q = busquedaCuidador.trim().toLowerCase();
+    if (!q) return true;
+    return (
+      (c.nombre || '').toLowerCase().includes(q) ||
+      (c.telefono || '').toLowerCase().includes(q) ||
+      (c.email || '').toLowerCase().includes(q)
+    );
+  });
+
   // Seleccionar un cuidador y cargar sus mascotas asignadas
   async function seleccionarCuidador(c) {
     setCuidadorSel(c);
+    setBusquedaCuidador(c.nombre || '');
+    setListaAbierta(false);
     setMascotaIdAsignar('');
     try {
       const res = await getMascotasDeCuidador(c.id);
@@ -54,6 +80,14 @@ export default function AsignacionPage() {
     } catch (e) {
       addToast(e?.message || 'Error al cargar mascotas del cuidador', 'error');
     }
+  }
+
+  function limpiarSeleccion() {
+    setCuidadorSel(null);
+    setBusquedaCuidador('');
+    setMascotasSel([]);
+    setMascotaIdAsignar('');
+    setListaAbierta(false);
   }
 
   // Mascotas que aún no están asignadas al cuidador seleccionado
@@ -96,7 +130,7 @@ export default function AsignacionPage() {
     <div>
       <h1 className="font-display" style={{ fontSize: 22, fontWeight: 600, marginBottom: 20, color: 'var(--color-entorno)' }}>Asignación de mascotas</h1>
       <p style={{ color: 'var(--color-purple-light)', fontSize: 14, marginBottom: 24 }}>
-        Selecciona un cuidador para ver y gestionar sus mascotas asignadas.
+        Busca y selecciona un cuidador para ver y gestionar sus mascotas asignadas.
       </p>
 
       {initLoading ? (
@@ -109,45 +143,137 @@ export default function AsignacionPage() {
           title="No se pudo cargar la información"
           description={initError}
         />
+      ) : cuidadores.length === 0 ? (
+        <EmptyState
+          icon="👤"
+          title="No hay cuidadores registrados"
+          description="Agrega un cuidador desde el módulo de Cuidadores"
+        />
       ) : (
-      <div style={{ display: 'grid', gridTemplateColumns: '260px 1fr', gap: 24, alignItems: 'start' }}>
+      <div>
 
-        {/* ── Panel izquierdo: lista de cuidadores ── */}
-        <div style={{ border: '1px solid var(--color-purple-light)', borderRadius: 8, overflow: 'hidden' }}>
-          <div style={{ padding: '10px 14px', background: 'var(--bg-main)', borderBottom: '1px solid var(--color-purple-light)', fontSize: 13, fontWeight: 500 }}>
-            Cuidadores ({cuidadores.length})
-          </div>
-          {cuidadores.length === 0 ? (
-            <EmptyState
-              icon="👤"
-              title="No hay cuidadores registrados"
-              description="Agrega un cuidador desde el módulo de Cuidadores"
+        {/* ── Buscador / lista desplegable de cuidadores ── */}
+        <div ref={buscadorRef} style={{ position: 'relative', maxWidth: 420, marginBottom: 24 }}>
+          <label
+            htmlFor="buscador-cuidador"
+            style={{ display: 'block', fontSize: 13, fontWeight: 500, marginBottom: 6, color: 'var(--color-black)' }}
+          >
+            Cuidador
+          </label>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            <input
+              id="buscador-cuidador"
+              type="text"
+              role="combobox"
+              aria-expanded={listaAbierta}
+              aria-controls="lista-cuidadores"
+              aria-autocomplete="list"
+              placeholder="Buscar por nombre, teléfono o email…"
+              value={busquedaCuidador}
+              disabled={loading}
+              onChange={(e) => {
+                setBusquedaCuidador(e.target.value);
+                setListaAbierta(true);
+                if (cuidadorSel && e.target.value !== cuidadorSel.nombre) {
+                  setCuidadorSel(null);
+                  setMascotasSel([]);
+                  setMascotaIdAsignar('');
+                }
+              }}
+              onFocus={() => setListaAbierta(true)}
+              style={{
+                flex: 1,
+                padding: '10px 12px',
+                borderRadius: 6,
+                border: '1px solid var(--color-purple-light)',
+                fontSize: 14,
+                boxSizing: 'border-box',
+              }}
             />
-          ) : (
-            <ul style={{ listStyle: 'none', margin: 0, padding: 0 }}>
-              {cuidadores.map(c => (
-                <li key={c.id}
-                  onClick={() => seleccionarCuidador(c)}
-                  style={{
-                    padding: '10px 14px',
-                    cursor: 'pointer',
-                    borderBottom: '1px solid var(--color-purple-light)',
-                    background: cuidadorSel?.id === c.id ? 'var(--bg-selected)' : 'transparent',
-                    borderLeft: cuidadorSel?.id === c.id ? '3px solid var(--color-magenta)' : '3px solid transparent',
-                    transition: 'background 0.15s',
-                  }}>
-                  <div style={{ fontSize: 14, fontWeight: cuidadorSel?.id === c.id ? 500 : 400 }}>{c.nombre}</div>
-                  <div style={{ fontSize: 12, color: 'var(--color-purple-light)' }}>{c.telefono}</div>
+            {(cuidadorSel || busquedaCuidador) && (
+              <button
+                type="button"
+                onClick={limpiarSeleccion}
+                disabled={loading}
+                style={{
+                  fontSize: 13,
+                  color: 'var(--color-entorno)',
+                  background: 'none',
+                  border: '1px solid var(--color-entorno)',
+                  borderRadius: 6,
+                  padding: '9px 12px',
+                  cursor: 'pointer',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                Limpiar
+              </button>
+            )}
+          </div>
+
+          {listaAbierta && (
+            <ul
+              id="lista-cuidadores"
+              role="listbox"
+              style={{
+                position: 'absolute',
+                zIndex: 20,
+                left: 0,
+                right: 0,
+                top: '100%',
+                margin: '4px 0 0',
+                padding: 0,
+                listStyle: 'none',
+                maxHeight: 260,
+                overflowY: 'auto',
+                background: 'var(--color-white)',
+                border: '1px solid var(--color-purple-light)',
+                borderRadius: 8,
+                boxShadow: '0 8px 24px rgba(15, 23, 42, 0.12)',
+              }}
+            >
+              {cuidadoresFiltrados.length === 0 ? (
+                <li style={{ padding: '12px 14px', fontSize: 13, color: 'var(--color-purple-light)' }}>
+                  Sin resultados para “{busquedaCuidador.trim()}”
                 </li>
-              ))}
+              ) : (
+                cuidadoresFiltrados.map((c) => (
+                  <li
+                    key={c.id}
+                    role="option"
+                    aria-selected={cuidadorSel?.id === c.id}
+                    onClick={() => seleccionarCuidador(c)}
+                    style={{
+                      padding: '10px 14px',
+                      cursor: 'pointer',
+                      borderBottom: '1px solid #f1f5f9',
+                      background: cuidadorSel?.id === c.id ? 'var(--bg-selected)' : 'transparent',
+                    }}
+                    onMouseEnter={(e) => {
+                      if (cuidadorSel?.id !== c.id) e.currentTarget.style.background = 'var(--bg-main)';
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.background =
+                        cuidadorSel?.id === c.id ? 'var(--bg-selected)' : 'transparent';
+                    }}
+                  >
+                    <div style={{ fontSize: 14, fontWeight: cuidadorSel?.id === c.id ? 500 : 400 }}>
+                      {c.nombre}
+                    </div>
+                    <div style={{ fontSize: 12, color: 'var(--color-purple-light)' }}>
+                      {[c.telefono, c.email].filter(Boolean).join(' · ') || 'Sin contacto'}
+                    </div>
+                  </li>
+                ))
+              )}
             </ul>
           )}
         </div>
 
-        {/* ── Panel derecho: mascotas del cuidador ── */}
+        {/* ── Panel: mascotas del cuidador ── */}
         {!cuidadorSel ? (
           <div style={{ border: '1px dashed var(--color-purple-light)', borderRadius: 8, padding: 32, textAlign: 'center', color: 'var(--color-purple-light)', fontSize: 14 }}>
-            Selecciona un cuidador para gestionar sus mascotas
+            Busca y selecciona un cuidador para gestionar sus mascotas
           </div>
         ) : (
           <div>

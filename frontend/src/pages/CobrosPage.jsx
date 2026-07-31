@@ -6,7 +6,7 @@ import { getAgendaDeProfesional } from '../api/agendasApi';
 import { normalizeListPayload, normalizeMeta } from '../api/normalize';
 import { useToast } from '../hooks/useToast';
 import { Toast } from '../components/Toast';
-import { formatFecha } from '../utils/format';
+import { formatFecha, hoyLocalISO } from '../utils/format';
 import EmptyState from '../components/EmptyState';
 import '../index.css';
 
@@ -49,7 +49,7 @@ export default function CobrosPage() {
     valor: '',
     metodo_pago: '',
     observacion: '',
-    fecha_cobro: new Date().toISOString().split('T')[0],
+    fecha_cobro: hoyLocalISO(),
   });
   const [agendas, setAgendas] = useState([]);
   const [tarifas, setTarifas] = useState([]);
@@ -175,7 +175,7 @@ export default function CobrosPage() {
         setNuevoCobro({
           id_profesional: '', id_agenda: '', id_mascota: '', id_tarifa: '',
           valor: '', metodo_pago: '', observacion: '',
-          fecha_cobro: new Date().toISOString().split('T')[0],
+          fecha_cobro: hoyLocalISO(),
         });
         setNombreMascotaVisible('');
         setAgendas([]);
@@ -259,11 +259,14 @@ export default function CobrosPage() {
 
       {!listLoading && !loadError && (
         <>
-          <div style={{ marginBottom: 16, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+          <div
+            className="fields-row"
+            style={{ marginBottom: 16, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', width: '100%', maxWidth: '100%', minWidth: 0, boxSizing: 'border-box' }}
+          >
             <select
               value={filtros.estado}
               onChange={(e) => setFiltros({ ...filtros, estado: e.target.value })}
-              style={{ padding: '8px 12px', borderRadius: 6, border: '1px solid var(--color-purple-light)', fontSize: 14 }}>
+              style={{ padding: '8px 12px', borderRadius: 6, border: '1px solid var(--color-purple-light)', fontSize: 14, width: '100%', maxWidth: '100%', minWidth: 0, boxSizing: 'border-box' }}>
               <option value="">Todos los estados</option>
               <option value="pendiente">Pendiente</option>
               <option value="pagado">Pagado</option>
@@ -272,7 +275,7 @@ export default function CobrosPage() {
             <select
               value={filtros.id_profesional}
               onChange={(e) => setFiltros({ ...filtros, id_profesional: e.target.value })}
-              style={{ padding: '8px 12px', borderRadius: 6, border: '1px solid var(--color-purple-light)', fontSize: 14 }}
+              style={{ padding: '8px 12px', borderRadius: 6, border: '1px solid var(--color-purple-light)', fontSize: 14, width: '100%', maxWidth: '100%', minWidth: 0, boxSizing: 'border-box' }}
             >
               <option value="">Todos los profesionales</option>
               {profesionales.map((p) => (
@@ -283,19 +286,19 @@ export default function CobrosPage() {
               type="date"
               value={filtros.fecha_desde}
               onChange={(e) => setFiltros({ ...filtros, fecha_desde: e.target.value })}
-              style={{ padding: '8px 12px', borderRadius: 6, border: '1px solid var(--color-purple-light)', fontSize: 14 }}
+              style={{ padding: '8px 12px', borderRadius: 6, border: '1px solid var(--color-purple-light)', fontSize: 14, width: '100%', maxWidth: '100%', minWidth: 0, boxSizing: 'border-box' }}
             />
             <input
               type="date"
               value={filtros.fecha_hasta}
               onChange={(e) => setFiltros({ ...filtros, fecha_hasta: e.target.value })}
-              style={{ padding: '8px 12px', borderRadius: 6, border: '1px solid var(--color-purple-light)', fontSize: 14 }}
+              style={{ padding: '8px 12px', borderRadius: 6, border: '1px solid var(--color-purple-light)', fontSize: 14, width: '100%', maxWidth: '100%', minWidth: 0, boxSizing: 'border-box' }}
             />
             {hayFiltros && (
               <button
                 type="button"
                 onClick={limpiarFiltros}
-                style={{ fontSize: 13, color: 'var(--color-entorno)', background: 'none', border: '1px solid var(--color-entorno)', borderRadius: 6, padding: '7px 12px', cursor: 'pointer' }}>
+                style={{ fontSize: 13, color: 'var(--color-entorno)', background: 'none', border: '1px solid var(--color-entorno)', borderRadius: 6, padding: '7px 12px', cursor: 'pointer', width: '100%', boxSizing: 'border-box' }}>
                 Limpiar 
               </button>
             )}
@@ -314,6 +317,7 @@ export default function CobrosPage() {
             />
           ) : (
             <>
+              <div className="table-scroll">
               <table style={{ width: '100%', borderCollapse: 'collapse', fontFamily: 'var(--font-fallback)' }}>
                 <thead>
                   <tr style={{ borderBottom: '2px solid var(--color-purple-light)', textAlign: 'left' }}>
@@ -357,6 +361,7 @@ export default function CobrosPage() {
                   ))}
                 </tbody>
               </table>
+              </div>
 
               {meta && meta.pages > 1 && (
                 <div style={{ display: 'flex', gap: 12, marginTop: 16, alignItems: 'center' }}>
@@ -412,7 +417,7 @@ export default function CobrosPage() {
               >
                 <option value="">Seleccionar agenda</option>
                 {agendas.map((a) => (
-                  <option key={a.id} value={a.id}>{`${a.fecha} — ${a.mascota_nombre}`}</option>
+                  <option key={a.id} value={a.id}>{`${formatFecha(a.fecha)} — ${a.mascota_nombre}`}</option>
                 ))}
               </select>
               <input
@@ -464,7 +469,7 @@ export default function CobrosPage() {
                 value={nuevoCobro.fecha_cobro}
                 onChange={(e) => setNuevoCobro({ ...nuevoCobro, fecha_cobro: e.target.value })}
                 disabled={loading}
-                style={{ padding: 8, borderRadius: 6, border: '1px solid var(--color-purple-light)' }}
+                style={{ padding: 8, borderRadius: 6, border: '1px solid var(--color-purple-light)', width: '100%', maxWidth: '100%', minWidth: 0, boxSizing: 'border-box' }}
               />
             </div>
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 12, marginTop: 20 }}>

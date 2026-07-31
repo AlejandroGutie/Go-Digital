@@ -475,7 +475,7 @@ export default function MascotasPage() {
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 12 }}>
               <button onClick={() => setDeleteModalId(null)} disabled={loading}>Cancelar</button>
               <button onClick={confirmDelete} disabled={loading}
-                style={{ background: 'var(--color-magenta)', color: 'var(--color-white)', border: 'none', padding: '8px 16px', borderRadius: 6, cursor: 'pointer' }}>
+                style={{ background: 'var(--color-entorno)', color: 'var(--color-white)', border: 'none', padding: '8px 16px', borderRadius: 6, cursor: 'pointer' }}>
                 {loading ? 'Eliminando...' : 'Eliminar'}
               </button>
             </div>

@@ -3,6 +3,7 @@ import { getResumen } from '../api/cobrosApi';
 import { useToast } from '../hooks/useToast';
 import { Toast } from '../components/Toast';
 import EmptyState from '../components/EmptyState';
+import { hoyLocalISO, toDateOnly } from '../utils/format';
 import '../index.css';
 
 const formatMoneda = (valor) =>
@@ -14,9 +15,14 @@ const formatMes = (mes) => {
   return date.toLocaleDateString('es-ES', { year: 'numeric', month: 'long' });
 };
 
+function primerDiaMesLocal() {
+  const now = new Date();
+  return toDateOnly(new Date(now.getFullYear(), now.getMonth(), 1));
+}
+
 const EMPTY_FILTROS = {
-  fecha_desde: new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split('T')[0],
-  fecha_hasta: new Date().toISOString().split('T')[0],
+  fecha_desde: primerDiaMesLocal(),
+  fecha_hasta: hoyLocalISO(),
 };
 
 export default function InformesPage() {
@@ -71,7 +77,7 @@ export default function InformesPage() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `cobros_informe_${new Date().toISOString().split('T')[0]}.csv`;
+    a.download = `cobros_informe_${hoyLocalISO()}.csv`;
     a.click();
     URL.revokeObjectURL(url);
   };
@@ -94,24 +100,27 @@ export default function InformesPage() {
 
       {!listLoading && !loadError && (
         <>
-          <div style={{ marginBottom: 16, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+          <div
+            className="fields-row"
+            style={{ marginBottom: 16, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', width: '100%', maxWidth: '100%', minWidth: 0, boxSizing: 'border-box' }}
+          >
             <input
               type="date"
               value={filtros.fecha_desde}
               onChange={(e) => setFiltros({ ...filtros, fecha_desde: e.target.value })}
-              style={{ padding: '8px 12px', borderRadius: 6, border: '1px solid var(--color-purple-light)', fontSize: 14 }}
+              style={{ padding: '8px 12px', borderRadius: 6, border: '1px solid var(--color-purple-light)', fontSize: 14, width: '100%', maxWidth: '100%', minWidth: 0, boxSizing: 'border-box' }}
             />
             <input
               type="date"
               value={filtros.fecha_hasta}
               onChange={(e) => setFiltros({ ...filtros, fecha_hasta: e.target.value })}
-              style={{ padding: '8px 12px', borderRadius: 6, border: '1px solid var(--color-purple-light)', fontSize: 14 }}
+              style={{ padding: '8px 12px', borderRadius: 6, border: '1px solid var(--color-purple-light)', fontSize: 14, width: '100%', maxWidth: '100%', minWidth: 0, boxSizing: 'border-box' }}
             />
             {hayFiltrosCustom && (
               <button
                 type="button"
                 onClick={limpiarFiltros}
-                style={{ fontSize: 13, color: 'var(--color-entorno)', background: 'none', border: '1px solid var(--color-entorno)', borderRadius: 6, padding: '7px 12px', cursor: 'pointer' }}>
+                style={{ fontSize: 13, color: 'var(--color-entorno)', background: 'none', border: '1px solid var(--color-entorno)', borderRadius: 6, padding: '7px 12px', cursor: 'pointer', width: '100%', boxSizing: 'border-box' }}>
                 Limpiar
               </button>
             )}

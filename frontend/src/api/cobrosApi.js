@@ -5,6 +5,7 @@ import {
   throwIfError,
   pageRange,
 } from '../lib/apiResponse';
+import { hoyLocalISO, toDateOnly } from '../utils/format';
 
 function flattenCobroRow(row) {
   return {
@@ -49,7 +50,7 @@ export async function createCobro(payload) {
   const metodo_pago = payload.metodo_pago?.trim() || null;
   const observacion = payload.observacion?.trim() || null;
   const fecha_cobro =
-    payload.fecha_cobro || new Date().toISOString().split('T')[0];
+    toDateOnly(payload.fecha_cobro) || hoyLocalISO();
 
   if (!id_agenda || !id_profesional || !id_mascota || Number.isNaN(valor) || valor < 0) {
     throw new Error('Campos requeridos inválidos');
