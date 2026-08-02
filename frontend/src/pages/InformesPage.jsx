@@ -1,10 +1,13 @@
 import { useState, useEffect } from 'react';
+import { AlertTriangle, BarChart3 } from 'lucide-react';
 import { getDashboardInformes, getAgendaInforme } from '../api/informesApi';
 import { listProfesionales } from '../api/profesionalesApi';
 import { normalizeListPayload } from '../api/normalize';
 import { useToast } from '../hooks/useToast';
 import { Toast } from '../components/Toast';
 import EmptyState from '../components/EmptyState';
+import PageHeader from '../components/ui/PageHeader';
+import Skeleton from '../components/ui/Skeleton';
 import InformesFiltros from '../components/informes/InformesFiltros';
 import KpiCards from '../components/informes/KpiCards';
 import {
@@ -126,20 +129,10 @@ export default function InformesPage() {
       ));
 
   return (
-    <div style={{ fontFamily: 'var(--font-fallback)', color: 'var(--color-black)' }}>
-      <h1
-        className="font-display"
-        style={{
-          fontSize: 22,
-          fontWeight: 600,
-          color: 'var(--color-entorno)',
-          marginBottom: 20,
-        }}
-      >
-        Informes
-      </h1>
+    <div className="ui-page">
+      <PageHeader title="Informes" subtitle="Dashboard financiero y de agendas con exportación a CSV y PDF" />
 
-      <hr style={{ margin: '0 0 24px' }} />
+      <hr className="ui-divider" />
 
       <InformesFiltros
         filtros={filtros}
@@ -150,21 +143,12 @@ export default function InformesPage() {
       />
 
       {listLoading ? (
-        <p
-          style={{
-            textAlign: 'center',
-            padding: '32px 16px',
-            color: 'var(--color-purple-light)',
-            fontSize: 14,
-          }}
-        >
-          Generando reporte…
-        </p>
+        <Skeleton rows={6} />
       ) : loadError ? (
-        <EmptyState icon="⚠️" title="No se pudo cargar la información" description={loadError} />
+        <EmptyState icon={<AlertTriangle size={24} />} title="No se pudo cargar la información" description={loadError} />
       ) : sinDatos ? (
         <EmptyState
-          icon="📊"
+          icon={<BarChart3 size={24} />}
           title="No hay datos para mostrar"
           description="Ajusta el rango de fechas o verifica que existan cobros o citas en el período"
         />
@@ -172,14 +156,7 @@ export default function InformesPage() {
         <>
           <KpiCards kpis={dashboard.kpis} />
 
-          <div
-            style={{
-              display: 'grid',
-              gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
-              gap: 16,
-              marginBottom: 24,
-            }}
-          >
+          <div className="ui-bento" style={{ marginBottom: 24 }}>
             <ChartTendencia serie={dashboard.serie} agruparPor={dashboard.agrupar_por} />
             <ChartPorProfesional rows={dashboard.por_profesional} />
             <ChartPorTarifa rows={dashboard.por_tarifa} />

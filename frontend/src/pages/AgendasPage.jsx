@@ -1,4 +1,5 @@
 import { useEffect, useState, useRef } from 'react';
+import { AlertTriangle, Calendar, Stethoscope, Trash2 } from 'lucide-react';
 import { listProfesionales } from '../api/profesionalesApi';
 import { getAgendaDeProfesional, crearCitaAgenda, eliminarCitaAgenda } from '../api/agendasApi';
 import { listMascotas } from '../api/mascotasApi';
@@ -7,6 +8,10 @@ import { useToast } from '../hooks/useToast';
 import { Toast } from '../components/Toast';
 import { formatFecha, formatHora, toDateOnly } from '../utils/format';
 import EmptyState from '../components/EmptyState';
+import PageHeader from '../components/ui/PageHeader';
+import Field, { Input, Select } from '../components/ui/Field';
+import Button from '../components/ui/Button';
+import Skeleton from '../components/ui/Skeleton';
 import '../index.css';
 
 /** Convierte "HH:MM" o "HH:MM:SS" a minutos desde medianoche. */
@@ -212,382 +217,272 @@ export default function AgendasPage() {
     !horaFinInvalida &&
     !franjaOcupada;
 
+  const inputErrorStyle = {
+    borderColor: '#dc2626',
+  };
+
   return (
-    <div>
-      <h1 className="font-display" style={{ fontSize: 22, fontWeight: 600, marginBottom: 20, color: 'var(--color-entorno)' }}>Agendas</h1>
-      <p style={{ color: 'var(--color-purple-light)', fontSize: 14, marginBottom: 24 }}>
-        Busca y selecciona un profesional para ver su agenda y asignar mascotas con fecha y franja horaria.
-      </p>
+    <div className="ui-page">
+      <PageHeader
+        title="Agendas"
+        subtitle="Busca y selecciona un profesional para ver su agenda y asignar mascotas con fecha y franja horaria."
+      />
 
       {initLoading ? (
-        <p style={{ textAlign: 'center', padding: '32px 16px', color: 'var(--color-purple-light)', fontSize: 14 }}>
-          Cargando profesionales y mascotas…
-        </p>
+        <Skeleton rows={5} />
       ) : initError ? (
         <EmptyState
-          icon="⚠️"
+          icon={<AlertTriangle size={24} />}
           title="No se pudo cargar la información"
           description={initError}
         />
       ) : profesionales.length === 0 ? (
         <EmptyState
-          icon="🩺"
+          icon={<Stethoscope size={24} />}
           title="No hay profesionales registrados"
           description="Agrega un profesional desde el módulo de Profesionales"
         />
       ) : (
-      <div>
-
-        {/* ── Buscador / lista desplegable de profesionales ── */}
-        <div ref={buscadorRef} style={{ position: 'relative', maxWidth: 420, marginBottom: 24 }}>
-          <label
-            htmlFor="buscador-profesional"
-            style={{ display: 'block', fontSize: 13, fontWeight: 500, marginBottom: 6, color: 'var(--color-black)' }}
-          >
-            Profesional
-          </label>
-          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-            <input
-              id="buscador-profesional"
-              type="text"
-              role="combobox"
-              aria-expanded={listaAbierta}
-              aria-controls="lista-profesionales"
-              aria-autocomplete="list"
-              placeholder="Buscar por nombre o teléfono…"
-              value={busquedaProf}
-              disabled={loading}
-              onChange={(e) => {
-                setBusquedaProf(e.target.value);
-                setListaAbierta(true);
-                if (profSel && e.target.value !== profSel.nombre) {
-                  setProfSel(null);
-                  setCitas([]);
-                  setMascotaId('');
-                  setFecha('');
-                  setHoraInicio('');
-                  setHoraFin('');
-                }
-              }}
-              onFocus={() => setListaAbierta(true)}
-              style={{
-                flex: 1,
-                padding: '10px 12px',
-                borderRadius: 6,
-                border: '1px solid var(--color-purple-light)',
-                fontSize: 14,
-                boxSizing: 'border-box',
-              }}
-            />
-            {(profSel || busquedaProf) && (
-              <button
-                type="button"
-                onClick={limpiarSeleccion}
-                disabled={loading}
-                style={{
-                  fontSize: 13,
-                  color: 'var(--color-entorno)',
-                  background: 'none',
-                  border: '1px solid var(--color-entorno)',
-                  borderRadius: 6,
-                  padding: '9px 12px',
-                  cursor: 'pointer',
-                  whiteSpace: 'nowrap',
-                }}
-              >
-                Limpiar
-              </button>
-            )}
-          </div>
-
-          {listaAbierta && (
-            <ul
-              id="lista-profesionales"
-              role="listbox"
-              style={{
-                position: 'absolute',
-                zIndex: 20,
-                left: 0,
-                right: 0,
-                top: '100%',
-                margin: '4px 0 0',
-                padding: 0,
-                listStyle: 'none',
-                maxHeight: 260,
-                overflowY: 'auto',
-                background: 'var(--color-white)',
-                border: '1px solid var(--color-purple-light)',
-                borderRadius: 8,
-                boxShadow: '0 8px 24px rgba(15, 23, 42, 0.12)',
-              }}
-            >
-              {profesionalesFiltrados.length === 0 ? (
-                <li style={{ padding: '12px 14px', fontSize: 13, color: 'var(--color-purple-light)' }}>
-                  Sin resultados para “{busquedaProf.trim()}”
-                </li>
-              ) : (
-                profesionalesFiltrados.map((p) => (
-                  <li
-                    key={p.id}
-                    role="option"
-                    aria-selected={profSel?.id === p.id}
-                    onClick={() => seleccionarProfesional(p)}
-                    style={{
-                      padding: '10px 14px',
-                      cursor: 'pointer',
-                      borderBottom: '1px solid #f1f5f9',
-                      background: profSel?.id === p.id ? 'var(--bg-selected)' : 'transparent',
-                    }}
-                    onMouseEnter={(e) => {
-                      if (profSel?.id !== p.id) e.currentTarget.style.background = 'var(--bg-main)';
-                    }}
-                    onMouseLeave={(e) => {
-                      e.currentTarget.style.background =
-                        profSel?.id === p.id ? 'var(--bg-selected)' : 'transparent';
-                    }}
-                  >
-                    <div style={{ fontSize: 14, fontWeight: profSel?.id === p.id ? 500 : 400 }}>
-                      {p.nombre}
-                    </div>
-                    {p.telefono ? (
-                      <div style={{ fontSize: 12, color: 'var(--color-purple-light)' }}>{p.telefono}</div>
-                    ) : null}
-                  </li>
-                ))
-              )}
-            </ul>
-          )}
-        </div>
-
-        {/* ── Panel: agenda del profesional ── */}
-        {!profSel ? (
-          <div style={{ border: '1px dashed var(--color-purple-light)', borderRadius: 8, padding: 32, textAlign: 'center', color: 'var(--color-purple-light)', fontSize: 14 }}>
-            Busca y selecciona un profesional para gestionar su agenda
-          </div>
-        ) : (
-          <div>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
-              <div>
-                <div style={{ fontSize: 16, fontWeight: 500 }}>{profSel.nombre}</div>
-                {profSel.telefono ? (
-                  <div style={{ fontSize: 13, color: 'var(--color-purple-light)' }}>{profSel.telefono}</div>
-                ) : null}
-              </div>
-              <span style={{ fontSize: 12, background: 'var(--color-entorno)', color: 'var(--color-black)', padding: '4px 10px', borderRadius: 20, fontWeight: 500 }}>
-                {citas.length} cita{citas.length !== 1 ? 's' : ''}
-              </span>
-            </div>
-
-            {mascotas.length > 0 ? (
-              <div style={{ marginBottom: 20, width: '100%', maxWidth: '100%', minWidth: 0, boxSizing: 'border-box' }}>
-                <div className="fields-row" style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
-                  <select
-                    value={mascotaId}
-                    onChange={(e) => setMascotaId(e.target.value)}
+        <div className="ui-split">
+          <div className="ui-card">
+            <Field id="buscador-profesional" label="Profesional">
+              <div ref={buscadorRef} className="ui-combo">
+                <div className="ui-btn-row">
+                  <Input
+                    id="buscador-profesional"
+                    type="text"
+                    role="combobox"
+                    aria-expanded={listaAbierta}
+                    aria-controls="lista-profesionales"
+                    aria-autocomplete="list"
+                    placeholder="Buscar por nombre o teléfono…"
+                    value={busquedaProf}
                     disabled={loading}
-                    style={{ flex: '1 1 160px', minWidth: 0, width: '100%', maxWidth: '100%', boxSizing: 'border-box', padding: '8px 10px', borderRadius: 6, border: '1px solid var(--color-purple-light)', fontSize: 14 }}
-                  >
-                    <option value="">— Mascota —</option>
-                    {mascotas.map((m) => (
-                      <option key={m.id} value={m.id}>
-                        {m.nombre} ({m.raza} · {m.tamano})
-                      </option>
-                    ))}
-                  </select>
-                  <input
-                    type="date"
-                    value={fecha}
-                    onChange={(e) => setFecha(e.target.value)}
-                    disabled={loading}
-                    style={{
-                      width: '100%',
-                      maxWidth: '100%',
-                      minWidth: 0,
-                      boxSizing: 'border-box',
-                      padding: '8px 10px',
-                      borderRadius: 6,
-                      border: `1px solid ${franjaOcupada ? '#dc2626' : 'var(--color-purple-light)'}`,
-                      fontSize: 14,
+                    onChange={(e) => {
+                      setBusquedaProf(e.target.value);
+                      setListaAbierta(true);
+                      if (profSel && e.target.value !== profSel.nombre) {
+                        setProfSel(null);
+                        setCitas([]);
+                        setMascotaId('');
+                        setFecha('');
+                        setHoraInicio('');
+                        setHoraFin('');
+                      }
                     }}
+                    onFocus={() => setListaAbierta(true)}
                   />
-                  <input
-                    type="time"
-                    value={horaInicio}
-                    onChange={(e) => setHoraInicio(e.target.value)}
-                    disabled={loading}
-                    title="Hora inicio"
-                    style={{
-                      width: '100%',
-                      maxWidth: '100%',
-                      minWidth: 0,
-                      boxSizing: 'border-box',
-                      padding: '8px 10px',
-                      borderRadius: 6,
-                      border: `1px solid ${franjaOcupada || horaFinInvalida ? '#dc2626' : 'var(--color-purple-light)'}`,
-                      fontSize: 14,
-                    }}
-                  />
-                  <input
-                    type="time"
-                    value={horaFin}
-                    onChange={(e) => setHoraFin(e.target.value)}
-                    disabled={loading}
-                    title="Hora final"
-                    style={{
-                      width: '100%',
-                      maxWidth: '100%',
-                      minWidth: 0,
-                      boxSizing: 'border-box',
-                      padding: '8px 10px',
-                      borderRadius: 6,
-                      border: `1px solid ${franjaOcupada || horaFinInvalida ? '#dc2626' : 'var(--color-purple-light)'}`,
-                      fontSize: 14,
-                    }}
-                  />
-                  <button
-                    type="button"
-                    onClick={handleAgendar}
-                    disabled={loading || !puedeAgendar}
-                    style={{
-                      width: '100%',
-                      maxWidth: '100%',
-                      boxSizing: 'border-box',
-                      padding: '8px 16px',
-                      background: franjaOcupada ? '#94a3b8' : 'var(--color-entorno)',
-                      color: 'var(--color-white)',
-                      border: 'none',
-                      borderRadius: 6,
-                      cursor: puedeAgendar && !loading ? 'pointer' : 'not-allowed',
-                      fontWeight: 500,
-                      fontSize: 14,
-                      opacity: (!puedeAgendar || loading) ? 0.5 : 1,
-                    }}
-                  >
-                    {loading ? '...' : franjaOcupada ? 'Cita ocupada' : 'Agendar'}
-                  </button>
+                  {(profSel || busquedaProf) && (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={limpiarSeleccion}
+                      disabled={loading}
+                    >
+                      Limpiar
+                    </Button>
+                  )}
                 </div>
 
-                {horaFinInvalida && (
-                  <div
-                    role="alert"
-                    style={{
-                      marginTop: 10,
-                      padding: '8px 12px',
-                      borderRadius: 6,
-                      background: '#fef2f2',
-                      border: '1px solid #fecaca',
-                      color: '#b91c1c',
-                      fontSize: 13,
-                    }}
-                  >
-                    La hora final debe ser posterior a la hora de inicio.
-                  </div>
-                )}
-
-                {franjaOcupada && (
-                  <div
-                    role="alert"
-                    style={{
-                      marginTop: 10,
-                      padding: '8px 12px',
-                      borderRadius: 6,
-                      background: '#fef2f2',
-                      border: '1px solid #fecaca',
-                      color: '#b91c1c',
-                      fontSize: 13,
-                    }}
-                  >
-                    <strong>Cita ocupada.</strong> Este profesional ya tiene una cita el{' '}
-                    {formatFecha(citaConflicto.fecha)} de {formatHora(citaConflicto.hora_inicio)} a{' '}
-                    {formatHora(citaConflicto.hora_fin)}
-                    {citaConflicto.mascota_nombre
-                      ? ` con ${citaConflicto.mascota_nombre}`
-                      : ''}
-                    . Elige otra fecha u otra franja horaria.
-                  </div>
-                )}
-
-                {fecha && citasDelDia.length > 0 && (
-                  <div
-                    style={{
-                      marginTop: 10,
-                      padding: '8px 12px',
-                      borderRadius: 6,
-                      background: 'var(--bg-main)',
-                      border: '1px solid var(--color-purple-light)',
-                      fontSize: 13,
-                      color: 'var(--color-purple-light)',
-                    }}
-                  >
-                    <div style={{ fontWeight: 500, marginBottom: 4, color: 'var(--color-black)' }}>
-                      Franjas ocupadas este día
-                    </div>
-                    {citasDelDia.map((c) => (
-                      <div key={c.id}>
-                        {formatHora(c.hora_inicio)} – {formatHora(c.hora_fin)}
-                        {c.mascota_nombre ? ` · ${c.mascota_nombre}` : ''}
-                      </div>
-                    ))}
-                  </div>
+                {listaAbierta && (
+                  <ul id="lista-profesionales" role="listbox" className="ui-combo__list">
+                    {profesionalesFiltrados.length === 0 ? (
+                      <li className="ui-combo__item" style={{ cursor: 'default', color: 'var(--color-purple-light)' }}>
+                        Sin resultados para “{busquedaProf.trim()}”
+                      </li>
+                    ) : (
+                      profesionalesFiltrados.map((p) => (
+                        <li key={p.id} role="option" aria-selected={profSel?.id === p.id}>
+                          <button
+                            type="button"
+                            className={`ui-combo__item${profSel?.id === p.id ? ' ui-combo__item--active' : ''}`}
+                            onClick={() => seleccionarProfesional(p)}
+                          >
+                            <div>{p.nombre}</div>
+                            {p.telefono ? (
+                              <div style={{ fontSize: '0.75rem', color: 'var(--color-purple-light)', fontWeight: 400 }}>
+                                {p.telefono}
+                              </div>
+                            ) : null}
+                          </button>
+                        </li>
+                      ))
+                    )}
+                  </ul>
                 )}
               </div>
-            ) : (
-              <div style={{ fontSize: 13, color: 'var(--color-purple-light)', marginBottom: 20, padding: '8px 12px', background: 'var(--bg-main)', borderRadius: 6 }}>
-                No hay mascotas registradas. Crea mascotas primero en la sección Mascotas.
-              </div>
-            )}
-            {citas.length === 0 ? (
+            </Field>
+          </div>
+
+          <div className="ui-card">
+            {!profSel ? (
               <EmptyState
-                icon="📅"
-                title="Sin citas agendadas"
-                description="Usa el formulario de arriba para agendar la primera cita de este profesional"
+                icon={<Stethoscope size={24} />}
+                title="Selecciona un profesional"
+                description="Busca y selecciona un profesional para gestionar su agenda"
               />
             ) : (
-              <div className="table-scroll">
-              <table style={{ width: '100%', borderCollapse: 'collapse', fontFamily: 'var(--font-fallback)' }}>
-                <thead>
-                  <tr style={{ borderBottom: '2px solid var(--color-purple-light)', textAlign: 'left' }}>
-                    {['ID', 'Mascota', 'Raza', 'Fecha', 'Inicio', 'Fin', ''].map((h) => (
-                      <th key={h} style={{ padding: '8px 12px', fontWeight: 500, fontSize: 13 }}>{h}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {citas.map((c) => (
-                    <tr key={c.id} style={{ borderBottom: '1px solid var(--color-purple-light)' }}>
-                      <td style={{ padding: '8px 12px', fontSize: 13 }}>{c.id}</td>
-                      <td style={{ padding: '8px 12px', fontSize: 13, fontWeight: 500 }}>{c.mascota_nombre}</td>
-                      <td style={{ padding: '8px 12px', fontSize: 13 }}>{c.raza}</td>
-                      <td style={{ padding: '8px 12px', fontSize: 13, color: 'var(--color-purple-light)' }}>{formatFecha(c.fecha)}</td>
-                      <td style={{ padding: '8px 12px', fontSize: 13 }}>{formatHora(c.hora_inicio)}</td>
-                      <td style={{ padding: '8px 12px', fontSize: 13 }}>{formatHora(c.hora_fin)}</td>
-                      <td style={{ padding: '8px 12px' }}>
-                        <button
-                          type="button"
-                          onClick={() => handleEliminar(c.id)}
+              <>
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    marginBottom: 16,
+                    gap: 12,
+                  }}
+                >
+                  <div>
+                    <div style={{ fontSize: '1rem', fontWeight: 600 }}>{profSel.nombre}</div>
+                    {profSel.telefono ? (
+                      <div style={{ fontSize: '0.8125rem', color: 'var(--color-purple-light)' }}>
+                        {profSel.telefono}
+                      </div>
+                    ) : null}
+                  </div>
+                  <span className="ui-badge" style={{ background: 'var(--color-entorno)', color: 'var(--color-black)' }}>
+                    {citas.length} cita{citas.length !== 1 ? 's' : ''}
+                  </span>
+                </div>
+
+                {mascotas.length > 0 ? (
+                  <div style={{ marginBottom: 20 }}>
+                    <div className="fields-row">
+                      <Field label="Mascota">
+                        <Select
+                          value={mascotaId}
+                          onChange={(e) => setMascotaId(e.target.value)}
                           disabled={loading}
-                          style={{
-                            fontSize: 12,
-                            color: 'var(--color-entorno)',
-                            background: 'none',
-                            border: '1px solid var(--color-entorno)',
-                            borderRadius: 4,
-                            padding: '3px 10px',
-                            cursor: 'pointer',
-                          }}>
-                          Quitar
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-              </div>
+                        >
+                          <option value="">— Mascota —</option>
+                          {mascotas.map((m) => (
+                            <option key={m.id} value={m.id}>
+                              {m.nombre} ({m.raza} · {m.tamano})
+                            </option>
+                          ))}
+                        </Select>
+                      </Field>
+                      <Field label="Fecha">
+                        <Input
+                          type="date"
+                          value={fecha}
+                          onChange={(e) => setFecha(e.target.value)}
+                          disabled={loading}
+                          style={franjaOcupada ? inputErrorStyle : undefined}
+                        />
+                      </Field>
+                      <Field label="Inicio">
+                        <Input
+                          type="time"
+                          value={horaInicio}
+                          onChange={(e) => setHoraInicio(e.target.value)}
+                          disabled={loading}
+                          title="Hora inicio"
+                          style={franjaOcupada || horaFinInvalida ? inputErrorStyle : undefined}
+                        />
+                      </Field>
+                      <Field label="Fin">
+                        <Input
+                          type="time"
+                          value={horaFin}
+                          onChange={(e) => setHoraFin(e.target.value)}
+                          disabled={loading}
+                          title="Hora final"
+                          style={franjaOcupada || horaFinInvalida ? inputErrorStyle : undefined}
+                        />
+                      </Field>
+                      <Button
+                        variant="primary"
+                        onClick={handleAgendar}
+                        disabled={loading || !puedeAgendar}
+                      >
+                        {loading ? '…' : franjaOcupada ? 'Cita ocupada' : 'Agendar'}
+                      </Button>
+                    </div>
+
+                    {horaFinInvalida && (
+                      <div className="ui-banner ui-banner--warn" role="alert" style={{ marginTop: 10 }}>
+                        La hora final debe ser posterior a la hora de inicio.
+                      </div>
+                    )}
+
+                    {franjaOcupada && (
+                      <div className="ui-banner ui-banner--warn" role="alert" style={{ marginTop: 10 }}>
+                        <strong>Cita ocupada.</strong> Este profesional ya tiene una cita el{' '}
+                        {formatFecha(citaConflicto.fecha)} de {formatHora(citaConflicto.hora_inicio)} a{' '}
+                        {formatHora(citaConflicto.hora_fin)}
+                        {citaConflicto.mascota_nombre ? ` con ${citaConflicto.mascota_nombre}` : ''}. Elige otra
+                        fecha u otra franja horaria.
+                      </div>
+                    )}
+
+                    {fecha && citasDelDia.length > 0 && (
+                      <div className="ui-banner" style={{ marginTop: 10 }}>
+                        <div style={{ fontWeight: 600, marginBottom: 4 }}>Franjas ocupadas este día</div>
+                        {citasDelDia.map((c) => (
+                          <div key={c.id}>
+                            {formatHora(c.hora_inicio)} – {formatHora(c.hora_fin)}
+                            {c.mascota_nombre ? ` · ${c.mascota_nombre}` : ''}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div className="ui-banner ui-banner--warn" style={{ marginBottom: 20 }}>
+                    No hay mascotas registradas. Crea mascotas primero en la sección Mascotas.
+                  </div>
+                )}
+
+                {citas.length === 0 ? (
+                  <EmptyState
+                    icon={<Calendar size={24} />}
+                    title="Sin citas agendadas"
+                    description="Usa el formulario de arriba para agendar la primera cita de este profesional"
+                  />
+                ) : (
+                  <div className="ui-table-wrap table-scroll">
+                    <table className="ui-table">
+                      <thead>
+                        <tr>
+                          {['ID', 'Mascota', 'Raza', 'Fecha', 'Inicio', 'Fin', ''].map((h) => (
+                            <th key={h}>{h}</th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {citas.map((c) => (
+                          <tr key={c.id}>
+                            <td className="ui-num">{c.id}</td>
+                            <td>{c.mascota_nombre}</td>
+                            <td>{c.raza}</td>
+                            <td style={{ color: 'var(--color-purple-light)' }}>{formatFecha(c.fecha)}</td>
+                            <td>{formatHora(c.hora_inicio)}</td>
+                            <td>{formatHora(c.hora_fin)}</td>
+                            <td>
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={() => handleEliminar(c.id)}
+                                disabled={loading}
+                              >
+                                <Trash2 size={14} />
+                                Quitar
+                              </Button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </>
             )}
           </div>
-        )}
-      </div>
+        </div>
       )}
+
       <Toast toasts={toasts} removeToast={removeToast} />
     </div>
   );

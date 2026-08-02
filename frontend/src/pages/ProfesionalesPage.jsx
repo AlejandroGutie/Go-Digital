@@ -1,5 +1,15 @@
 import { useEffect, useState, useRef } from 'react';
 import {
+  Stethoscope,
+  Pencil,
+  CalendarDays,
+  Tags,
+  UserX,
+  Search,
+  X,
+  Plus,
+} from 'lucide-react';
+import {
   listProfesionales,
   createProfesional,
   updateProfesional,
@@ -7,10 +17,16 @@ import {
 } from '../api/profesionalesApi';
 import { normalizeListPayload, normalizeMeta } from '../api/normalize';
 import { getAgendaDeProfesional } from '../api/agendasApi';
-import { listTarifas, createTarifa, deleteTarifa } from '../api/tarifasApi'; // NUEVO: Importar APIs de tarifas
+import { listTarifas, createTarifa, deleteTarifa } from '../api/tarifasApi';
 import { useToast } from '../hooks/useToast';
 import { Toast } from '../components/Toast';
 import EmptyState from '../components/EmptyState';
+import PageHeader from '../components/ui/PageHeader';
+import Field, { Input } from '../components/ui/Field';
+import Button from '../components/ui/Button';
+import Skeleton from '../components/ui/Skeleton';
+import ConfirmSheet from '../components/ui/ConfirmSheet';
+import Sheet from '../components/ui/Sheet';
 import { formatFecha, formatHora } from '../utils/format';
 import '../index.css';
 
@@ -31,8 +47,9 @@ export default function ProfesionalesPage() {
   const [inlineDraft, setInlineDraft] = useState(EMPTY_FORM);
   const [deleteModalId, setDeleteModalId] = useState(null);
   const [agendaModal, setAgendaModal] = useState(null);
-  const [tarifasModal, setTarifasModal] = useState(null); // NUEVO: Estado para el modal de tarifas
+  const [tarifasModal, setTarifasModal] = useState(null);
   const [nuevaTarifa, setNuevaTarifa] = useState({ descripcion: '', valor: '' });
+  const [formOpen, setFormOpen] = useState(true);
 
   const pageRef = useRef(page);
   const skipPageEffect = useRef(false);
@@ -192,7 +209,7 @@ export default function ProfesionalesPage() {
       setPage(1);
       await refresh(1, '');
     } catch (e) {
-      addToast(e?.message || 'Error al inactivar el profesional', 'error'); // ✅ era 'Error al eliminar'
+      addToast(e?.message || 'Error al inactivar el profesional', 'error');
     } finally {
       setLoading(false);
     }
@@ -216,39 +233,77 @@ export default function ProfesionalesPage() {
   }
 
   return (
-    <div>
-      <h1 className="font-display" style={{ fontSize: 22, fontWeight: 600, marginBottom: 20, color: 'var(--color-entorno)' }}>Profesionales</h1>
+    <div className="ui-page">
+      <PageHeader
+        title="Profesionales"
+        subtitle="Registra y gestiona los profesionales del salón"
+      />
 
-      {/* Bloque de Edición Inline */}
       {inlineEditId && (
-        <div style={{ padding: '10px 14px', background: 'var(--bg-highlight)', borderRadius: 6, marginBottom: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <span>Editando profesional <b>#{inlineEditId}</b> — cancela para crear uno nuevo.</span>
-          <button type="button" onClick={cancelEdit} disabled={loading} style={{ fontSize: 12, color: 'var(--color-entorno)', background: 'none', border: '1px solid var(--color-entorno)', borderRadius: 4, padding: '3px 10px', cursor: 'pointer' }}>Cancelar</button>
+        <div className="ui-banner ui-banner--edit">
+          <span>
+            Editando profesional <b>#{inlineEditId}</b> — cancela para crear uno nuevo.
+          </span>
+          <Button variant="ghost" size="sm" onClick={cancelEdit} disabled={loading}>
+            Cancelar
+          </Button>
         </div>
       )}
 
-      {/* Formulario de creación */}
-      <form onSubmit={onSubmit} style={{ display: 'grid', gridTemplateColumns: '120px 1fr', gap: 12, maxWidth: 480 }}>
-        <label htmlFor="pnombre">Nombre*</label>
-        <input id="pnombre" type="text" value={form.nombre} required disabled={loading || !!inlineEditId} onChange={(e) => setForm((p) => ({ ...p, nombre: e.target.value }))} />
-        <label htmlFor="ptelefono">Teléfono*</label>
-        <input id="ptelefono" type="text" value={form.telefono} disabled={loading || !!inlineEditId} onChange={(e) => setForm((p) => ({ ...p, telefono: e.target.value }))} />
-        <div style={{ gridColumn: '2' }}>
-          <button type="submit" disabled={loading || !!inlineEditId} style={{ fontSize: 12, color: 'var(--color-entorno)', background: 'none', border: '1px solid var(--color-entorno)', borderRadius: 4, padding: '3px 10px', cursor: 'pointer' }}>
-            {loading ? 'Procesando...' : 'Guardar'}
-          </button>
-        </div>
-      </form>
+      <div className="ui-accordion">
+        <button
+          type="button"
+          className="ui-accordion__trigger"
+          onClick={() => setFormOpen((v) => !v)}
+          aria-expanded={formOpen}
+        >
+          <span>Nuevo profesional</span>
+          <span style={{ opacity: 0.7 }}>{formOpen ? '−' : '+'}</span>
+        </button>
+        {formOpen && (
+          <div className="ui-accordion__body">
+            <form className="ui-form" onSubmit={onSubmit} style={{ paddingTop: 16 }}>
+              <div className="ui-form-grid ui-form-grid--2">
+                <Field id="pnombre" label="Nombre" required>
+                  <Input
+                    id="pnombre"
+                    type="text"
+                    value={form.nombre}
+                    required
+                    disabled={loading || !!inlineEditId}
+                    onChange={(e) => setForm((p) => ({ ...p, nombre: e.target.value }))}
+                  />
+                </Field>
+                <Field id="ptelefono" label="Teléfono" required>
+                  <Input
+                    id="ptelefono"
+                    type="text"
+                    value={form.telefono}
+                    disabled={loading || !!inlineEditId}
+                    onChange={(e) => setForm((p) => ({ ...p, telefono: e.target.value }))}
+                  />
+                </Field>
+              </div>
+              <Button
+                type="submit"
+                variant="primary"
+                disabled={loading || !!inlineEditId}
+                block
+              >
+                {loading ? 'Procesando…' : 'Guardar profesional'}
+              </Button>
+            </form>
+          </div>
+        )}
+      </div>
 
-      <hr style={{ margin: '24px 0' }} />
+      <hr className="ui-divider" />
 
       {listLoading ? (
-        <p style={{ textAlign: 'center', padding: '32px 16px', color: 'var(--color-purple-light)', fontSize: 14 }}>
-          Cargando lista de profesionales...
-        </p>
+        <Skeleton rows={5} />
       ) : loadError ? (
         <EmptyState
-          icon="⚠️"
+          icon={<Stethoscope size={24} />}
           title="No se pudo cargar la información"
           description={loadError}
         />
@@ -256,99 +311,185 @@ export default function ProfesionalesPage() {
 
       {!listLoading && !loadError && (
         <>
-          {/* Buscador */}
-          <div style={{ marginBottom: 16, display: 'flex', alignItems: 'center', gap: 10 }}>
-            <input
-              type="text"
-              placeholder="Buscar por nombre o teléfono..."
-              value={filtro}
-              onChange={(e) => setFiltro(e.target.value)}
-              style={{ padding: '8px 12px', borderRadius: 6, border: '1px solid var(--color-purple-light)', fontSize: 14, width: 280 }}
-            />
+          <div className="ui-toolbar">
+            <div style={{ position: 'relative', flex: 1, minWidth: 0 }}>
+              <Search
+                size={16}
+                style={{
+                  position: 'absolute',
+                  left: 14,
+                  top: '50%',
+                  transform: 'translateY(-50%)',
+                  color: 'var(--color-purple-light)',
+                  pointerEvents: 'none',
+                }}
+              />
+              <Input
+                type="text"
+                placeholder="Buscar por nombre o teléfono…"
+                value={filtro}
+                onChange={(e) => setFiltro(e.target.value)}
+                style={{ paddingLeft: 40 }}
+              />
+            </div>
             {filtro && (
-              <button onClick={() => setFiltro('')} style={{ fontSize: 13, color: 'var(--color-entorno)', background: 'none', border: '1px solid var(--color-entorno)', borderRadius: 6, padding: '7px 12px', cursor: 'pointer' }}>
+              <Button variant="ghost" size="sm" onClick={() => setFiltro('')}>
+                <X size={16} />
                 Limpiar
-              </button>
+              </Button>
             )}
             {filtro && meta != null && (
-              <span style={{ fontSize: 13, color: 'var(--color-entorno)' }}>
+              <span className="ui-toolbar__meta">
                 {meta.total} resultado{meta.total !== 1 ? 's' : ''}
               </span>
             )}
           </div>
+
           {(meta?.total ?? profesionales.length) === 0 ? (
             <EmptyState
-              icon="👨‍⚕️"
+              icon={<Stethoscope size={24} />}
               title={filtro ? `Sin resultados para "${filtro}"` : 'No hay profesionales registrados'}
-              description={filtro ? 'Intenta con otro nombre o teléfono' : 'Usa el formulario de arriba para agregar el primer profesional'}
+              description={
+                filtro
+                  ? 'Intenta con otro nombre o teléfono'
+                  : 'Usa el formulario de arriba para agregar el primer profesional'
+              }
             />
           ) : (
             <>
-              <table style={{ width: '100%', borderCollapse: 'collapse', fontFamily: 'var(--font-fallback)' }}>
-                <thead>
-                  <tr style={{ borderBottom: '2px solid var(--color-purple-light)', textAlign: 'left' }}>
-                    {['ID', 'Nombre', 'Teléfono', 'Acciones'].map(h => (
-                      <th key={h} style={{ padding: '8px 12px', fontWeight: 500 }}>{h}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {profesionales.map((p) => (
-                    <tr key={p.id} style={{ borderBottom: '1px solid var(--color-purple-light)' }}>
-                      <td style={{ padding: '8px 12px' }}>{p.id}</td>
-                      {inlineEditId === p.id ? (
-                        <>
-                          <td style={{ padding: '6px 8px' }}>
-                            <input type="text" value={inlineDraft.nombre} disabled={loading}
-                              onChange={(e) => setInlineDraft(d => ({ ...d, nombre: e.target.value }))} />
-                          </td>
-                          <td style={{ padding: '6px 8px' }}>
-                            <input type="text" value={inlineDraft.telefono} disabled={loading}
-                              onChange={(e) => setInlineDraft(d => ({ ...d, telefono: e.target.value }))} />
-                          </td>
-                          <td style={{ padding: '6px 8px', display: 'flex', gap: 8 }}>
-                            <button onClick={() => saveEdit(p.id)} disabled={loading}
-                              style={{ fontSize: 12, color: 'var(--color-entorno)', background: 'none', border: '1px solid var(--color-entorno)', borderRadius: 4, padding: '3px 10px', cursor: 'pointer' }}>
-                              Guardar</button>
-                            <button onClick={cancelEdit} disabled={loading}
-                              style={{ fontSize: 12, color: 'var(--color-entorno)', background: 'none', border: '1px solid var(--color-entorno)', borderRadius: 4, padding: '3px 10px', cursor: 'pointer' }}>
-                              Cancelar</button>
-                          </td>
-                        </>
-                      ) : (
-                        <>
-                          <td style={{ padding: '8px 12px' }}>{p.nombre}</td>
-                          <td style={{ padding: '8px 12px' }}>{p.telefono || '—'}</td>
-                          <td style={{ padding: '8px 12px', display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                            <button onClick={() => startEdit(p)} disabled={loading}
-                              style={{ fontSize: 12, color: 'var(--color-entorno)', background: 'none', border: '1px solid var(--color-entorno)', borderRadius: 4, padding: '3px 10px', cursor: 'pointer' }}>Editar</button>
-                            <button onClick={() => verAgenda(p)} disabled={loading}
-                              style={{ fontSize: 12, color: 'var(--color-entorno)', background: 'none', border: '1px solid var(--color-entorno)', borderRadius: 4, padding: '3px 10px', cursor: 'pointer' }}>Agenda</button>
-                            <button onClick={() => abrirTarifas(p)} disabled={loading}
-                              style={{ fontSize: 12, color: 'var(--color-entorno)', background: 'none', border: '1px solid var(--color-entorno)', borderRadius: 4, padding: '3px 10px', cursor: 'pointer' }}>
-                              Tarifas</button>
-                            <button onClick={() => setDeleteModalId(p.id)} disabled={loading}
-                              style={{ fontSize: 12, color: 'var(--color-entorno)', background: 'none', border: '1px solid var(--color-entorno)', borderRadius: 4, padding: '3px 10px', cursor: 'pointer' }}>Inactivar</button>
-                          </td>
-                        </>
-                      )}
+              <div className="ui-table-wrap table-scroll">
+                <table className="ui-table">
+                  <thead>
+                    <tr>
+                      {['ID', 'Nombre', 'Teléfono', 'Acciones'].map((h) => (
+                        <th key={h}>{h}</th>
+                      ))}
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody>
+                    {profesionales.map((p) => (
+                      <tr key={p.id}>
+                        <td className="ui-num">{p.id}</td>
+                        {inlineEditId === p.id ? (
+                          <>
+                            <td>
+                              <Input
+                                type="text"
+                                value={inlineDraft.nombre}
+                                disabled={loading}
+                                onChange={(e) =>
+                                  setInlineDraft((d) => ({ ...d, nombre: e.target.value }))
+                                }
+                              />
+                            </td>
+                            <td>
+                              <Input
+                                type="text"
+                                value={inlineDraft.telefono}
+                                disabled={loading}
+                                onChange={(e) =>
+                                  setInlineDraft((d) => ({ ...d, telefono: e.target.value }))
+                                }
+                              />
+                            </td>
+                            <td>
+                              <div className="ui-table__actions">
+                                <Button
+                                  size="sm"
+                                  variant="primary"
+                                  onClick={() => saveEdit(p.id)}
+                                  disabled={loading}
+                                >
+                                  Guardar
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  onClick={cancelEdit}
+                                  disabled={loading}
+                                >
+                                  Cancelar
+                                </Button>
+                              </div>
+                            </td>
+                          </>
+                        ) : (
+                          <>
+                            <td>{p.nombre}</td>
+                            <td>{p.telefono || '—'}</td>
+                            <td>
+                              <div className="ui-table__actions">
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  onClick={() => startEdit(p)}
+                                  disabled={loading}
+                                  aria-label="Editar"
+                                >
+                                  <Pencil size={14} />
+                                  Editar
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  onClick={() => verAgenda(p)}
+                                  disabled={loading}
+                                  aria-label="Agenda"
+                                >
+                                  <CalendarDays size={14} />
+                                  Agenda
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  onClick={() => abrirTarifas(p)}
+                                  disabled={loading}
+                                  aria-label="Tarifas"
+                                >
+                                  <Tags size={14} />
+                                  Tarifas
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  onClick={() => setDeleteModalId(p.id)}
+                                  disabled={loading}
+                                  aria-label="Inactivar"
+                                >
+                                  <UserX size={14} />
+                                  Inactivar
+                                </Button>
+                              </div>
+                            </td>
+                          </>
+                        )}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
               {meta && meta.pages > 1 && (
-                <div style={{ display: 'flex', gap: 12, marginTop: 16, alignItems: 'center' }}>
-                  <button
+                <div className="ui-pagination">
+                  <Button
+                    variant="ghost"
+                    size="sm"
                     onClick={() => goToPage(page - 1)}
                     disabled={page === 1 || loading}
-                    style={{ background: 'none', padding: '6px 12px', borderRadius: '6px', border: '1px solid var(--color-entorno)', cursor: page === 1 ? 'not-allowed' : 'pointer', color: 'var(--color-entorno)' }}
-                  >Anterior</button>
-                  <span style={{ fontSize: 14, color: 'var(--color-entorno)'}}>Página {meta.page} de {meta.pages} — {meta.total} registros</span>
-                  <button
+                  >
+                    Anterior
+                  </Button>
+                  <span className="ui-pagination__label">
+                    Página {meta.page} de {meta.pages} — {meta.total} registros
+                  </span>
+                  <Button
+                    variant="ghost"
+                    size="sm"
                     onClick={() => goToPage(page + 1)}
                     disabled={page >= meta.pages || loading}
-                    style={{ background: 'none', padding: '6px 12px', borderRadius: '6px', border: '1px solid var(--color-entorno)', cursor: page >= meta.pages ? 'not-allowed' : 'pointer', color: 'var(--color-entorno)' }}
-                  >Siguiente</button>
+                  >
+                    Siguiente
+                  </Button>
                 </div>
               )}
             </>
@@ -356,113 +497,138 @@ export default function ProfesionalesPage() {
         </>
       )}
 
-      {/* --- MODAL DE TARIFAS (NUEVO) --- */}
-      {tarifasModal && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1100 }}>
-          <div style={{ background: 'var(--color-white)', borderRadius: 8, padding: 24, width: 450, maxWidth: '90%' }}>
-            <h3 style={{ marginTop: 0, color: 'var(--color-entorno)' }}>Tarifas de {tarifasModal.nombre}</h3>
-            
-            <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
-              <input 
-                placeholder="Descripción (ej: Baño)" 
-                value={nuevaTarifa.descripcion} 
-                onChange={e => setNuevaTarifa(t => ({...t, descripcion: e.target.value}))}
-                style={{ flex: 2, padding: 6 }}
-              />
-              <input 
-                type="number" 
-                placeholder="Valor" 
-                value={nuevaTarifa.valor} 
-                onChange={e => setNuevaTarifa(t => ({...t, valor: e.target.value}))}
-                style={{ flex: 1, padding: 6 }}
-              />
-              <button onClick={handleAddTarifa} disabled={loading} style={{ background: 'var(--color-entorno)', color: 'var(--color-white)', border: 'none', borderRadius: 4, padding: '6px 12px' }}>+</button>
-            </div>
-
-            <div style={{ maxHeight: 250, overflowY: 'auto' }}>
-              <table style={{ width: '100%', fontSize: 13 }}>
-                <thead><tr style={{ textAlign: 'left', borderBottom: '1px solid var(--color-purple-light)' }}><th>Servicio</th><th>Valor</th><th></th></tr></thead>
-                <tbody>
-                  {tarifasModal.lista.map(t => (
-                    <tr key={t.id} style={{ borderBottom: '1px solid var(--bg-main)' }}>
-                      <td style={{ padding: '6px 0' }}>{t.descripcion}</td>
-                      <td>${parseFloat(t.valor).toLocaleString()}</td>
-                      <td style={{ textAlign: 'right' }}>
-                        <button onClick={() => handleDeleteTarifa(t.id)} style={{ color: 'var(--color-entorno)', border: 'none', background: 'none', cursor: 'pointer' }}>✕</button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-              {tarifasModal.lista.length === 0 && <p style={{ fontSize: 12, color: 'var(--color-purple-light)', textAlign: 'center' }}>No hay tarifas configuradas.</p>}
-            </div>
-
-            <div style={{ marginTop: 20, textAlign: 'right' }}>
-              <button onClick={() => setTarifasModal(null)} style={{ borderRadius: '6px', background: 'none', padding: '6px 16px',color: 'var(--color-entorno)', border: '1px solid var(--color-entorno)' }}>Cerrar</button>
-            </div>
+      <Sheet
+        open={!!tarifasModal}
+        onClose={() => setTarifasModal(null)}
+        title={tarifasModal ? `Tarifas de ${tarifasModal.nombre}` : ''}
+        footer={
+          <div style={{ display: 'flex', justifyContent: 'flex-end', width: '100%' }}>
+            <Button variant="ghost" onClick={() => setTarifasModal(null)}>
+              Cerrar
+            </Button>
           </div>
+        }
+      >
+        <div style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap' }}>
+          <Input
+            placeholder="Descripción (ej: Baño)"
+            value={nuevaTarifa.descripcion}
+            onChange={(e) => setNuevaTarifa((t) => ({ ...t, descripcion: e.target.value }))}
+            style={{ flex: '2 1 140px', minWidth: 0 }}
+          />
+          <Input
+            type="number"
+            placeholder="Valor"
+            value={nuevaTarifa.valor}
+            onChange={(e) => setNuevaTarifa((t) => ({ ...t, valor: e.target.value }))}
+            style={{ flex: '1 1 80px', minWidth: 0 }}
+          />
+          <Button
+            variant="primary"
+            onClick={handleAddTarifa}
+            disabled={loading}
+            aria-label="Agregar tarifa"
+          >
+            <Plus size={16} />
+          </Button>
         </div>
-      )}
 
-      {/* Modales Existentes (Agenda, Delete, etc.) */}
-      {agendaModal && (
-        <div onClick={() => setAgendaModal(null)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
-          <div onClick={(e) => e.stopPropagation()} style={{ background: 'var(--color-white)', borderRadius: 8, padding: 24, width: 560, maxWidth: '90%', maxHeight: '80vh', overflowY: 'auto' }}>
-            <h3 style={{ marginTop: 0, color: 'var(--color-entorno)'}}>Agenda de {agendaModal.nombre}</h3>
-            {agendaModal.citas.length === 0 ? (
-              <p style={{ color: 'var(--color-purple-light)', fontSize: 14 }}>Este profesional no tiene citas agendadas.</p>
-            ) : (
-              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                <thead>
-                  <tr style={{ borderBottom: '2px solid var(--color-purple-light)', textAlign: 'left' }}>
-                    {['ID', 'Mascota', 'Raza', 'Fecha', 'Inicio', 'Fin'].map(h => (
-                      <th key={h} style={{ padding: '6px 10px', fontWeight: 500, fontSize: 13 }}>{h}</th>
-                    ))}
+        {tarifasModal?.lista.length === 0 ? (
+          <EmptyState
+            icon={<Tags size={24} />}
+            title="No hay tarifas configuradas"
+            description="Agrega una descripción y valor arriba"
+          />
+        ) : (
+          <div className="ui-table-wrap table-scroll">
+            <table className="ui-table">
+              <thead>
+                <tr>
+                  <th>Servicio</th>
+                  <th>Valor</th>
+                  <th />
+                </tr>
+              </thead>
+              <tbody>
+                {tarifasModal?.lista.map((t) => (
+                  <tr key={t.id}>
+                    <td>{t.descripcion}</td>
+                    <td>${parseFloat(t.valor).toLocaleString()}</td>
+                    <td>
+                      <Button
+                        variant="ghost"
+                        icon
+                        aria-label="Eliminar tarifa"
+                        onClick={() => handleDeleteTarifa(t.id)}
+                      >
+                        <X size={16} />
+                      </Button>
+                    </td>
                   </tr>
-                </thead>
-                <tbody>
-                  {agendaModal.citas.map(c => (
-                    <tr key={c.id} style={{ borderBottom: '1px solid var(--color-purple-light)' }}>
-                      <td style={{ padding: '6px 10px', fontSize: 13 }}>{c.id}</td>
-                      <td style={{ padding: '6px 10px', fontSize: 13 }}>{c.mascota_nombre}</td>
-                      <td style={{ padding: '6px 10px', fontSize: 13 }}>{c.raza}</td>
-                      <td style={{ padding: '6px 10px', fontSize: 13, color: 'var(--color-purple-light)' }}>{formatFecha(c.fecha)}</td>
-                      <td style={{ padding: '6px 10px', fontSize: 13 }}>{formatHora(c.hora_inicio)}</td>
-                      <td style={{ padding: '6px 10px', fontSize: 13 }}>{formatHora(c.hora_fin)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            )}
-            <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 16}}>
-              <button type="button" onClick={() => setAgendaModal(null)} style={{ borderRadius: '6px', background: 'none', color: 'var(--color-entorno)', border: '1px solid var(--color-entorno)'}}>
-                Cerrar</button>
-            </div>
+                ))}
+              </tbody>
+            </table>
           </div>
-        </div>
-      )}
+        )}
+      </Sheet>
 
-      {/* Delete Modal */}
-      {deleteModalId && (
-        <div onClick={() => setDeleteModalId(null)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
-          <div onClick={e => e.stopPropagation()} style={{ background: 'var(--color-white)', borderRadius: 8, padding: 24, width: 380, maxWidth: '90%' }}>
-            <h3 style={{ marginTop: 0, color: 'var(--color-entorno)' }}>Confirmar inactivación</h3>
-            <p style={{ fontSize: 14, color: 'var(--color-purple-light)' }}>
-              El profesional dejará de aparecer en la lista, pero sus datos se conservan.
-            </p>
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 12 }}>
-              <button type="button" onClick={() => setDeleteModalId(null)} disabled={loading} style={{ borderRadius: '6px', background: 'none', color: 'var(--color-entorno)', border: '1px solid var(--color-entorno)' }}>
-                Cancelar</button>
-              <button
-                onClick={confirmDelete}
-                disabled={loading}
-                style={{ background: 'none', color: 'var(--color-entorno)', border: '1px solid var(--color-entorno)', padding: '6px 14px', borderRadius: '6px', cursor: 'pointer' }}>
-                {loading ? 'Procesando...' : 'Inactivar'} {/* ✅ era 'Eliminar' */}
-              </button>
-            </div>
+      <Sheet
+        open={!!agendaModal}
+        onClose={() => setAgendaModal(null)}
+        size="lg"
+        title={agendaModal ? `Agenda de ${agendaModal.nombre}` : ''}
+        footer={
+          <div style={{ display: 'flex', justifyContent: 'flex-end', width: '100%' }}>
+            <Button variant="ghost" onClick={() => setAgendaModal(null)}>
+              Cerrar
+            </Button>
           </div>
-        </div>
-      )}
+        }
+      >
+        {agendaModal?.citas.length === 0 ? (
+          <EmptyState
+            icon={<CalendarDays size={24} />}
+            title="Sin citas agendadas"
+            description="Este profesional no tiene citas agendadas."
+          />
+        ) : (
+          <div className="ui-table-wrap table-scroll">
+            <table className="ui-table">
+              <thead>
+                <tr>
+                  {['ID', 'Mascota', 'Raza', 'Fecha', 'Inicio', 'Fin'].map((h) => (
+                    <th key={h}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {agendaModal?.citas.map((c) => (
+                  <tr key={c.id}>
+                    <td className="ui-num">{c.id}</td>
+                    <td>{c.mascota_nombre}</td>
+                    <td>{c.raza}</td>
+                    <td style={{ color: 'var(--color-purple-light)' }}>{formatFecha(c.fecha)}</td>
+                    <td>{formatHora(c.hora_inicio)}</td>
+                    <td>{formatHora(c.hora_fin)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Sheet>
+
+      <ConfirmSheet
+        open={!!deleteModalId}
+        onClose={() => setDeleteModalId(null)}
+        onConfirm={confirmDelete}
+        title="Confirmar inactivación"
+        confirmLabel="Inactivar"
+        loading={loading}
+        danger
+      >
+        El profesional dejará de aparecer en la lista, pero sus datos se conservan.
+      </ConfirmSheet>
 
       <Toast toasts={toasts} removeToast={removeToast} />
     </div>

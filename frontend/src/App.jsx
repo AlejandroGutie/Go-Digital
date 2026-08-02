@@ -7,8 +7,19 @@ import {
   Navigate,
   Outlet,
 } from 'react-router-dom';
+import {
+  PawPrint,
+  Users,
+  Link2,
+  Stethoscope,
+  CalendarDays,
+  Wallet,
+  BarChart3,
+  LogOut,
+} from 'lucide-react';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import ProtectedRoute from './components/ProtectedRoute';
+import Button from './components/ui/Button';
 import LoginPage from './pages/LoginPage';
 import MascotasPage from './pages/MascotasPage';
 import CuidadoresPage from './pages/CuidadoresPage';
@@ -18,19 +29,19 @@ import ProfesionalesPage from './pages/ProfesionalesPage';
 import CobrosPage from './pages/CobrosPage';
 import InformesPage from './pages/InformesPage';
 
+const NAV_ITEMS = [
+  { to: '/mascotas', label: 'Mascotas', icon: PawPrint },
+  { to: '/cuidadores', label: 'Cuidadores', icon: Users },
+  { to: '/asignacion', label: 'Asignación', icon: Link2 },
+  { to: '/profesionales', label: 'Profesionales', icon: Stethoscope },
+  { to: '/agendas', label: 'Agendas', icon: CalendarDays },
+  { to: '/cobros', label: 'Cobros', icon: Wallet },
+  { to: '/informes', label: 'Informes', icon: BarChart3 },
+];
+
 function Nav() {
   const { pathname } = useLocation();
   const { user, logout } = useAuth();
-
-  const linkStyle = (path) => ({
-    textDecoration: 'none',
-    padding: '8px 16px',
-    borderRadius: 6,
-    fontWeight: 500,
-    fontSize: 14,
-    background: pathname.startsWith(path) ? 'var(--color-entorno)' : 'transparent',
-    color: pathname.startsWith(path) ? 'var(--color-white)' : '#0f172a',
-  });
 
   const handleLogout = async () => {
     try {
@@ -41,77 +52,30 @@ function Nav() {
   };
 
   return (
-    <nav
-      style={{
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        gap: 16,
-        padding: '12px 24px',
-        borderBottom: '1px solid #e2e8f0',
-        marginBottom: 24,
-      }}
-    >
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-        <Link to="/mascotas" style={linkStyle('/mascotas')}>
-          Mascotas
-        </Link>
-        <Link to="/cuidadores" style={linkStyle('/cuidadores')}>
-          Cuidadores
-        </Link>
-        <Link to="/asignacion" style={linkStyle('/asignacion')}>
-          Asignación
-        </Link>
-        <Link to="/profesionales" style={linkStyle('/profesionales')}>
-          Profesionales
-        </Link>
-        <Link to="/agendas" style={linkStyle('/agendas')}>
-          Agendas
-        </Link>
-        <Link to="/cobros" style={linkStyle('/cobros')}>
-          Cobros
-        </Link>
-        <Link to="/informes" style={linkStyle('/informes')}>
-          Informes
-        </Link>
-      </div>
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: 12,
-          flexShrink: 0,
-        }}
-      >
-        <span
-          style={{
-            fontSize: 12,
-            color: '#64748b',
-            maxWidth: 200,
-            overflow: 'hidden',
-            textOverflow: 'ellipsis',
-            whiteSpace: 'nowrap',
-          }}
-          title={user?.email || ''}
-        >
+    <nav className="ui-nav pt-safe">
+      <div className="ui-nav__session">
+        <span className="ui-nav__email" title={user?.email || ''}>
           {user?.email || ''}
         </span>
-        <button
-          type="button"
-          onClick={handleLogout}
-          style={{
-            padding: '6px 12px',
-            fontSize: 13,
-            fontWeight: 500,
-            fontFamily: "'Avenir LT Pro', 'Avenir Next', Avenir, sans-serif",
-            color: 'var(--color-white)',
-            background: 'var(--color-entorno)',
-            border: 'var(--color-entorno)',
-            borderRadius: 6,
-            cursor: 'pointer',
-          }}>
-          Cerrar sesión
-        </button>
+        <Button variant="primary" size="sm" onClick={handleLogout} aria-label="Cerrar sesión">
+          <LogOut size={16} strokeWidth={2.25} />
+          <span>Salir</span>
+        </Button>
+      </div>
+      <div className="ui-nav__links">
+        {NAV_ITEMS.map(({ to, label, icon: Icon }) => {
+          const active = pathname.startsWith(to);
+          return (
+            <Link
+              key={to}
+              to={to}
+              className={`ui-nav__link ${active ? 'ui-nav__link--active' : ''}`.trim()}
+            >
+              <Icon size={16} strokeWidth={2.25} />
+              {label}
+            </Link>
+          );
+        })}
       </div>
     </nav>
   );
@@ -122,14 +86,7 @@ function ProtectedLayout() {
     <ProtectedRoute>
       <>
         <Nav />
-        <main
-          style={{
-            maxWidth: 960,
-            margin: '0 auto',
-            padding: '0 24px 48px',
-            fontFamily:
-              "'Avenir LT Pro', 'Avenir Next', Avenir, sans-serif",
-          }}>
+        <main className="ui-main">
           <Outlet />
         </main>
       </>

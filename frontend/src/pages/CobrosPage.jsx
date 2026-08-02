@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import { AlertTriangle, Banknote, Plus } from 'lucide-react';
 import { listCobros, createCobro, updateCobro, deleteCobro } from '../api/cobrosApi';
 import { listProfesionales } from '../api/profesionalesApi';
 import { listTarifas } from '../api/tarifasApi';
@@ -8,6 +9,11 @@ import { useToast } from '../hooks/useToast';
 import { Toast } from '../components/Toast';
 import { formatFecha, hoyLocalISO } from '../utils/format';
 import EmptyState from '../components/EmptyState';
+import PageHeader from '../components/ui/PageHeader';
+import Field, { Input, Select, Textarea } from '../components/ui/Field';
+import Button from '../components/ui/Button';
+import Skeleton from '../components/ui/Skeleton';
+import Sheet from '../components/ui/Sheet';
 import '../index.css';
 
 const EMPTY_FILTROS = { estado: '', id_profesional: '', fecha_desde: '', fecha_hasta: '' };
@@ -173,8 +179,13 @@ export default function CobrosPage() {
         addToast('Cobro creado exitosamente', 'success');
         setModalOpen(false);
         setNuevoCobro({
-          id_profesional: '', id_agenda: '', id_mascota: '', id_tarifa: '',
-          valor: '', metodo_pago: '', observacion: '',
+          id_profesional: '',
+          id_agenda: '',
+          id_mascota: '',
+          id_tarifa: '',
+          valor: '',
+          metodo_pago: '',
+          observacion: '',
           fecha_cobro: hoyLocalISO(),
         });
         setNombreMascotaVisible('');
@@ -229,157 +240,176 @@ export default function CobrosPage() {
   const getBadgeStyle = (estado) => {
     if (estado === 'pagado') return { backgroundColor: 'var(--color-entorno)', color: 'var(--color-white)' };
     if (estado === 'anulado') return { backgroundColor: 'var(--color-entorno)', color: 'var(--color-black)' };
-    return { backgroundColor: 'var(--color-entorno)', color: 'var(--color-yellow)'};
+    return { backgroundColor: 'var(--color-entorno)', color: 'var(--color-yellow)' };
   };
 
   const hayFiltros = filtrosActivos(filtros);
 
-  return (
-    <div style={{ fontFamily: 'var(--font-fallback)', color: 'var(--color-black)' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
-        <h1 className="font-display" style={{ fontSize: 22, fontWeight: 600, color: 'var(--color-entorno)', margin: 0 }}>Cobros</h1>
-        <button
-          type="button"
-          onClick={() => setModalOpen(true)}
-          disabled={loading}
-          style={{background: 'none', color: 'var(--color-entorno)', border: '1px solid var(--color-entorno)', padding: '8px 16px', borderRadius: 6, cursor: 'pointer', fontSize: 12, fontWeight: 500 }}>
-          Nuevo cobro
-        </button>
-      </div>
+  function closeModal() {
+    if (!loading) setModalOpen(false);
+  }
 
-      <hr style={{ margin: '0 0 24px' }} />
+  return (
+    <div className="ui-page">
+      <PageHeader
+        title="Cobros"
+        actions={
+          <Button variant="primary" onClick={() => setModalOpen(true)} disabled={loading}>
+            <Plus size={16} />
+            Nuevo cobro
+          </Button>
+        }
+      />
+
+      <hr className="ui-divider" />
 
       {listLoading ? (
-        <p style={{ textAlign: 'center', padding: '32px 16px', color: 'var(--color-purple-light)', fontSize: 14 }}>
-          Cargando lista de cobros…
-        </p>
+        <Skeleton rows={5} />
       ) : loadError ? (
-        <EmptyState icon="⚠️" title="No se pudo cargar la información" description={loadError} />
+        <EmptyState icon={<AlertTriangle size={24} />} title="No se pudo cargar la información" description={loadError} />
       ) : null}
 
       {!listLoading && !loadError && (
         <>
-          <div
-            className="fields-row"
-            style={{ marginBottom: 16, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', width: '100%', maxWidth: '100%', minWidth: 0, boxSizing: 'border-box' }}
-          >
-            <select
-              value={filtros.estado}
-              onChange={(e) => setFiltros({ ...filtros, estado: e.target.value })}
-              style={{ padding: '8px 12px', borderRadius: 6, border: '1px solid var(--color-purple-light)', fontSize: 14, width: '100%', maxWidth: '100%', minWidth: 0, boxSizing: 'border-box' }}>
-              <option value="">Todos los estados</option>
-              <option value="pendiente">Pendiente</option>
-              <option value="pagado">Pagado</option>
-              <option value="anulado">Anulado</option>
-            </select>
-            <select
-              value={filtros.id_profesional}
-              onChange={(e) => setFiltros({ ...filtros, id_profesional: e.target.value })}
-              style={{ padding: '8px 12px', borderRadius: 6, border: '1px solid var(--color-purple-light)', fontSize: 14, width: '100%', maxWidth: '100%', minWidth: 0, boxSizing: 'border-box' }}
-            >
-              <option value="">Todos los profesionales</option>
-              {profesionales.map((p) => (
-                <option key={p.id} value={p.id}>{p.nombre}</option>
-              ))}
-            </select>
-            <input
-              type="date"
-              value={filtros.fecha_desde}
-              onChange={(e) => setFiltros({ ...filtros, fecha_desde: e.target.value })}
-              style={{ padding: '8px 12px', borderRadius: 6, border: '1px solid var(--color-purple-light)', fontSize: 14, width: '100%', maxWidth: '100%', minWidth: 0, boxSizing: 'border-box' }}
-            />
-            <input
-              type="date"
-              value={filtros.fecha_hasta}
-              onChange={(e) => setFiltros({ ...filtros, fecha_hasta: e.target.value })}
-              style={{ padding: '8px 12px', borderRadius: 6, border: '1px solid var(--color-purple-light)', fontSize: 14, width: '100%', maxWidth: '100%', minWidth: 0, boxSizing: 'border-box' }}
-            />
-            {hayFiltros && (
-              <button
-                type="button"
-                onClick={limpiarFiltros}
-                style={{ fontSize: 13, color: 'var(--color-entorno)', background: 'none', border: '1px solid var(--color-entorno)', borderRadius: 6, padding: '7px 12px', cursor: 'pointer', width: '100%', boxSizing: 'border-box' }}>
-                Limpiar 
-              </button>
-            )}
-            {hayFiltros && meta != null && (
-              <span style={{ fontSize: 13, color: 'var(--color-entorno)' }}>
-                {meta.total} resultado{meta.total !== 1 ? 's' : ''}
-              </span>
-            )}
+          <div className="ui-card" style={{ marginBottom: 16 }}>
+            <div className="fields-row">
+              <Field label="Estado">
+                <Select
+                  value={filtros.estado}
+                  onChange={(e) => setFiltros({ ...filtros, estado: e.target.value })}
+                >
+                  <option value="">Todos los estados</option>
+                  <option value="pendiente">Pendiente</option>
+                  <option value="pagado">Pagado</option>
+                  <option value="anulado">Anulado</option>
+                </Select>
+              </Field>
+              <Field label="Profesional">
+                <Select
+                  value={filtros.id_profesional}
+                  onChange={(e) => setFiltros({ ...filtros, id_profesional: e.target.value })}
+                >
+                  <option value="">Todos los profesionales</option>
+                  {profesionales.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.nombre}
+                    </option>
+                  ))}
+                </Select>
+              </Field>
+              <Field label="Desde">
+                <Input
+                  type="date"
+                  value={filtros.fecha_desde}
+                  onChange={(e) => setFiltros({ ...filtros, fecha_desde: e.target.value })}
+                />
+              </Field>
+              <Field label="Hasta">
+                <Input
+                  type="date"
+                  value={filtros.fecha_hasta}
+                  onChange={(e) => setFiltros({ ...filtros, fecha_hasta: e.target.value })}
+                />
+              </Field>
+              {hayFiltros && (
+                <Button variant="ghost" onClick={limpiarFiltros}>
+                  Limpiar
+                </Button>
+              )}
+              {hayFiltros && meta != null && (
+                <span className="ui-toolbar__meta">
+                  {meta.total} resultado{meta.total !== 1 ? 's' : ''}
+                </span>
+              )}
+            </div>
           </div>
 
           {(meta?.total ?? cobros.length) === 0 ? (
             <EmptyState
-              icon="💰"
+              icon={<Banknote size={24} />}
               title={hayFiltros ? 'Sin resultados con los filtros aplicados' : 'No hay cobros registrados'}
-              description={hayFiltros ? 'Ajusta los filtros o pulsa Limpiar para ver todos los cobros' : 'Usa el botón «Nuevo cobro» para registrar el primer cobro'}
+              description={
+                hayFiltros
+                  ? 'Ajusta los filtros o pulsa Limpiar para ver todos los cobros'
+                  : 'Usa el botón «Nuevo cobro» para registrar el primer cobro'
+              }
             />
           ) : (
             <>
-              <div className="table-scroll">
-              <table style={{ width: '100%', borderCollapse: 'collapse', fontFamily: 'var(--font-fallback)' }}>
-                <thead>
-                  <tr style={{ borderBottom: '2px solid var(--color-purple-light)', textAlign: 'left' }}>
-                    {['ID', 'Mascota', 'Profesional', 'Fecha', 'Valor', 'Estado', 'Método', 'Acciones'].map((h) => (
-                      <th key={h} style={{ padding: '8px 12px', fontWeight: 500 }}>{h}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {cobros.map((c) => (
-                    <tr key={c.id} style={{ borderBottom: '1px solid var(--color-purple-light)' }}>
-                      <td style={{ padding: '8px 12px' }}>{c.id}</td>
-                      <td style={{ padding: '8px 12px' }}>{c.mascota_nombre}</td>
-                      <td style={{ padding: '8px 12px' }}>{c.profesional_nombre}</td>
-                      <td style={{ padding: '8px 12px' }}>{formatFecha(c.fecha_cobro)}</td>
-                      <td style={{ padding: '8px 12px', fontWeight: 600 }}>{formatMoneda(c.valor)}</td>
-                      <td style={{ padding: '8px 12px' }}>
-                        <span style={{ ...getBadgeStyle(c.estado), padding: '4px 8px', borderRadius: 4, fontSize: 12, fontWeight: 600 }}>
-                          {c.estado.toUpperCase()}
-                        </span>
-                      </td>
-                      <td style={{ padding: '8px 12px' }}>{c.metodo_pago || '—'}</td>
-                      <td style={{ padding: '8px 12px', display: 'flex', gap: 8 }}>
-                        {c.estado === 'pendiente' && (
-                          <>
-                            <button type="button" onClick={() => cambiarEstado(c.id, 'pagado')} disabled={loading}
-                              style={{ fontSize: 12, color: 'var(--color-entorno)', background: 'none', border: '1px solid var(--color-entorno)', borderRadius: 4, padding: '3px 10px', cursor: 'pointer' }}>
-                              Pagar</button>
-                            <button type="button" onClick={() => cambiarEstado(c.id, 'anulado')} disabled={loading}
-                              style={{ fontSize: 12, color: 'var(--color-entorno)', background: 'none', border: '1px solid var(--color-entorno)', borderRadius: 4, padding: '3px 10px', cursor: 'pointer' }}>
-                              Anular</button>
-                          </>
-                        )}
-                        {c.estado === 'anulado' && (
-                          <button type="button" onClick={() => eliminarCobro(c.id)} disabled={loading}
-                            style={{ fontSize: 12, color: 'var(--color-entorno)', background: 'none', border: '1px solid var(--color-entorno)', borderRadius: 4, padding: '3px 10px', cursor: 'pointer' }}>
-                            Eliminar</button>
-                        )}
-                      </td>
+              <div className="ui-table-wrap table-scroll">
+                <table className="ui-table">
+                  <thead>
+                    <tr>
+                      {['ID', 'Mascota', 'Profesional', 'Fecha', 'Valor', 'Estado', 'Método', 'Acciones'].map((h) => (
+                        <th key={h}>{h}</th>
+                      ))}
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody>
+                    {cobros.map((c) => (
+                      <tr key={c.id}>
+                        <td className="ui-num">{c.id}</td>
+                        <td>{c.mascota_nombre}</td>
+                        <td>{c.profesional_nombre}</td>
+                        <td>{formatFecha(c.fecha_cobro)}</td>
+                        <td style={{ fontWeight: 600 }}>{formatMoneda(c.valor)}</td>
+                        <td>
+                          <span className="ui-badge" style={getBadgeStyle(c.estado)}>
+                            {c.estado.toUpperCase()}
+                          </span>
+                        </td>
+                        <td>{c.metodo_pago || '—'}</td>
+                        <td>
+                          <div className="ui-table__actions">
+                            {c.estado === 'pendiente' && (
+                              <>
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  onClick={() => cambiarEstado(c.id, 'pagado')}
+                                  disabled={loading}
+                                >
+                                  Pagar
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  onClick={() => cambiarEstado(c.id, 'anulado')}
+                                  disabled={loading}
+                                >
+                                  Anular
+                                </Button>
+                              </>
+                            )}
+                            {c.estado === 'anulado' && (
+                              <Button size="sm" variant="ghost" onClick={() => eliminarCobro(c.id)} disabled={loading}>
+                                Eliminar
+                              </Button>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
 
               {meta && meta.pages > 1 && (
-                <div style={{ display: 'flex', gap: 12, marginTop: 16, alignItems: 'center' }}>
-                  <button
-                    type="button"
-                    onClick={() => goToPage(page - 1)}
-                    disabled={page === 1 || loading}
-                    style={{ background: 'none', padding: '6px 12px', borderRadius: 6, border: '1px solid var(--color-entorno)', cursor: page === 1 ? 'not-allowed' : 'pointer', color: 'var(--color-entorno)' }}>
+                <div className="ui-pagination">
+                  <Button variant="ghost" size="sm" onClick={() => goToPage(page - 1)} disabled={page === 1 || loading}>
                     Anterior
-                  </button>
-                  <span style={{ fontSize: 14, color: 'var(--color-entorno)'}}>Página {meta.page} de {meta.pages} — {meta.total} registros</span>
-                  <button
-                    type="button"
+                  </Button>
+                  <span className="ui-pagination__label">
+                    Página {meta.page} de {meta.pages} — {meta.total} registros
+                  </span>
+                  <Button
+                    variant="ghost"
+                    size="sm"
                     onClick={() => goToPage(page + 1)}
                     disabled={page >= meta.pages || loading}
-                    style={{ background: 'none', padding: '6px 12px', borderRadius: 6, border: '1px solid var(--color-entorno)', cursor: page >= meta.pages ? 'not-allowed' : 'pointer', color: 'var(--color-entorno)' }}>
+                  >
                     Siguiente
-                  </button>
+                  </Button>
                 </div>
               )}
             </>
@@ -387,104 +417,103 @@ export default function CobrosPage() {
         </>
       )}
 
-      {modalOpen && (
-        <div
-          onClick={() => !loading && setModalOpen(false)}
-          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}
-        >
-          <div
-            onClick={(e) => e.stopPropagation()}
-            style={{ background: 'var(--color-white)', padding: 24, borderRadius: 8, width: 500, maxWidth: '90%', maxHeight: '80vh', overflowY: 'auto' }}
-          >
-            <h3 style={{ marginTop: 0, color: 'var(--color-entorno)'}}>Nuevo cobro</h3>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-              <select
-                value={nuevoCobro.id_profesional}
-                onChange={(e) => handleProfesionalChange(e.target.value)}
-                disabled={loading}
-                style={{ padding: 8, borderRadius: 6, border: '1px solid var(--color-purple-light)' }}
-              >
-                <option value="">Seleccionar profesional</option>
-                {profesionales.map((p) => (
-                  <option key={p.id} value={p.id}>{p.nombre}</option>
-                ))}
-              </select>
-              <select
-                value={nuevoCobro.id_agenda}
-                onChange={(e) => handleAgendaChange(e.target.value)}
-                disabled={loading || !nuevoCobro.id_profesional}
-                style={{ padding: 8, borderRadius: 6, border: '1px solid var(--color-purple-light)' }}
-              >
-                <option value="">Seleccionar agenda</option>
-                {agendas.map((a) => (
-                  <option key={a.id} value={a.id}>{`${formatFecha(a.fecha)} — ${a.mascota_nombre}`}</option>
-                ))}
-              </select>
-              <input
-                type="text"
-                value={nombreMascotaVisible}
-                readOnly
-                placeholder="Mascota (se autocompleta)"
-                style={{ padding: 8, borderRadius: 6, border: '1px solid var(--color-purple-light)', background: 'var(--bg-main)' }}
-              />
-              <select
-                value={nuevoCobro.id_tarifa}
-                onChange={(e) => handleTarifaChange(e.target.value)}
-                disabled={loading || !nuevoCobro.id_profesional}
-                style={{ padding: 8, borderRadius: 6, border: '1px solid var(--color-purple-light)' }}
-              >
-                <option value="">Seleccionar tarifa</option>
-                {tarifas.map((t) => (
-                  <option key={t.id} value={t.id}>{`${t.descripcion} — ${formatMoneda(t.valor)}`}</option>
-                ))}
-              </select>
-              <input
-                type="number"
-                value={nuevoCobro.valor}
-                onChange={(e) => setNuevoCobro({ ...nuevoCobro, valor: e.target.value })}
-                placeholder="Valor"
-                disabled={loading}
-                style={{ padding: 8, borderRadius: 6, border: '1px solid var(--color-purple-light)' }}
-              />
-              <select
-                value={nuevoCobro.metodo_pago}
-                onChange={(e) => setNuevoCobro({ ...nuevoCobro, metodo_pago: e.target.value })}
-                disabled={loading}
-                style={{ padding: 8, borderRadius: 6, border: '1px solid var(--color-purple-light)' }}
-              >
-                <option value="">Método de pago</option>
-                <option value="Efectivo">Efectivo</option>
-                <option value="Transferencia">Transferencia</option>
-                <option value="Tarjeta">Tarjeta</option>
-              </select>
-              <textarea
-                value={nuevoCobro.observacion}
-                onChange={(e) => setNuevoCobro({ ...nuevoCobro, observacion: e.target.value })}
-                placeholder="Observación (opcional)"
-                disabled={loading}
-                style={{ padding: 8, borderRadius: 6, border: '1px solid var(--color-purple-light)', minHeight: 60 }}
-              />
-              <input
-                type="date"
-                value={nuevoCobro.fecha_cobro}
-                onChange={(e) => setNuevoCobro({ ...nuevoCobro, fecha_cobro: e.target.value })}
-                disabled={loading}
-                style={{ padding: 8, borderRadius: 6, border: '1px solid var(--color-purple-light)', width: '100%', maxWidth: '100%', minWidth: 0, boxSizing: 'border-box' }}
-              />
-            </div>
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 12, marginTop: 20 }}>
-              <button type="button" onClick={() => setModalOpen(false)} disabled={loading} style={{background: 'none', color: 'var(--color-entorno)', border: '1px solid var(--color-entorno)', borderRadius: 6}}>Cancelar</button>
-              <button
-                type="button"
-                onClick={guardarCobro}
-                disabled={loading}
-                style={{background: 'none', color: 'var(--color-entorno)', border: '1px solid var(--color-entorno)', padding: '8px 16px', borderRadius: 6, cursor: 'pointer' }}>
-                {loading ? 'Procesando...' : 'Guardar'}
-              </button>
-            </div>
+      <Sheet
+        open={modalOpen}
+        onClose={closeModal}
+        title="Nuevo cobro"
+        dismissible={!loading}
+        footer={
+          <div className="ui-btn-row" style={{ justifyContent: 'flex-end' }}>
+            <Button variant="ghost" onClick={closeModal} disabled={loading}>
+              Cancelar
+            </Button>
+            <Button variant="primary" onClick={guardarCobro} disabled={loading}>
+              {loading ? 'Procesando…' : 'Guardar'}
+            </Button>
           </div>
+        }
+      >
+        <div className="ui-form">
+          <Field label="Profesional">
+            <Select
+              value={nuevoCobro.id_profesional}
+              onChange={(e) => handleProfesionalChange(e.target.value)}
+              disabled={loading}
+            >
+              <option value="">Seleccionar profesional</option>
+              {profesionales.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.nombre}
+                </option>
+              ))}
+            </Select>
+          </Field>
+          <Field label="Agenda">
+            <Select
+              value={nuevoCobro.id_agenda}
+              onChange={(e) => handleAgendaChange(e.target.value)}
+              disabled={loading || !nuevoCobro.id_profesional}
+            >
+              <option value="">Seleccionar agenda</option>
+              {agendas.map((a) => (
+                <option key={a.id} value={a.id}>{`${formatFecha(a.fecha)} — ${a.mascota_nombre}`}</option>
+              ))}
+            </Select>
+          </Field>
+          <Field label="Mascota">
+            <Input type="text" value={nombreMascotaVisible} readOnly placeholder="Mascota (se autocompleta)" />
+          </Field>
+          <Field label="Tarifa">
+            <Select
+              value={nuevoCobro.id_tarifa}
+              onChange={(e) => handleTarifaChange(e.target.value)}
+              disabled={loading || !nuevoCobro.id_profesional}
+            >
+              <option value="">Seleccionar tarifa</option>
+              {tarifas.map((t) => (
+                <option key={t.id} value={t.id}>{`${t.descripcion} — ${formatMoneda(t.valor)}`}</option>
+              ))}
+            </Select>
+          </Field>
+          <Field label="Valor">
+            <Input
+              type="number"
+              value={nuevoCobro.valor}
+              onChange={(e) => setNuevoCobro({ ...nuevoCobro, valor: e.target.value })}
+              placeholder="Valor"
+              disabled={loading}
+            />
+          </Field>
+          <Field label="Método de pago">
+            <Select
+              value={nuevoCobro.metodo_pago}
+              onChange={(e) => setNuevoCobro({ ...nuevoCobro, metodo_pago: e.target.value })}
+              disabled={loading}
+            >
+              <option value="">Método de pago</option>
+              <option value="Efectivo">Efectivo</option>
+              <option value="Transferencia">Transferencia</option>
+              <option value="Tarjeta">Tarjeta</option>
+            </Select>
+          </Field>
+          <Field label="Observación">
+            <Textarea
+              value={nuevoCobro.observacion}
+              onChange={(e) => setNuevoCobro({ ...nuevoCobro, observacion: e.target.value })}
+              placeholder="Observación (opcional)"
+              disabled={loading}
+            />
+          </Field>
+          <Field label="Fecha de cobro">
+            <Input
+              type="date"
+              value={nuevoCobro.fecha_cobro}
+              onChange={(e) => setNuevoCobro({ ...nuevoCobro, fecha_cobro: e.target.value })}
+              disabled={loading}
+            />
+          </Field>
         </div>
-      )}
+      </Sheet>
 
       <Toast toasts={toasts} removeToast={removeToast} />
     </div>

@@ -1,17 +1,24 @@
 import { useEffect, useState, useRef } from 'react';
+import { Users, Pencil, Trash2, PawPrint, Search, X, Plus } from 'lucide-react';
 import {
   listCuidadores,
   createCuidador,
   updateCuidador,
   deleteCuidador,
   getMascotasDeCuidador,
-  asignarMascota, // Importado desde cuidadoresApi para realizar la vinculación
+  asignarMascota,
 } from '../api/cuidadoresApi';
-import { createMascota } from '../api/mascotasApi'; // Importado para registrar la nueva mascota
+import { createMascota } from '../api/mascotasApi';
 import { normalizeListPayload, normalizeMeta } from '../api/normalize';
-import { useToast }  from '../hooks/useToast';
-import { Toast }     from '../components/Toast';
+import { useToast } from '../hooks/useToast';
+import { Toast } from '../components/Toast';
 import EmptyState from '../components/EmptyState';
+import PageHeader from '../components/ui/PageHeader';
+import Field, { Input } from '../components/ui/Field';
+import Button from '../components/ui/Button';
+import Skeleton from '../components/ui/Skeleton';
+import ConfirmSheet from '../components/ui/ConfirmSheet';
+import Sheet from '../components/ui/Sheet';
 import '../index.css';
 
 const EMPTY_FORM = { nombre: '', telefono: '', direccion: '', email: '' };
@@ -20,78 +27,71 @@ const PAGE_SIZE = 20;
 
 export default function CuidadoresPage() {
   // ── Estados Principales de Cuidadores ───────────────────────
-  const [form,           setForm]           = useState(EMPTY_FORM);
-  const [cuidadores,     setCuidadores]     = useState([]);
-  const [meta,           setMeta]           = useState(null);
-  const [page,           setPage]           = useState(1);
-  const [filtro,         setFiltro]         = useState('');
-  const [listLoading,    setListLoading]    = useState(true);
-  const [loadError,      setLoadError]      = useState(null);
-  const [loading,        setLoading]        = useState(false);
+  const [form, setForm] = useState(EMPTY_FORM);
+  const [cuidadores, setCuidadores] = useState([]);
+  const [meta, setMeta] = useState(null);
+  const [page, setPage] = useState(1);
+  const [filtro, setFiltro] = useState('');
+  const [listLoading, setListLoading] = useState(true);
+  const [loadError, setLoadError] = useState(null);
+  const [loading, setLoading] = useState(false);
   const { toasts, addToast, removeToast } = useToast();
-  const [inlineEditId,   setInlineEditId]   = useState(null);
-  const [inlineDraft,    setInlineDraft]    = useState(EMPTY_FORM);
-  const [deleteModalId,  setDeleteModalId]  = useState(null);
+  const [inlineEditId, setInlineEditId] = useState(null);
+  const [inlineDraft, setInlineDraft] = useState(EMPTY_FORM);
+  const [deleteModalId, setDeleteModalId] = useState(null);
+  const [formOpen, setFormOpen] = useState(true);
 
   // ── Estados del Modal de Mascotas y su Formulario Interno ──
-  const [mascotasModal,  setMascotasModal]  = useState(null); // Contiene { id, nombre, mascotas: [] }
-  const [mascotaForm,    setMascotaForm]    = useState(EMPTY_MASCOTA_FORM);
-  const [modalLoading,   setModalLoading]   = useState(false);
-
-  const colWidths = { 'ID': 50, 'Acciones': 210 };
+  const [mascotasModal, setMascotasModal] = useState(null);
+  const [mascotaForm, setMascotaForm] = useState(EMPTY_MASCOTA_FORM);
+  const [modalLoading, setModalLoading] = useState(false);
 
   // ── Constantes de Sugerencias para el Autocompletado ────────
-  const SUGGESTED_ESPECIES = ["Perro", "Gato"];
-  
+  const SUGGESTED_ESPECIES = ['Perro', 'Gato'];
+
   const SUGGESTED_RAZAS = [
-    "Criollo",
-    "Labrador Retriever",
-    "Golden Retriever",
-    "Poodle (Caniche)",
-    "Bulldog Frances",
-    "Bulldog Ingles",
-    "Beagle",
-    "Pinscher",
-    "Schnauzer",
-    "Pastor Aleman",
-    "Shih Tzu",
-    "Yorkshire Terrier",
-    "Pug",
-    "Pitbull",
-    "Siberian Husky",
-    "Boston Terrier",
-    "Chihuahua",
-    "Cocker Spaniel",
-    "Boxer",
-    "Rottweiler",
-    "Border Collie",
-    "Pomerania",
-    "Maltes",
-    "Doberman",
-    "San Bernardo",
-    "Persa",
-    "Siames",
-    "Angora Turco",
-    "Maine Coon",
-    "Bengala (Bengali)",
-    "Azul Ruso",
-    "British Shorthair",
-    "Ragdoll",
-    "Esfinge (Sphynx)",
-    "Himalayo",
-    "Abisinio",
-    "Somali",
-    "Bobtail Japones",
-    "American Shorthair"
+    'Criollo',
+    'Labrador Retriever',
+    'Golden Retriever',
+    'Poodle (Caniche)',
+    'Bulldog Frances',
+    'Bulldog Ingles',
+    'Beagle',
+    'Pinscher',
+    'Schnauzer',
+    'Pastor Aleman',
+    'Shih Tzu',
+    'Yorkshire Terrier',
+    'Pug',
+    'Pitbull',
+    'Siberian Husky',
+    'Boston Terrier',
+    'Chihuahua',
+    'Cocker Spaniel',
+    'Boxer',
+    'Rottweiler',
+    'Border Collie',
+    'Pomerania',
+    'Maltes',
+    'Doberman',
+    'San Bernardo',
+    'Persa',
+    'Siames',
+    'Angora Turco',
+    'Maine Coon',
+    'Bengala (Bengali)',
+    'Azul Ruso',
+    'British Shorthair',
+    'Ragdoll',
+    'Esfinge (Sphynx)',
+    'Himalayo',
+    'Abisinio',
+    'Somali',
+    'Bobtail Japones',
+    'American Shorthair',
   ];
-  
-  const SUGGESTED_TAMANOS = [
-    "Miniatura",
-    "Pequeño",
-    "Mediano",
-    "Grande",
-    "Gigante"
-  ];
+
+  const SUGGESTED_TAMANOS = ['Miniatura', 'Pequeño', 'Mediano', 'Grande', 'Gigante'];
 
   const pageRef = useRef(page);
   const skipPageEffect = useRef(false);
@@ -112,7 +112,9 @@ export default function CuidadoresPage() {
       setMeta(normalizeMeta(res, p, PAGE_SIZE));
     } catch (e) {
       if (fetchId !== fetchIdRef.current) return;
-      const msg = e?.message || 'No se pudo cargar la lista (revisa la sesión o la conexión con el servidor).';
+      const msg =
+        e?.message ||
+        'No se pudo cargar la lista (revisa la sesión o la conexión con el servidor).';
       setLoadError(msg);
       setCuidadores([]);
       setMeta(null);
@@ -124,12 +126,11 @@ export default function CuidadoresPage() {
     }
   }
 
-  // Sub-función para refrescar instantáneamente las mascotas del cuidador abierto en el modal
   async function refreshModalMascotas(cuidadorId) {
     setModalLoading(true);
     try {
       const res = await getMascotasDeCuidador(cuidadorId);
-      setMascotasModal(prev =>
+      setMascotasModal((prev) =>
         prev ? { ...prev, mascotas: normalizeListPayload(res) } : null
       );
     } catch (e) {
@@ -139,7 +140,6 @@ export default function CuidadoresPage() {
     }
   }
 
-  // Efecto para la búsqueda con Debounce (Al escribir)
   useEffect(() => {
     const timer = setTimeout(() => {
       refresh(1, filtro);
@@ -151,7 +151,6 @@ export default function CuidadoresPage() {
     return () => clearTimeout(timer);
   }, [filtro]);
 
-  // Efecto para el cambio de página (Al usar paginación)
   useEffect(() => {
     if (skipPageEffect.current) {
       skipPageEffect.current = false;
@@ -160,8 +159,6 @@ export default function CuidadoresPage() {
     refresh(page, filtro);
   }, [page]);
 
-  // ── ACCIONES ──
-
   async function onSubmit(e) {
     e.preventDefault();
     setLoading(true);
@@ -169,16 +166,16 @@ export default function CuidadoresPage() {
       const { nombre, email, telefono, direccion } = form;
       if (!nombre.trim() || !telefono.trim()) throw new Error('Nombre y teléfono son requeridos');
 
-      await createCuidador({ 
-        nombre: nombre.trim(), 
-        telefono: telefono.trim(), 
-        direccion: direccion.trim(), 
-        email: email.trim() 
+      await createCuidador({
+        nombre: nombre.trim(),
+        telefono: telefono.trim(),
+        direccion: direccion.trim(),
+        email: email.trim(),
       });
-      
+
       addToast('Cuidador guardado correctamente', 'success');
       setForm(EMPTY_FORM);
-      setFiltro(''); // Limpiar filtro al crear para ver el nuevo registro
+      setFiltro('');
       setPage(1);
       await refresh(1, '');
     } catch (e) {
@@ -188,14 +185,13 @@ export default function CuidadoresPage() {
     }
   }
 
-  // ── Edición inline ─────────────────────────────────────────
   function startEdit(c) {
     setInlineEditId(c.id);
     setInlineDraft({
-      nombre:    c.nombre,
-      telefono:  c.telefono  || '',
+      nombre: c.nombre,
+      telefono: c.telefono || '',
       direccion: c.direccion || '',
-      email:     c.email     || '',
+      email: c.email || '',
     });
   }
 
@@ -207,22 +203,20 @@ export default function CuidadoresPage() {
   async function saveEdit(id) {
     setLoading(true);
     try {
-      const nombre   = inlineDraft.nombre.trim();
+      const nombre = inlineDraft.nombre.trim();
       const telefono = inlineDraft.telefono.trim();
-  
-      // 1. Agregamos la validación preventiva
+
       if (!nombre || !telefono) {
         throw new Error('Nombre y teléfono son requeridos para actualizar');
       }
-  
-      // 2. Enviamos los datos (direccion y email pueden ir vacíos)
+
       await updateCuidador(id, {
-        nombre:    nombre,
-        telefono:  telefono,
+        nombre,
+        telefono,
         direccion: inlineDraft.direccion.trim(),
-        email:     inlineDraft.email.trim(),
+        email: inlineDraft.email.trim(),
       });
-  
+
       addToast('Cuidador actualizado correctamente', 'success');
       cancelEdit();
       await refresh();
@@ -233,7 +227,6 @@ export default function CuidadoresPage() {
     }
   }
 
-  // ── Eliminar ───────────────────────────────────────────────
   async function confirmDelete() {
     setLoading(true);
     try {
@@ -251,7 +244,6 @@ export default function CuidadoresPage() {
     }
   }
 
-  // ── Ver mascotas ───────────────────────────────────────────
   async function verMascotas(c) {
     try {
       const res = await getMascotasDeCuidador(c.id);
@@ -265,7 +257,6 @@ export default function CuidadoresPage() {
     }
   }
 
-  // ── Lógica de Creación e Vinculación de Mascotas Interna ──
   async function handleCrearYAsociarMascota(e) {
     e.preventDefault();
     if (loading || modalLoading) return;
@@ -282,7 +273,6 @@ export default function CuidadoresPage() {
 
       setModalLoading(true);
 
-      // Paso 1: Crear la mascota en la base de datos global
       const resMascota = await createMascota({ nombre, especie, raza, tamano });
       const nuevaMascota = resMascota?.data;
 
@@ -290,13 +280,11 @@ export default function CuidadoresPage() {
         throw new Error('No se recibió el identificador de la mascota creada');
       }
 
-      // Paso 2: Vincular la nueva mascota al cuidador actual del modal
       await asignarMascota(mascotasModal.id, nuevaMascota.id);
 
       addToast('Mascota creada y asignada al cuidador correctamente', 'success');
       setMascotaForm(EMPTY_MASCOTA_FORM);
-      
-      // Paso 3: Forzar actualización instantánea del listado interno del modal
+
       await refreshModalMascotas(mascotasModal.id);
     } catch (error) {
       addToast(error?.message || 'Error en el flujo de guardado de mascota', 'error');
@@ -305,299 +293,437 @@ export default function CuidadoresPage() {
     }
   }
 
-  // ── Paginación ─────────────────────────────────────────────
   async function goToPage(p) {
     setPage(p);
   }
 
   return (
-    <div>
-      <h1 className="font-display" style={{ fontSize: 22, fontWeight: 600, marginBottom: 20, color: 'var(--color-entorno)' }}>Cuidadores</h1>
+    <div className="ui-page">
+      <PageHeader
+        title="Cuidadores"
+        subtitle="Registra y gestiona los cuidadores del salón"
+      />
 
       {inlineEditId && (
-        <div style={{ padding: '10px 14px', background: 'var(--bg-highlight)', borderRadius: 6, marginBottom: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <span>Editando cuidador <b>#{inlineEditId}</b> — cancela para crear uno nuevo.</span>
-          <button onClick={cancelEdit} disabled={loading}
-              style={{ fontSize: 12, color: 'var(--color-entorno)', background: 'none', border: '1px solid var(--color-entorno)', borderRadius: 4, padding: '3px 10px', cursor: 'pointer' }}>
-            Cancelar</button>
+        <div className="ui-banner ui-banner--edit">
+          <span>
+            Editando cuidador <b>#{inlineEditId}</b> — cancela para crear uno nuevo.
+          </span>
+          <Button variant="ghost" size="sm" onClick={cancelEdit} disabled={loading}>
+            Cancelar
+          </Button>
         </div>
       )}
 
-      {/* Formulario crear */}
-      <form onSubmit={onSubmit} style={{ display: 'grid', gridTemplateColumns: '120px 1fr', gap: 12, maxWidth: 480 }}>
-        <label htmlFor="cnombre">Nombre<span style={{ color: 'var(--color-entorno)', marginLeft: 2 }}>*</span></label>
-        <input id="cnombre" type="text" value={form.nombre} required
-          disabled={loading || !!inlineEditId}
-          onChange={(e) => setForm(p => ({ ...p, nombre: e.target.value }))} />
+      <div className="ui-accordion">
+        <button
+          type="button"
+          className="ui-accordion__trigger"
+          onClick={() => setFormOpen((v) => !v)}
+          aria-expanded={formOpen}
+        >
+          <span>Nuevo cuidador</span>
+          <span style={{ opacity: 0.7 }}>{formOpen ? '−' : '+'}</span>
+        </button>
+        {formOpen && (
+          <div className="ui-accordion__body">
+            <form className="ui-form" onSubmit={onSubmit} style={{ paddingTop: 16 }}>
+              <div className="ui-form-grid ui-form-grid--2">
+                <Field id="cnombre" label="Nombre" required>
+                  <Input
+                    id="cnombre"
+                    type="text"
+                    value={form.nombre}
+                    required
+                    disabled={loading || !!inlineEditId}
+                    onChange={(e) => setForm((p) => ({ ...p, nombre: e.target.value }))}
+                  />
+                </Field>
+                <Field id="cemail" label="Email">
+                  <Input
+                    id="cemail"
+                    type="email"
+                    value={form.email}
+                    disabled={loading || !!inlineEditId}
+                    onChange={(e) => setForm((p) => ({ ...p, email: e.target.value }))}
+                  />
+                </Field>
+                <Field id="ctelefono" label="Teléfono" required>
+                  <Input
+                    id="ctelefono"
+                    type="text"
+                    value={form.telefono}
+                    required
+                    disabled={loading || !!inlineEditId}
+                    onChange={(e) => setForm((p) => ({ ...p, telefono: e.target.value }))}
+                  />
+                </Field>
+                <Field id="cdireccion" label="Dirección">
+                  <Input
+                    id="cdireccion"
+                    type="text"
+                    value={form.direccion}
+                    disabled={loading || !!inlineEditId}
+                    onChange={(e) => setForm((p) => ({ ...p, direccion: e.target.value }))}
+                  />
+                </Field>
+              </div>
+              <Button
+                type="submit"
+                variant="primary"
+                disabled={loading || !!inlineEditId}
+                block
+              >
+                {loading ? 'Procesando…' : 'Guardar cuidador'}
+              </Button>
+            </form>
+          </div>
+        )}
+      </div>
 
-        <label htmlFor="cemail">Email</label>
-        <input id="cemail" type="email" value={form.email}
-          disabled={loading || !!inlineEditId}
-          onChange={(e) => setForm(p => ({ ...p, email: e.target.value }))} />
-
-        <label htmlFor="ctelefono">Teléfono<span style={{ color: 'var(--color-entorno)', marginLeft: 2 }}>*</span></label>
-        <input id="ctelefono" type="text" value={form.telefono} required
-          disabled={loading || !!inlineEditId}
-          onChange={(e) => setForm(p => ({ ...p, telefono: e.target.value }))} />
-
-        <label htmlFor="cdireccion">Dirección</label>
-        <input id="cdireccion" type="text" value={form.direccion}
-          disabled={loading || !!inlineEditId}
-          onChange={(e) => setForm(p => ({ ...p, direccion: e.target.value }))} />
-
-        <div style={{ gridColumn: '2' }}>
-          <button type="submit" disabled={loading || !!inlineEditId}
-              style={{ fontSize: 12, color: 'var(--color-entorno)', background: 'none', border: '1px solid var(--color-entorno)', borderRadius: 4, padding: '3px 10px', cursor: 'pointer' }}>
-            {loading ? 'Procesando...' : 'Guardar'}
-          </button>
-        </div>
-      </form>
-
-      <hr style={{ margin: '24px 0' }} />
+      <hr className="ui-divider" />
 
       {listLoading ? (
-        <p style={{ textAlign: 'center', padding: '32px 16px', color: 'var(--color-purple-light)', fontSize: 14 }}>
-          Cargando lista de cuidadores…
-        </p>
+        <Skeleton rows={5} />
       ) : loadError ? (
         <EmptyState
-          icon="⚠️"
+          icon={<Users size={24} />}
           title="No se pudo cargar la información"
           description={loadError}
         />
       ) : null}
 
       {!listLoading && !loadError && (
-      <>
-      {/* Buscador */}
-      <div style={{ marginBottom: 16, display: 'flex', alignItems: 'center', gap: 10 }}>
-        <input
-          type="text"
-          placeholder="Buscar por nombre, teléfono o email..."
-          value={filtro}
-          onChange={e => setFiltro(e.target.value)}
-          style={{ padding: '8px 12px', borderRadius: 6, border: '1px solid var(--color-purple-light)', fontSize: 14, width: 280 }}
-        />
-        {filtro && (
-          <button onClick={() => setFiltro('')}
-            style={{ fontSize: 13, color: 'var(--color-entorno)', background: 'none', border: '1px solid var(--color-entorno)', borderRadius: 6, padding: '7px 12px', cursor: 'pointer' }}>
-            Limpiar
-          </button>
-        )}
-        {filtro && meta != null && (
-          <span style={{ fontSize: 13, color: 'var(--color-entorno)' }}>
-            {meta.total} resultado{meta.total !== 1 ? 's' : ''}
-          </span>
-        )}
-      </div>
-
-      {/* Tabla */}
-      {(meta?.total ?? cuidadores.length) === 0 ? (
-        <EmptyState
-          icon="👤"
-          title={filtro ? `Sin resultados para "${filtro}"` : 'No hay cuidadores registrados'}
-          description={filtro ? 'Intenta con otro nombre, teléfono o email' : 'Usa el formulario de arriba para agregar el primer cuidador'}
-        />
-      ) : (
         <>
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontFamily: 'var(--font-fallback)'}}>
-            <thead>
-              <tr style={{ borderBottom: '2px solid var(--color-purple-light)', textAlign: 'left' }}>
-              {['ID', 'Nombre', 'Email', 'Teléfono', 'Dirección', 'Acciones'].map(h => (
-                <th key={h} style={{
-                  padding:    '8px 12px',
-                  fontWeight: 500,
-                  width:      colWidths[h] || 'auto',
-                }}>{h}</th>
-              ))}
-              </tr>
-            </thead>
-            <tbody>
-              {cuidadores.map((c) => (
-                <tr key={c.id} style={{ borderBottom: '1px solid var(--color-purple-light)' }}>
-                  <td style={{ padding: '8px 12px' }}>{c.id}</td>
-
-                  {inlineEditId === c.id ? (
-                    <>
-                      {['nombre', 'email', 'telefono', 'direccion'].map(field => (
-                        <td key={field} style={{ padding: '6px 8px' }}>
-                          <input type="text" value={inlineDraft[field]} disabled={loading}
-                            onChange={(e) => setInlineDraft(p => ({ ...p, [field]: e.target.value }))} />
-                        </td>
-                      ))}
-                      <td style={{ padding: '6px 8px', display: 'flex', gap: 8 }}>
-                        <button onClick={() => saveEdit(c.id)} disabled={loading}
-                          style={{ fontSize: 12, color: 'var(--color-entorno)', background: 'none', border: '1px solid var(--color-entorno)', borderRadius: 4, padding: '3px 10px', cursor: 'pointer' }}>
-                            Guardar</button>
-                        <button onClick={cancelEdit}           disabled={loading}
-                          style={{ fontSize: 12, color: 'var(--color-entorno)', background: 'none', border: '1px solid var(--color-entorno)', borderRadius: 4, padding: '3px 10px', cursor: 'pointer' }}>
-                            Cancelar</button>
-                      </td>
-                    </>
-                  ) : (
-                    <>
-                      <td style={{ padding: '8px 12px' }}>{c.nombre}</td>
-                      <td style={{ padding: '8px 12px' }}>{c.email || '—'}</td>
-                      <td style={{ padding: '8px 12px' }}>{c.telefono}</td>
-                      <td style={{ padding: '8px 12px' }}>{c.direccion || 'No registra'}</td>
-                      
-                      <td style={{ padding: '8px 12px', whiteSpace: 'nowrap' }}>
-                        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'nowrap' }}>
-                          <button
-                            onClick={() => startEdit(c)}
-                            disabled={loading}
-                            style={{ fontSize: 12, color: 'var(--color-entorno)', background: 'none', border: '1px solid var(--color-entorno)', borderRadius: 4, padding: '3px 10px', cursor: 'pointer' }}>
-                            Editar
-                          </button>
-                          <button
-                            onClick={() => verMascotas(c)}
-                            disabled={loading}
-                            style={{ fontSize: 12, color: 'var(--color-entorno)', background: 'none', border: '1px solid var(--color-entorno)', borderRadius: 4, padding: '3px 10px', cursor: 'pointer' }}>
-                            Mascotas
-                          </button>
-                          <button
-                            onClick={() => setDeleteModalId(c.id)}
-                            disabled={loading}
-                            style={{ fontSize: 12, color: 'var(--color-entorno)', background: 'none', border: '1px solid var(--color-purple-light)', borderRadius: 4, padding: '3px 10px', cursor: 'pointer' }}>
-                            Eliminar
-                          </button>
-                        </div>
-                      </td>
-                    </>
-                  )}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-
-          {/* Paginación — Ahora visible siempre que haya más de una página */}
-          {meta && meta.pages > 1 && (
-            <div style={{ display: 'flex', gap: 12, marginTop: 16, alignItems: 'center', color: 'var(--color-entorno)'}}>
-              <button 
-                onClick={() => goToPage(page - 1)}
-                disabled={page === 1 || loading}
-                style={{ background: 'none', padding: '6px 12px', borderRadius: '6px', border: '1px solid var(--color-entorno)', cursor: page === 1 ? 'not-allowed' : 'pointer', color: 'var(--color-entorno)'}}
-              >Anterior</button>
-              <span style={{ fontSize: 14, color: 'var(--color-entorno)'}}>Página {meta.page} de {meta.pages} — {meta.total} registros</span>
-              <button 
-                onClick={() => goToPage(page + 1)} 
-                disabled={page >= meta.pages || loading}
-                style={{ background: 'none', padding: '6px 12px', borderRadius: '6px', border: '1px solid var(--color-entorno)', cursor: page >= meta.pages ? 'not-allowed' : 'pointer', color: 'var(--color-entorno)'}}
-              >Siguiente</button>
+          <div className="ui-toolbar">
+            <div style={{ position: 'relative', flex: 1, minWidth: 0 }}>
+              <Search
+                size={16}
+                style={{
+                  position: 'absolute',
+                  left: 14,
+                  top: '50%',
+                  transform: 'translateY(-50%)',
+                  color: 'var(--color-purple-light)',
+                  pointerEvents: 'none',
+                }}
+              />
+              <Input
+                type="text"
+                placeholder="Buscar por nombre, teléfono o email…"
+                value={filtro}
+                onChange={(e) => setFiltro(e.target.value)}
+                style={{ paddingLeft: 40 }}
+              />
             </div>
+            {filtro && (
+              <Button variant="ghost" size="sm" onClick={() => setFiltro('')}>
+                <X size={16} />
+                Limpiar
+              </Button>
+            )}
+            {filtro && meta != null && (
+              <span className="ui-toolbar__meta">
+                {meta.total} resultado{meta.total !== 1 ? 's' : ''}
+              </span>
+            )}
+          </div>
+
+          {(meta?.total ?? cuidadores.length) === 0 ? (
+            <EmptyState
+              icon={<Users size={24} />}
+              title={filtro ? `Sin resultados para "${filtro}"` : 'No hay cuidadores registrados'}
+              description={
+                filtro
+                  ? 'Intenta con otro nombre, teléfono o email'
+                  : 'Usa el formulario de arriba para agregar el primer cuidador'
+              }
+            />
+          ) : (
+            <>
+              <div className="ui-table-wrap table-scroll">
+                <table className="ui-table">
+                  <thead>
+                    <tr>
+                      {['ID', 'Nombre', 'Email', 'Teléfono', 'Dirección', 'Acciones'].map((h) => (
+                        <th key={h}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {cuidadores.map((c) => (
+                      <tr key={c.id}>
+                        <td className="ui-num">{c.id}</td>
+                        {inlineEditId === c.id ? (
+                          <>
+                            <td>
+                              <Input
+                                type="text"
+                                value={inlineDraft.nombre}
+                                disabled={loading}
+                                onChange={(e) =>
+                                  setInlineDraft((p) => ({ ...p, nombre: e.target.value }))
+                                }
+                              />
+                            </td>
+                            <td>
+                              <Input
+                                type="email"
+                                value={inlineDraft.email}
+                                disabled={loading}
+                                onChange={(e) =>
+                                  setInlineDraft((p) => ({ ...p, email: e.target.value }))
+                                }
+                              />
+                            </td>
+                            <td>
+                              <Input
+                                type="text"
+                                value={inlineDraft.telefono}
+                                disabled={loading}
+                                onChange={(e) =>
+                                  setInlineDraft((p) => ({ ...p, telefono: e.target.value }))
+                                }
+                              />
+                            </td>
+                            <td>
+                              <Input
+                                type="text"
+                                value={inlineDraft.direccion}
+                                disabled={loading}
+                                onChange={(e) =>
+                                  setInlineDraft((p) => ({ ...p, direccion: e.target.value }))
+                                }
+                              />
+                            </td>
+                            <td>
+                              <div className="ui-table__actions">
+                                <Button
+                                  size="sm"
+                                  variant="primary"
+                                  onClick={() => saveEdit(c.id)}
+                                  disabled={loading}
+                                >
+                                  Guardar
+                                </Button>
+                                <Button size="sm" variant="ghost" onClick={cancelEdit} disabled={loading}>
+                                  Cancelar
+                                </Button>
+                              </div>
+                            </td>
+                          </>
+                        ) : (
+                          <>
+                            <td>{c.nombre}</td>
+                            <td>{c.email || '—'}</td>
+                            <td>{c.telefono}</td>
+                            <td>{c.direccion || 'No registra'}</td>
+                            <td>
+                              <div className="ui-table__actions">
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  onClick={() => startEdit(c)}
+                                  disabled={loading}
+                                  aria-label="Editar"
+                                >
+                                  <Pencil size={14} />
+                                  Editar
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  onClick={() => verMascotas(c)}
+                                  disabled={loading}
+                                  aria-label="Mascotas"
+                                >
+                                  <PawPrint size={14} />
+                                  Mascotas
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  onClick={() => setDeleteModalId(c.id)}
+                                  disabled={loading}
+                                  aria-label="Eliminar"
+                                >
+                                  <Trash2 size={14} />
+                                  Eliminar
+                                </Button>
+                              </div>
+                            </td>
+                          </>
+                        )}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              {meta && meta.pages > 1 && (
+                <div className="ui-pagination">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => goToPage(page - 1)}
+                    disabled={page === 1 || loading}
+                  >
+                    Anterior
+                  </Button>
+                  <span className="ui-pagination__label">
+                    Página {meta.page} de {meta.pages} — {meta.total} registros
+                  </span>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => goToPage(page + 1)}
+                    disabled={page >= meta.pages || loading}
+                  >
+                    Siguiente
+                  </Button>
+                </div>
+              )}
+            </>
           )}
         </>
       )}
-      </>
-      )}
 
-      {/* ── MODAL COMPLETO: GESTIÓN Y CREACIÓN DE MASCOTA INTERNA ── */}
-      {mascotasModal && (
-        <div onClick={() => setMascotasModal(null)}
-          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
-          <div onClick={e => e.stopPropagation()}
-            style={{ background: 'var(--color-white)', borderRadius: 8, padding: 24, width: 620, maxWidth: '95%', maxHeight: '90vh', overflowY: 'auto' }}>
-            
-            <h3 style={{ marginTop: 0, color: 'var(--color-entorno)' }}>Mascotas a cargo de: {mascotasModal.nombre}</h3>
-            
-            {/* Formulario Interno para Registrar Nueva Mascota directamente en el Cuidador */}
-            <form onSubmit={handleCrearYAsociarMascota} style={{ background: '#f9f9f9', padding: 14, borderRadius: 6, marginBottom: 20, border: '1px solid var(--color-purple-light)' }}>
-              <h4 style={{ marginTop: 0, marginBottom: 12, fontSize: 14, color: 'var(--color-entorno)' }}>Registrar y asignar nueva mascota</h4>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-                <div>
-                  <label htmlFor="m-nombre" style={{ fontSize: 12, display: 'block', marginBottom: 4 }}>Nombre*</label>
-                  <input id="m-nombre" type="text" style={{ width: '100%', padding: '4px 8px', fontSize: 13 }} value={mascotaForm.nombre} required disabled={modalLoading}
-                    onChange={e => setMascotaForm(p => ({ ...p, nombre: e.target.value }))} />
-                </div>
-                <div>
-                  <label htmlFor="m-especie" style={{ fontSize: 12, display: 'block', marginBottom: 4 }}>Especie*</label>
-                  <input id="m-especie" type="text" list="listado-especies" style={{ width: '100%', padding: '4px 8px', fontSize: 13 }} value={mascotaForm.especie} required disabled={modalLoading}
-                    onChange={e => setMascotaForm(p => ({ ...p, especie: e.target.value }))} />
-                </div>
-                <div>
-                  <label htmlFor="m-raza" style={{ fontSize: 12, display: 'block', marginBottom: 4 }}>Raza*</label>
-                  <input id="m-raza" type="text" list="listado-razas" style={{ width: '100%', padding: '4px 8px', fontSize: 13 }} value={mascotaForm.raza} required disabled={modalLoading}
-                    onChange={e => setMascotaForm(p => ({ ...p, raza: e.target.value }))} />
-                </div>
-                <div>
-                  <label htmlFor="m-tamano" style={{ fontSize: 12, display: 'block', marginBottom: 4 }}>Tamaño*</label>
-                  <input id="m-tamano" type="text" list="listado-tamanos" style={{ width: '100%', padding: '4px 8px', fontSize: 13 }} value={mascotaForm.tamano} required disabled={modalLoading}
-                    onChange={e => setMascotaForm(p => ({ ...p, tamano: e.target.value }))} />
-                </div>
-              </div>
-              <div style={{ marginTop: 12, textAlign: 'right' }}>
-                <button type="submit" disabled={modalLoading}
-                  style={{ fontSize: 12, color: 'var(--color-white)', background: 'var(--color-entorno)', border: 'none', borderRadius: 4, padding: '5px 14px', cursor: modalLoading ? 'not-allowed' : 'pointer' }}>
-                  {modalLoading ? 'Procesando...' : 'Guardar y Asociar'}
-                </button>
-              </div>
-            </form>
+      <ConfirmSheet
+        open={!!deleteModalId}
+        onClose={() => setDeleteModalId(null)}
+        onConfirm={confirmDelete}
+        title="Confirmar eliminación"
+        confirmLabel="Eliminar"
+        loading={loading}
+        danger
+      >
+        ¿Eliminar el cuidador <b>#{deleteModalId}</b>? Sus relaciones con mascotas también se
+        eliminarán.
+      </ConfirmSheet>
 
-            {/* Listado de Mascotas Existentes */}
-            {modalLoading && mascotasModal.mascotas.length === 0 ? (
-              <p style={{ textAlign: 'center', fontSize: 13, color: 'var(--color-purple-light)' }}>Cargando relación de mascotas...</p>
-            ) : mascotasModal.mascotas.length === 0 ? (
-              <p style={{ textAlign: 'center', padding: '16px 0', fontSize: 14, color: 'var(--color-purple-light)' }}>Este cuidador no tiene mascotas asignadas todavía.</p>
-            ) : (
-              <table style={{ width: '100%', borderCollapse: 'collapse', marginTop: 10 }}>
-                <thead>
-                  <tr style={{ borderBottom: '1px solid var(--color-purple-light)', textAlign: 'left', fontSize: 13 }}>
-                    {['ID', 'Nombre', 'Especie', 'Raza', 'Tamaño'].map(th => (
-                      <th key={th} style={{ padding: '6px 8px', fontWeight: 500 }}>{th}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {mascotasModal.mascotas.map(m => (
-                    <tr key={m.id} style={{ borderBottom: '1px solid #eee', fontSize: 13 }}>
-                      <td style={{ padding: '6px 8px' }}>{m.id}</td>
-                      <td style={{ padding: '6px 8px' }}>{m.nombre}</td>
-                      <td style={{ padding: '6px 8px' }}>{m.especie}</td>
-                      <td style={{ padding: '6px 8px' }}>{m.raza}</td>
-                      <td style={{ padding: '6px 8px' }}>{m.tamano}</td>
-                    </tr>
+      <Sheet
+        open={!!mascotasModal}
+        onClose={() => setMascotasModal(null)}
+        title={mascotasModal ? `Mascotas de ${mascotasModal.nombre}` : ''}
+        size="lg"
+        footer={
+          <Button variant="ghost" onClick={() => setMascotasModal(null)}>
+            Cerrar
+          </Button>
+        }
+      >
+        {modalLoading && mascotasModal?.mascotas.length === 0 ? (
+          <Skeleton rows={3} />
+        ) : mascotasModal?.mascotas.length === 0 ? (
+          <EmptyState
+            icon={<PawPrint size={24} />}
+            title="Sin mascotas asignadas"
+            description="Este cuidador no tiene mascotas asignadas todavía."
+          />
+        ) : (
+          <div className="ui-table-wrap table-scroll">
+            <table className="ui-table">
+              <thead>
+                <tr>
+                  {['ID', 'Nombre', 'Especie', 'Raza', 'Tamaño'].map((th) => (
+                    <th key={th}>{th}</th>
                   ))}
-                </tbody>
-              </table>
-            )}
-
-            <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 16 }}>
-              <button onClick={() => setMascotasModal(null)} style={{ padding: '4px 14px', borderRadius: 4, color: 'var(--color-entorno)', border: '1px solid var(--color-entorno)', cursor: 'pointer', background: 'none' }}>Cerrar</button>
-            </div>
+                </tr>
+              </thead>
+              <tbody>
+                {mascotasModal?.mascotas.map((m) => (
+                  <tr key={m.id}>
+                    <td className="ui-num">{m.id}</td>
+                    <td>{m.nombre}</td>
+                    <td>{m.especie}</td>
+                    <td>{m.raza}</td>
+                    <td>{m.tamano}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
-        </div>
-      )}
+        )}
 
-      {/* Modal eliminar */}
-      {deleteModalId && (
-        <div onClick={() => setDeleteModalId(null)}
-          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
-          <div onClick={e => e.stopPropagation()}
-            style={{ background: 'var(--color-white)', borderRadius: 8, padding: 24, width: 380, maxWidth: '90%' }}>
-            <h3 style={{ marginTop: 0 }}>Confirmar eliminación</h3>
-            <p>¿Eliminar el cuidador <b>#{deleteModalId}</b>? Sus relaciones con mascotas también se eliminarán.</p>
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 12 }}>
-              <button onClick={() => setDeleteModalId(null)} disabled={loading}>Cancelar</button>
-              <button onClick={confirmDelete} disabled={loading}
-                style={{ background: 'var(--color-entorno)', color: 'var(--color-white)', border: 'none', padding: '8px 16px', borderRadius: 6, cursor: 'pointer' }}>
-                {loading ? 'Eliminando...' : 'Eliminar'}
-              </button>
-            </div>
+        <hr className="ui-divider" />
+
+        <form className="ui-form" onSubmit={handleCrearYAsociarMascota}>
+          <p
+            style={{
+              margin: '0 0 12px',
+              fontSize: '0.875rem',
+              fontWeight: 500,
+              color: 'var(--color-entorno)',
+            }}
+          >
+            Registrar y asignar nueva mascota
+          </p>
+          <div className="ui-form-grid ui-form-grid--2">
+            <Field id="m-nombre" label="Nombre" required>
+              <Input
+                id="m-nombre"
+                type="text"
+                value={mascotaForm.nombre}
+                required
+                disabled={modalLoading}
+                onChange={(e) => setMascotaForm((p) => ({ ...p, nombre: e.target.value }))}
+              />
+            </Field>
+            <Field id="m-especie" label="Especie" required>
+              <Input
+                id="m-especie"
+                type="text"
+                list="listado-especies"
+                value={mascotaForm.especie}
+                required
+                disabled={modalLoading}
+                onChange={(e) => setMascotaForm((p) => ({ ...p, especie: e.target.value }))}
+              />
+            </Field>
+            <Field id="m-raza" label="Raza" required>
+              <Input
+                id="m-raza"
+                type="text"
+                list="listado-razas"
+                value={mascotaForm.raza}
+                required
+                disabled={modalLoading}
+                onChange={(e) => setMascotaForm((p) => ({ ...p, raza: e.target.value }))}
+              />
+            </Field>
+            <Field id="m-tamano" label="Tamaño" required>
+              <Input
+                id="m-tamano"
+                type="text"
+                list="listado-tamanos"
+                value={mascotaForm.tamano}
+                required
+                disabled={modalLoading}
+                onChange={(e) => setMascotaForm((p) => ({ ...p, tamano: e.target.value }))}
+              />
+            </Field>
           </div>
-        </div>
-      )}
-      
-      {/* Datalists Compartidos de Autocompletado */}
+          <Button type="submit" variant="primary" disabled={modalLoading} block>
+            <Plus size={16} />
+            {modalLoading ? 'Procesando…' : 'Guardar y asociar'}
+          </Button>
+        </form>
+      </Sheet>
+
       <datalist id="listado-especies">
-        {SUGGESTED_ESPECIES.map(opcion => <option key={opcion} value={opcion} />)}
+        {SUGGESTED_ESPECIES.map((opcion) => (
+          <option key={opcion} value={opcion} />
+        ))}
       </datalist>
-
       <datalist id="listado-razas">
-        {SUGGESTED_RAZAS.map(opcion => <option key={opcion} value={opcion} />)}
+        {SUGGESTED_RAZAS.map((opcion) => (
+          <option key={opcion} value={opcion} />
+        ))}
       </datalist>
-      
       <datalist id="listado-tamanos">
-        {SUGGESTED_TAMANOS.map(opcion => <option key={opcion} value={opcion} />)}
+        {SUGGESTED_TAMANOS.map((opcion) => (
+          <option key={opcion} value={opcion} />
+        ))}
       </datalist>
 
       <Toast toasts={toasts} removeToast={removeToast} />
