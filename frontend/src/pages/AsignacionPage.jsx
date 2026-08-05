@@ -8,7 +8,7 @@ import { Toast } from '../components/Toast';
 import { formatFecha } from '../utils/format';
 import EmptyState from '../components/EmptyState';
 import PageHeader from '../components/ui/PageHeader';
-import Field, { Input, Select } from '../components/ui/Field';
+import Field, { Input } from '../components/ui/Field';
 import Button from '../components/ui/Button';
 import Skeleton from '../components/ui/Skeleton';
 import '../index.css';
@@ -24,8 +24,11 @@ export default function AsignacionPage() {
   const [initError, setInitError] = useState(null);
   const [busquedaCuidador, setBusquedaCuidador] = useState('');
   const [listaAbierta, setListaAbierta] = useState(false);
+  const [busquedaMascota, setBusquedaMascota] = useState('');
+  const [listaMascotasAbierta, setListaMascotasAbierta] = useState(false);
   const { toasts, addToast, removeToast } = useToast();
   const buscadorRef = useRef(null);
+  const buscadorMascotaRef = useRef(null);
 
   useEffect(() => {
     async function init() {
@@ -56,6 +59,9 @@ export default function AsignacionPage() {
       if (buscadorRef.current && !buscadorRef.current.contains(e.target)) {
         setListaAbierta(false);
       }
+      if (buscadorMascotaRef.current && !buscadorMascotaRef.current.contains(e.target)) {
+        setListaMascotasAbierta(false);
+      }
     }
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
@@ -71,11 +77,17 @@ export default function AsignacionPage() {
     );
   });
 
+  function limpiarMascotaAsignar() {
+    setMascotaIdAsignar('');
+    setBusquedaMascota('');
+    setListaMascotasAbierta(false);
+  }
+
   async function seleccionarCuidador(c) {
     setCuidadorSel(c);
     setBusquedaCuidador(c.nombre || '');
     setListaAbierta(false);
-    setMascotaIdAsignar('');
+    limpiarMascotaAsignar();
     try {
       const res = await getMascotasDeCuidador(c.id);
       setMascotasSel(normalizeListPayload(res));
@@ -88,13 +100,30 @@ export default function AsignacionPage() {
     setCuidadorSel(null);
     setBusquedaCuidador('');
     setMascotasSel([]);
-    setMascotaIdAsignar('');
+    limpiarMascotaAsignar();
     setListaAbierta(false);
+  }
+
+  function seleccionarMascota(m) {
+    setMascotaIdAsignar(String(m.id));
+    setBusquedaMascota(m.nombre || '');
+    setListaMascotasAbierta(false);
   }
 
   const mascotasNoAsignadas = mascotasDisp.filter(
     (m) => !mascotasSel.some((ms) => ms.id === m.id)
   );
+
+  const mascotasFiltradas = mascotasNoAsignadas.filter((m) => {
+    const q = busquedaMascota.trim().toLowerCase();
+    if (!q) return true;
+    return (
+      (m.nombre || '').toLowerCase().includes(q) ||
+      (m.raza || '').toLowerCase().includes(q) ||
+      (m.especie || '').toLowerCase().includes(q) ||
+      (m.tamano || '').toLowerCase().includes(q)
+    );
+  });
 
   async function handleAsignar() {
     if (!mascotaIdAsignar) return;
@@ -102,7 +131,7 @@ export default function AsignacionPage() {
     try {
       await asignarMascota(cuidadorSel.id, Number(mascotaIdAsignar));
       addToast('Mascota asignada correctamente', 'success');
-      setMascotaIdAsignar('');
+      limpiarMascotaAsignar();
       const res = await getMascotasDeCuidador(cuidadorSel.id);
       setMascotasSel(normalizeListPayload(res));
     } catch (e) {
@@ -168,7 +197,7 @@ export default function AsignacionPage() {
                       if (cuidadorSel && e.target.value !== cuidadorSel.nombre) {
                         setCuidadorSel(null);
                         setMascotasSel([]);
-                        setMascotaIdAsignar('');
+                        limpiarMascotaAsignar();
                       }
                     }}
                     onFocus={() => setListaAbierta(true)}
@@ -244,28 +273,100 @@ export default function AsignacionPage() {
                 </div>
 
                 {mascotasNoAsignadas.length > 0 ? (
-                  <div className="fields-row" style={{ marginBottom: 20 }}>
-                    <Field label="Asignar mascota">
-                      <Select
-                        value={mascotaIdAsignar}
-                        onChange={(e) => setMascotaIdAsignar(e.target.value)}
-                        disabled={loading}
-                      >
-                        <option value="">— Seleccionar mascota para asignar —</option>
-                        {mascotasNoAsignadas.map((m) => (
-                          <option key={m.id} value={m.id}>
-                            {m.nombre} ({m.raza} · {m.tamano})
-                          </option>
-                        ))}
-                      </Select>
-                    </Field>
-                    <Button
-                      variant="primary"
-                      onClick={handleAsignar}
-                      disabled={loading || !mascotaIdAsignar}
+                  <div style={{ marginBottom: 20 }}>
+                    <label className="ui-field__label" htmlFor="buscador-mascota">
+                      Asignar mascota
+                    </label>
+                    <div
+                      className="ui-btn-row"
+                      style={{
+                        marginTop: 6,
+                        alignItems: 'center',
+                        flexWrap: 'nowrap',
+                      }}
                     >
-                      {loading ? '…' : 'Asignar'}
-                    </Button>
+                      <div ref={buscadorMascotaRef} className="ui-combo" style={{ flex: 1, minWidth: 0 }}>
+                        <Input
+                          id="buscador-mascota"
+                          type="text"
+                          role="combobox"
+                          aria-expanded={listaMascotasAbierta}
+                          aria-controls="lista-mascotas-asignar"
+                          aria-autocomplete="list"
+                          placeholder="Buscar por nombre, raza o tamaño…"
+                          value={busquedaMascota}
+                          disabled={loading}
+                          onChange={(e) => {
+                            const value = e.target.value;
+                            setBusquedaMascota(value);
+                            setListaMascotasAbierta(true);
+                            if (mascotaIdAsignar) {
+                              const selected = mascotasNoAsignadas.find(
+                                (m) => String(m.id) === String(mascotaIdAsignar)
+                              );
+                              if (!selected || value !== (selected.nombre || '')) {
+                                setMascotaIdAsignar('');
+                              }
+                            }
+                          }}
+                          onFocus={() => setListaMascotasAbierta(true)}
+                        />
+
+                        {listaMascotasAbierta && (
+                          <ul
+                            id="lista-mascotas-asignar"
+                            role="listbox"
+                            className="ui-combo__list"
+                          >
+                            {mascotasFiltradas.length === 0 ? (
+                              <li
+                                className="ui-combo__item"
+                                style={{ cursor: 'default', color: 'var(--color-purple-light)' }}
+                              >
+                                No se encontraron mascotas
+                              </li>
+                            ) : (
+                              mascotasFiltradas.map((m) => (
+                                <li
+                                  key={m.id}
+                                  role="option"
+                                  aria-selected={String(mascotaIdAsignar) === String(m.id)}
+                                >
+                                  <button
+                                    type="button"
+                                    className={`ui-combo__item${
+                                      String(mascotaIdAsignar) === String(m.id)
+                                        ? ' ui-combo__item--active'
+                                        : ''
+                                    }`}
+                                    onClick={() => seleccionarMascota(m)}
+                                  >
+                                    <div>{m.nombre}</div>
+                                    <div
+                                      style={{
+                                        fontSize: '0.75rem',
+                                        color: 'var(--color-purple-light)',
+                                        fontWeight: 400,
+                                      }}
+                                    >
+                                      {[m.especie, m.raza, m.tamano].filter(Boolean).join(' · ')}
+                                    </div>
+                                  </button>
+                                </li>
+                              ))
+                            )}
+                          </ul>
+                        )}
+                      </div>
+                      <Button
+                        variant="primary"
+                        onClick={handleAsignar}
+                        disabled={loading || !mascotaIdAsignar}
+                        style={{ flexShrink: 0, alignSelf: 'center' }}
+                      >
+                        {loading ? '…' : 'Asignar'}
+                      </Button>
+                    </div>
                   </div>
                 ) : (
                   <div className="ui-banner ui-banner--warn" style={{ marginBottom: 20 }}>

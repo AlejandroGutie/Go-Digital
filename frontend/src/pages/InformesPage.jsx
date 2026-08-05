@@ -146,7 +146,7 @@ export default function InformesPage() {
         <Skeleton rows={6} />
       ) : loadError ? (
         <EmptyState icon={<AlertTriangle size={24} />} title="No se pudo cargar la información" description={loadError} />
-      ) : sinDatos ? (
+      ) : !dashboard ? (
         <EmptyState
           icon={<BarChart3 size={24} />}
           title="No hay datos para mostrar"
@@ -154,17 +154,29 @@ export default function InformesPage() {
         />
       ) : (
         <>
-          <KpiCards kpis={dashboard.kpis} />
+          {sinDatos ? (
+            <EmptyState
+              icon={<BarChart3 size={24} />}
+              title="No hay datos para mostrar"
+              description="Ajusta el rango de fechas o verifica que existan cobros o citas en el período"
+            />
+          ) : (
+            <>
+              <KpiCards kpis={dashboard.kpis} />
 
-          <div className="ui-bento" style={{ marginBottom: 24 }}>
-            <ChartTendencia serie={dashboard.serie} agruparPor={dashboard.agrupar_por} />
-            <ChartPorProfesional rows={dashboard.por_profesional} />
-            <ChartPorTarifa rows={dashboard.por_tarifa} />
-            <ChartPagadoVsPendiente kpis={dashboard.kpis} />
-          </div>
+              <div className="ui-bento" style={{ marginBottom: 24 }}>
+                <ChartTendencia serie={dashboard.serie} agruparPor={dashboard.agrupar_por} />
+                <ChartPorProfesional rows={dashboard.por_profesional} />
+                <ChartPorTarifa rows={dashboard.por_tarifa} />
+                <ChartPagadoVsPendiente kpis={dashboard.kpis} />
+              </div>
+            </>
+          )}
 
-          <TablaProfesionales rows={dashboard.por_profesional} />
-          <TablaMensual rows={dashboard.por_mes} />
+          {/* La tabla siempre responde a filtros superiores + búsqueda/paginación local */}
+          <TablaProfesionales rows={dashboard.por_profesional} filtros={filtros} />
+
+          {!sinDatos && <TablaMensual rows={dashboard.por_mes} />}
 
           <InformesExportBar
             disabled={!dashboard}
