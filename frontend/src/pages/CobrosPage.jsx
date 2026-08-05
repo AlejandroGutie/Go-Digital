@@ -60,10 +60,13 @@ export default function CobrosPage() {
   const [agendas, setAgendas] = useState([]);
   const [tarifas, setTarifas] = useState([]);
   const [nombreMascotaVisible, setNombreMascotaVisible] = useState('');
+  const [busquedaProfFiltro, setBusquedaProfFiltro] = useState('');
+  const [listaProfFiltroAbierta, setListaProfFiltroAbierta] = useState(false);
 
   const pageRef = useRef(page);
   const skipPageEffect = useRef(false);
   const fetchIdRef = useRef(0);
+  const buscadorProfFiltroRef = useRef(null);
 
   useEffect(() => {
     pageRef.current = page;
@@ -106,6 +109,32 @@ export default function CobrosPage() {
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
+    if (!filtros.id_profesional) return;
+    const selected = profesionales.find(
+      (p) => String(p.id) === String(filtros.id_profesional)
+    );
+    if (selected) setBusquedaProfFiltro(selected.nombre || '');
+  }, [filtros.id_profesional, profesionales]);
+
+  useEffect(() => {
+    function handleClickOutside(e) {
+      if (buscadorProfFiltroRef.current && !buscadorProfFiltroRef.current.contains(e.target)) {
+        setListaProfFiltroAbierta(false);
+        if (!filtros.id_profesional) {
+          setBusquedaProfFiltro('');
+        } else {
+          const selected = profesionales.find(
+            (p) => String(p.id) === String(filtros.id_profesional)
+          );
+          setBusquedaProfFiltro(selected?.nombre || '');
+        }
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [filtros.id_profesional, profesionales]);
+
+  useEffect(() => {
     const timer = setTimeout(() => {
       refresh(1, filtros);
       if (pageRef.current !== 1) {
@@ -130,12 +159,43 @@ export default function CobrosPage() {
 
   function limpiarFiltros() {
     setFiltros(EMPTY_FILTROS);
+    setBusquedaProfFiltro('');
+    setListaProfFiltroAbierta(false);
   }
 
   async function recargarTrasMutacion() {
     setFiltros(EMPTY_FILTROS);
+    setBusquedaProfFiltro('');
+    setListaProfFiltroAbierta(false);
     setPage(1);
     await refresh(1, EMPTY_FILTROS);
+  }
+
+  const TODOS_PROF_LABEL = 'Todos los profesionales';
+
+  const profesionalesFiltroFiltrados = profesionales.filter((p) => {
+    const q = busquedaProfFiltro.trim().toLowerCase();
+    if (!q) return true;
+    return (
+      (p.nombre || '').toLowerCase().includes(q) ||
+      (p.telefono || '').toLowerCase().includes(q)
+    );
+  });
+
+  const mostrarOpcionTodosProf =
+    !busquedaProfFiltro.trim() ||
+    TODOS_PROF_LABEL.toLowerCase().includes(busquedaProfFiltro.trim().toLowerCase());
+
+  function seleccionarProfFiltroTodos() {
+    setFiltros({ ...filtros, id_profesional: '' });
+    setBusquedaProfFiltro('');
+    setListaProfFiltroAbierta(false);
+  }
+
+  function seleccionarProfFiltro(p) {
+    setFiltros({ ...filtros, id_profesional: String(p.id) });
+    setBusquedaProfFiltro(p.nombre || '');
+    setListaProfFiltroAbierta(false);
   }
 
   const handleProfesionalChange = async (id_profesional) => {
@@ -272,7 +332,7 @@ export default function CobrosPage() {
       {!listLoading && !loadError && (
         <>
           <div className="ui-card" style={{ marginBottom: 16 }}>
-            <div className="fields-row">
+            <div className="fields-row fields-row--end">
               <Field label="Estado">
                 <Select
                   value={filtros.estado}
@@ -284,18 +344,85 @@ export default function CobrosPage() {
                   <option value="anulado">Anulado</option>
                 </Select>
               </Field>
-              <Field label="Profesional">
-                <Select
-                  value={filtros.id_profesional}
-                  onChange={(e) => setFiltros({ ...filtros, id_profesional: e.target.value })}
-                >
-                  <option value="">Todos los profesionales</option>
-                  {profesionales.map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {p.nombre}
-                    </option>
-                  ))}
-                </Select>
+              <Field id="filtro-profesional-cobros" label="Profesional">
+                <div ref={buscadorProfFiltroRef} className="ui-combo">
+                  <Input
+                    id="filtro-profesional-cobros"
+                    type="text"
+                    role="combobox"
+                    aria-expanded={listaProfFiltroAbierta}
+                    aria-controls="lista-profesionales-cobros"
+                    aria-autocomplete="list"
+                    placeholder="Buscar por nombre o teléfono…"
+                    value={busquedaProfFiltro}
+                    onChange={(e) => {
+                      setBusquedaProfFiltro(e.target.value);
+                      setListaProfFiltroAbierta(true);
+                    }}
+                    onFocus={() => setListaProfFiltroAbierta(true)}
+                    aria-label="Buscar profesional"
+                  />
+
+                  {listaProfFiltroAbierta && (
+                    <ul
+                      id="lista-profesionales-cobros"
+                      role="listbox"
+                      className="ui-combo__list"
+                    >
+                      {mostrarOpcionTodosProf && (
+                        <li role="option" aria-selected={!filtros.id_profesional}>
+                          <button
+                            type="button"
+                            className={`ui-combo__item${!filtros.id_profesional ? ' ui-combo__item--active' : ''}`}
+                            onClick={seleccionarProfFiltroTodos}
+                          >
+                            {TODOS_PROF_LABEL}
+                          </button>
+                        </li>
+                      )}
+
+                      {profesionalesFiltroFiltrados.length === 0 && !mostrarOpcionTodosProf ? (
+                        <li
+                          className="ui-combo__item"
+                          style={{ cursor: 'default', color: 'var(--color-purple-light)' }}
+                        >
+                          No se encontraron profesionales
+                        </li>
+                      ) : (
+                        profesionalesFiltroFiltrados.map((p) => (
+                          <li
+                            key={p.id}
+                            role="option"
+                            aria-selected={String(filtros.id_profesional) === String(p.id)}
+                          >
+                            <button
+                              type="button"
+                              className={`ui-combo__item${
+                                String(filtros.id_profesional) === String(p.id)
+                                  ? ' ui-combo__item--active'
+                                  : ''
+                              }`}
+                              onClick={() => seleccionarProfFiltro(p)}
+                            >
+                              <div>{p.nombre}</div>
+                              {p.telefono ? (
+                                <div
+                                  style={{
+                                    fontSize: '0.75rem',
+                                    color: 'var(--color-purple-light)',
+                                    fontWeight: 400,
+                                  }}
+                                >
+                                  {p.telefono}
+                                </div>
+                              ) : null}
+                            </button>
+                          </li>
+                        ))
+                      )}
+                    </ul>
+                  )}
+                </div>
               </Field>
               <Field label="Desde">
                 <Input
@@ -312,12 +439,14 @@ export default function CobrosPage() {
                 />
               </Field>
               {hayFiltros && (
-                <Button variant="ghost" onClick={limpiarFiltros}>
-                  Limpiar
-                </Button>
+                <div className="fields-row__action">
+                  <Button variant="ghost" onClick={limpiarFiltros}>
+                    Limpiar
+                  </Button>
+                </div>
               )}
               {hayFiltros && meta != null && (
-                <span className="ui-toolbar__meta">
+                <span className="ui-toolbar__meta fields-row__meta">
                   {meta.total} resultado{meta.total !== 1 ? 's' : ''}
                 </span>
               )}

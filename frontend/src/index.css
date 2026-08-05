@@ -83,6 +83,70 @@ body {
   box-sizing: border-box;
 }
 
+/* Filtros con labels: alinear botón Limpiar a la base de los inputs */
+.fields-row--end {
+  align-items: flex-end;
+}
+
+.fields-row__action {
+  display: flex;
+  flex: 0 0 auto;
+  align-self: flex-end;
+}
+
+.fields-row__action > .ui-btn {
+  box-sizing: border-box;
+  min-height: var(--touch-min, 44px);
+  height: var(--touch-min, 44px);
+  padding-top: 0;
+  padding-bottom: 0;
+  white-space: nowrap;
+}
+
+.fields-row__meta {
+  align-self: flex-end;
+  padding-bottom: 12px;
+  white-space: nowrap;
+}
+
+/* Formulario de agendas: 2 filas; botón alineado a la base de los inputs */
+.agenda-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 100%;
+  min-width: 0;
+}
+
+.agenda-form__row {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: flex-end;
+  gap: 10px;
+  width: 100%;
+  min-width: 0;
+}
+
+.agenda-form__row > .ui-field {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+.agenda-form__action {
+  display: flex;
+  flex: 0 0 auto;
+  align-self: flex-end;
+}
+
+.agenda-form__action > .ui-btn {
+  box-sizing: border-box;
+  min-height: var(--touch-min, 44px);
+  height: var(--touch-min, 44px);
+  padding-top: 0;
+  padding-bottom: 0;
+  white-space: nowrap;
+}
+
 .table-scroll {
   width: 100%;
   max-width: 100%;
@@ -205,6 +269,41 @@ body {
 
   .fields-row > button {
     min-height: 44px !important;
+  }
+
+  .fields-row__action {
+    width: 100% !important;
+    align-self: stretch !important;
+  }
+
+  .fields-row__action > .ui-btn {
+    width: 100% !important;
+    min-height: 44px !important;
+    height: auto !important;
+  }
+
+  .fields-row__meta {
+    padding-bottom: 0 !important;
+    align-self: flex-start !important;
+  }
+
+  .agenda-form__row {
+    flex-wrap: wrap !important;
+    flex-direction: column !important;
+    align-items: stretch !important;
+  }
+
+  .agenda-form__row > .ui-field,
+  .agenda-form__action {
+    width: 100% !important;
+    flex: none !important;
+    align-self: stretch !important;
+  }
+
+  .agenda-form__action > .ui-btn {
+    width: 100% !important;
+    min-height: 44px !important;
+    height: auto !important;
   }
 
   /* Contenedor con scroll horizontal para tablas */

@@ -9,7 +9,7 @@ import { Toast } from '../components/Toast';
 import { formatFecha, formatHora, toDateOnly } from '../utils/format';
 import EmptyState from '../components/EmptyState';
 import PageHeader from '../components/ui/PageHeader';
-import Field, { Input, Select } from '../components/ui/Field';
+import Field, { Input } from '../components/ui/Field';
 import Button from '../components/ui/Button';
 import Skeleton from '../components/ui/Skeleton';
 import '../index.css';
@@ -63,8 +63,11 @@ export default function AgendasPage() {
   const [initError, setInitError] = useState(null);
   const [busquedaProf, setBusquedaProf] = useState('');
   const [listaAbierta, setListaAbierta] = useState(false);
+  const [busquedaMascota, setBusquedaMascota] = useState('');
+  const [listaMascotasAbierta, setListaMascotasAbierta] = useState(false);
   const { toasts, addToast, removeToast } = useToast();
   const buscadorRef = useRef(null);
+  const buscadorMascotaRef = useRef(null);
 
   useEffect(() => {
     async function init() {
@@ -95,6 +98,9 @@ export default function AgendasPage() {
       if (buscadorRef.current && !buscadorRef.current.contains(e.target)) {
         setListaAbierta(false);
       }
+      if (buscadorMascotaRef.current && !buscadorMascotaRef.current.contains(e.target)) {
+        setListaMascotasAbierta(false);
+      }
     }
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
@@ -109,11 +115,34 @@ export default function AgendasPage() {
     );
   });
 
+  const mascotasFiltradas = mascotas.filter((m) => {
+    const q = busquedaMascota.trim().toLowerCase();
+    if (!q) return true;
+    return (
+      (m.nombre || '').toLowerCase().includes(q) ||
+      (m.especie || '').toLowerCase().includes(q) ||
+      (m.raza || '').toLowerCase().includes(q) ||
+      (m.tamano || '').toLowerCase().includes(q)
+    );
+  });
+
+  function limpiarMascotaSeleccion() {
+    setMascotaId('');
+    setBusquedaMascota('');
+    setListaMascotasAbierta(false);
+  }
+
+  function seleccionarMascota(m) {
+    setMascotaId(String(m.id));
+    setBusquedaMascota(m.nombre || '');
+    setListaMascotasAbierta(false);
+  }
+
   async function seleccionarProfesional(p) {
     setProfSel(p);
     setBusquedaProf(p.nombre || '');
     setListaAbierta(false);
-    setMascotaId('');
+    limpiarMascotaSeleccion();
     setFecha('');
     setHoraInicio('');
     setHoraFin('');
@@ -129,7 +158,7 @@ export default function AgendasPage() {
     setProfSel(null);
     setBusquedaProf('');
     setCitas([]);
-    setMascotaId('');
+    limpiarMascotaSeleccion();
     setFecha('');
     setHoraInicio('');
     setHoraFin('');
@@ -164,7 +193,7 @@ export default function AgendasPage() {
         hora_fin: horaFin,
       });
       addToast('Cita agendada correctamente', 'success');
-      setMascotaId('');
+      limpiarMascotaSeleccion();
       setFecha('');
       setHoraInicio('');
       setHoraFin('');
@@ -264,7 +293,7 @@ export default function AgendasPage() {
                       if (profSel && e.target.value !== profSel.nombre) {
                         setProfSel(null);
                         setCitas([]);
-                        setMascotaId('');
+                        limpiarMascotaSeleccion();
                         setFecha('');
                         setHoraInicio('');
                         setHoraFin('');
@@ -348,57 +377,129 @@ export default function AgendasPage() {
 
                 {mascotas.length > 0 ? (
                   <div style={{ marginBottom: 20 }}>
-                    <div className="fields-row">
-                      <Field label="Mascota">
-                        <Select
-                          value={mascotaId}
-                          onChange={(e) => setMascotaId(e.target.value)}
-                          disabled={loading}
-                        >
-                          <option value="">— Mascota —</option>
-                          {mascotas.map((m) => (
-                            <option key={m.id} value={m.id}>
-                              {m.nombre} ({m.raza} · {m.tamano})
-                            </option>
-                          ))}
-                        </Select>
-                      </Field>
-                      <Field label="Fecha">
-                        <Input
-                          type="date"
-                          value={fecha}
-                          onChange={(e) => setFecha(e.target.value)}
-                          disabled={loading}
-                          style={franjaOcupada ? inputErrorStyle : undefined}
-                        />
-                      </Field>
-                      <Field label="Inicio">
-                        <Input
-                          type="time"
-                          value={horaInicio}
-                          onChange={(e) => setHoraInicio(e.target.value)}
-                          disabled={loading}
-                          title="Hora inicio"
-                          style={franjaOcupada || horaFinInvalida ? inputErrorStyle : undefined}
-                        />
-                      </Field>
-                      <Field label="Fin">
-                        <Input
-                          type="time"
-                          value={horaFin}
-                          onChange={(e) => setHoraFin(e.target.value)}
-                          disabled={loading}
-                          title="Hora final"
-                          style={franjaOcupada || horaFinInvalida ? inputErrorStyle : undefined}
-                        />
-                      </Field>
-                      <Button
-                        variant="primary"
-                        onClick={handleAgendar}
-                        disabled={loading || !puedeAgendar}
-                      >
-                        {loading ? '…' : franjaOcupada ? 'Cita ocupada' : 'Agendar'}
-                      </Button>
+                    <div className="agenda-form">
+                      <div className="agenda-form__row">
+                        <Field id="buscador-mascota" label="Mascota">
+                          <div ref={buscadorMascotaRef} className="ui-combo">
+                            <Input
+                              id="buscador-mascota"
+                              type="text"
+                              role="combobox"
+                              aria-expanded={listaMascotasAbierta}
+                              aria-controls="lista-mascotas"
+                              aria-autocomplete="list"
+                              placeholder="Buscar por nombre, raza o especie…"
+                              value={busquedaMascota}
+                              disabled={loading}
+                              onChange={(e) => {
+                                const value = e.target.value;
+                                setBusquedaMascota(value);
+                                setListaMascotasAbierta(true);
+                                if (mascotaId) {
+                                  const selected = mascotas.find(
+                                    (m) => String(m.id) === String(mascotaId)
+                                  );
+                                  if (!selected || value !== (selected.nombre || '')) {
+                                    setMascotaId('');
+                                  }
+                                }
+                              }}
+                              onFocus={() => setListaMascotasAbierta(true)}
+                            />
+
+                            {listaMascotasAbierta && (
+                              <ul
+                                id="lista-mascotas"
+                                role="listbox"
+                                className="ui-combo__list"
+                              >
+                                {mascotasFiltradas.length === 0 ? (
+                                  <li
+                                    className="ui-combo__item"
+                                    style={{
+                                      cursor: 'default',
+                                      color: 'var(--color-purple-light)',
+                                    }}
+                                  >
+                                    No se encontraron mascotas
+                                  </li>
+                                ) : (
+                                  mascotasFiltradas.map((m) => (
+                                    <li
+                                      key={m.id}
+                                      role="option"
+                                      aria-selected={String(mascotaId) === String(m.id)}
+                                    >
+                                      <button
+                                        type="button"
+                                        className={`ui-combo__item${
+                                          String(mascotaId) === String(m.id)
+                                            ? ' ui-combo__item--active'
+                                            : ''
+                                        }`}
+                                        onClick={() => seleccionarMascota(m)}
+                                      >
+                                        <div>{m.nombre}</div>
+                                        <div
+                                          style={{
+                                            fontSize: '0.75rem',
+                                            color: 'var(--color-purple-light)',
+                                            fontWeight: 400,
+                                          }}
+                                        >
+                                          {[m.especie, m.raza, m.tamano]
+                                            .filter(Boolean)
+                                            .join(' · ')}
+                                        </div>
+                                      </button>
+                                    </li>
+                                  ))
+                                )}
+                              </ul>
+                            )}
+                          </div>
+                        </Field>
+                        <Field label="Fecha">
+                          <Input
+                            type="date"
+                            value={fecha}
+                            onChange={(e) => setFecha(e.target.value)}
+                            disabled={loading}
+                            style={franjaOcupada ? inputErrorStyle : undefined}
+                          />
+                        </Field>
+                      </div>
+                      <div className="agenda-form__row agenda-form__row--times">
+                        <Field label="Inicio">
+                          <Input
+                            type="time"
+                            value={horaInicio}
+                            onChange={(e) => setHoraInicio(e.target.value)}
+                            disabled={loading}
+                            title="Hora inicio"
+                            style={franjaOcupada || horaFinInvalida ? inputErrorStyle : undefined}
+                          />
+                        </Field>
+                        <Field label="Fin">
+                          <Input
+                            type="time"
+                            value={horaFin}
+                            onChange={(e) => setHoraFin(e.target.value)}
+                            disabled={loading}
+                            title="Hora final"
+                            style={franjaOcupada || horaFinInvalida ? inputErrorStyle : undefined}
+                          />
+                        </Field>
+                        <div className="agenda-form__action">
+                          <Button
+                            variant="primary"
+                            onClick={handleAgendar}
+                            disabled={loading || !puedeAgendar}
+                          >
+                            {loading ? '…' : franjaOcupada ? 'Cita ocupada' : 'Agendar'}
+                          </Button>
+                        </div>
+                      </div>
                     </div>
 
                     {horaFinInvalida && (
