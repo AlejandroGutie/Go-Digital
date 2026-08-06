@@ -7,12 +7,26 @@ import {
   pageRange,
   escapeIlike,
 } from '../lib/apiResponse';
+import { hoyLocalISO, toDateOnly } from '../utils/format';
+
+const MASCOTA_COLUMNS = 'id, nombre, especie, raza, tamano, fecha_nacimiento';
+
+function normalizeFechaNacimiento(valor) {
+  const fecha = toDateOnly(valor);
+  if (!fecha) {
+    throw new Error('La fecha de nacimiento es requerida');
+  }
+  if (fecha > hoyLocalISO()) {
+    throw new Error('La fecha de nacimiento no puede ser futura');
+  }
+  return fecha;
+}
 
 export async function listMascotas(page = 1, limit = 20, search = '') {
   const { from, to, page: p, limit: l } = pageRange(page, limit);
   let query = supabase
     .from('mascota')
-    .select('id, nombre, especie, raza, tamano', { count: 'exact' })
+    .select(MASCOTA_COLUMNS, { count: 'exact' })
     .order('id');
 
   const term = search?.trim();
@@ -29,7 +43,7 @@ export async function listMascotas(page = 1, limit = 20, search = '') {
 export async function getMascotaById(id) {
   const { data, error } = await supabase
     .from('mascota')
-    .select('id, nombre, especie, raza, tamano')
+    .select(MASCOTA_COLUMNS)
     .eq('id', id)
     .single();
   throwIfError(error, 'Error al obtener la mascota');
@@ -41,13 +55,14 @@ export async function createMascota(payload) {
   const especie = payload.especie?.trim();
   const raza = payload.raza?.trim();
   const tamano = payload.tamano?.trim();
+  const fecha_nacimiento = normalizeFechaNacimiento(payload.fecha_nacimiento);
   if (!nombre || !especie || !raza || !tamano) {
     throw new Error('Faltan campos requeridos');
   }
 
   const { data, error } = await supabase
     .from('mascota')
-    .insert({ nombre, especie, raza, tamano })
+    .insert({ nombre, especie, raza, tamano, fecha_nacimiento })
     .select()
     .single();
   throwIfError(error, 'Error al guardar la mascota');
@@ -60,6 +75,9 @@ export async function updateMascota(id, payload) {
   if (payload.especie?.trim()) patch.especie = payload.especie.trim();
   if (payload.raza?.trim()) patch.raza = payload.raza.trim();
   if (payload.tamano?.trim()) patch.tamano = payload.tamano.trim();
+  if (Object.prototype.hasOwnProperty.call(payload, 'fecha_nacimiento')) {
+    patch.fecha_nacimiento = normalizeFechaNacimiento(payload.fecha_nacimiento);
+  }
   if (Object.keys(patch).length === 0) {
     throw new Error('No hay campos para actualizar');
   }

@@ -14,15 +14,22 @@ import { useToast } from '../hooks/useToast';
 import { Toast } from '../components/Toast';
 import EmptyState from '../components/EmptyState';
 import PageHeader from '../components/ui/PageHeader';
-import Field, { Input } from '../components/ui/Field';
+import Field, { DateInput, Input } from '../components/ui/Field';
 import Button from '../components/ui/Button';
 import Skeleton from '../components/ui/Skeleton';
 import ConfirmSheet from '../components/ui/ConfirmSheet';
 import Sheet from '../components/ui/Sheet';
+import { formatFecha, hoyLocalISO, toDateOnly } from '../utils/format';
 import '../index.css';
 
 const EMPTY_FORM = { nombre: '', telefono: '', direccion: '', email: '' };
-const EMPTY_MASCOTA_FORM = { nombre: '', especie: '', raza: '', tamano: '' };
+const EMPTY_MASCOTA_FORM = {
+  nombre: '',
+  especie: '',
+  raza: '',
+  tamano: '',
+  fecha_nacimiento: '',
+};
 const PAGE_SIZE = 20;
 
 export default function CuidadoresPage() {
@@ -265,15 +272,25 @@ export default function CuidadoresPage() {
     const especie = mascotaForm.especie.trim();
     const raza = mascotaForm.raza.trim();
     const tamano = mascotaForm.tamano.trim();
+    const fecha_nacimiento = toDateOnly(mascotaForm.fecha_nacimiento);
 
     try {
-      if (!nombre || !especie || !raza || !tamano) {
+      if (!nombre || !especie || !raza || !tamano || !fecha_nacimiento) {
         throw new Error('Todos los campos de la mascota son requeridos');
+      }
+      if (fecha_nacimiento > hoyLocalISO()) {
+        throw new Error('La fecha de nacimiento no puede ser futura');
       }
 
       setModalLoading(true);
 
-      const resMascota = await createMascota({ nombre, especie, raza, tamano });
+      const resMascota = await createMascota({
+        nombre,
+        especie,
+        raza,
+        tamano,
+        fecha_nacimiento,
+      });
       const nuevaMascota = resMascota?.data;
 
       if (!nuevaMascota?.id) {
@@ -625,9 +642,11 @@ export default function CuidadoresPage() {
             <table className="ui-table">
               <thead>
                 <tr>
-                  {['ID', 'Nombre', 'Especie', 'Raza', 'Tamaño'].map((th) => (
-                    <th key={th}>{th}</th>
-                  ))}
+                  {['ID', 'Nombre', 'Especie', 'Raza', 'Tamaño', 'Fecha de Nacimiento'].map(
+                    (th) => (
+                      <th key={th}>{th}</th>
+                    )
+                  )}
                 </tr>
               </thead>
               <tbody>
@@ -638,6 +657,7 @@ export default function CuidadoresPage() {
                     <td>{m.especie}</td>
                     <td>{m.raza}</td>
                     <td>{m.tamano}</td>
+                    <td>{formatFecha(m.fecha_nacimiento)}</td>
                   </tr>
                 ))}
               </tbody>
@@ -700,6 +720,18 @@ export default function CuidadoresPage() {
                 required
                 disabled={modalLoading}
                 onChange={(e) => setMascotaForm((p) => ({ ...p, tamano: e.target.value }))}
+              />
+            </Field>
+            <Field id="m-fecha_nacimiento" label="Fecha de Nacimiento" required>
+              <DateInput
+                id="m-fecha_nacimiento"
+                value={mascotaForm.fecha_nacimiento}
+                required
+                max={hoyLocalISO()}
+                disabled={modalLoading}
+                onChange={(e) =>
+                  setMascotaForm((p) => ({ ...p, fecha_nacimiento: e.target.value }))
+                }
               />
             </Field>
           </div>

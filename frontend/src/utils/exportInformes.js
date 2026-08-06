@@ -180,9 +180,9 @@ function headStylesFromBrand() {
 export function exportDashboardCSV(dashboard, filtros) {
   const lines = [];
   lines.push('INFORME FINANCIERO');
-  lines.push(`Generado,${hoyLocalISO()}`);
-  lines.push(`Desde,${filtros.fecha_desde || ''}`);
-  lines.push(`Hasta,${filtros.fecha_hasta || ''}`);
+  lines.push(`Generado,${formatFecha(hoyLocalISO())}`);
+  lines.push(`Desde,${filtros.fecha_desde ? formatFecha(filtros.fecha_desde) : ''}`);
+  lines.push(`Hasta,${filtros.fecha_hasta ? formatFecha(filtros.fecha_hasta) : ''}`);
   lines.push(`Profesional,${filtros.id_profesional || 'Todos'}`);
   lines.push(`Estado,${filtros.estado || 'Todos'}`);
   lines.push('');
@@ -259,7 +259,9 @@ export function exportAgendaCSV(rows, filtros) {
 }
 
 function toCsvDate(f) {
-  return f || '';
+  if (!f) return '';
+  const formatted = formatFecha(f);
+  return formatted === '—' ? '' : formatted;
 }
 
 function drawReportTitle(doc, title, subtitleLines, startY) {
@@ -294,8 +296,8 @@ export async function exportDashboardPDF(dashboard, filtros) {
     doc,
     'Informe financiero',
     [
-      `Generado: ${hoyLocalISO()}`,
-      `Periodo: ${filtros.fecha_desde || '—'} a ${filtros.fecha_hasta || '—'}`,
+      `Generado: ${formatFecha(hoyLocalISO())}`,
+      `Periodo: ${filtros.fecha_desde ? formatFecha(filtros.fecha_desde) : '—'} a ${filtros.fecha_hasta ? formatFecha(filtros.fecha_hasta) : '—'}`,
       `Profesional: ${filtros.id_profesional || 'Todos'} | Estado: ${filtros.estado || 'Todos'}`,
     ],
     LETTERHEAD_HEIGHT + 8
@@ -371,7 +373,7 @@ export async function exportAgendaPDF(rows, filtros) {
     doc,
     'Informe de agendas',
     [
-      `Periodo: ${filtros.fecha_desde || '—'} a ${filtros.fecha_hasta || '—'} | Generado: ${hoyLocalISO()}`,
+      `Periodo: ${filtros.fecha_desde ? formatFecha(filtros.fecha_desde) : '—'} a ${filtros.fecha_hasta ? formatFecha(filtros.fecha_hasta) : '—'} | Generado: ${formatFecha(hoyLocalISO())}`,
       `Profesional: ${filtros.id_profesional || 'Todos'}`,
     ],
     LETTERHEAD_HEIGHT + 8

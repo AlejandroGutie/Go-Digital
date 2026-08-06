@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { PRESETS_INFORMES } from '../../utils/dateRanges';
-import Field, { Input, Select } from '../ui/Field';
+import Field, { DateInput, Input, Select } from '../ui/Field';
 import Button from '../ui/Button';
 
 const TODOS_LABEL = 'Todos los profesionales';
@@ -101,8 +101,7 @@ export default function InformesFiltros({
 
       <div className="fields-row">
         <Field label="Desde">
-          <Input
-            type="date"
+          <DateInput
             value={filtros.fecha_desde}
             onChange={(e) =>
               onChange({ ...filtros, fecha_desde: e.target.value, preset: 'personalizado' })
@@ -111,8 +110,7 @@ export default function InformesFiltros({
           />
         </Field>
         <Field label="Hasta">
-          <Input
-            type="date"
+          <DateInput
             value={filtros.fecha_hasta}
             onChange={(e) =>
               onChange({ ...filtros, fecha_hasta: e.target.value, preset: 'personalizado' })

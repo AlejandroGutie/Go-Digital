@@ -10,7 +10,7 @@ import { Toast } from '../components/Toast';
 import { formatFecha, hoyLocalISO } from '../utils/format';
 import EmptyState from '../components/EmptyState';
 import PageHeader from '../components/ui/PageHeader';
-import Field, { Input, Select, Textarea } from '../components/ui/Field';
+import Field, { DateInput, Input, Select, Textarea } from '../components/ui/Field';
 import Button from '../components/ui/Button';
 import Skeleton from '../components/ui/Skeleton';
 import Sheet from '../components/ui/Sheet';
@@ -425,15 +425,13 @@ export default function CobrosPage() {
                 </div>
               </Field>
               <Field label="Desde">
-                <Input
-                  type="date"
+                <DateInput
                   value={filtros.fecha_desde}
                   onChange={(e) => setFiltros({ ...filtros, fecha_desde: e.target.value })}
                 />
               </Field>
               <Field label="Hasta">
-                <Input
-                  type="date"
+                <DateInput
                   value={filtros.fecha_hasta}
                   onChange={(e) => setFiltros({ ...filtros, fecha_hasta: e.target.value })}
                 />
@@ -634,8 +632,7 @@ export default function CobrosPage() {
             />
           </Field>
           <Field label="Fecha de cobro">
-            <Input
-              type="date"
+            <DateInput
               value={nuevoCobro.fecha_cobro}
               onChange={(e) => setNuevoCobro({ ...nuevoCobro, fecha_cobro: e.target.value })}
               disabled={loading}

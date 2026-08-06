@@ -235,7 +235,8 @@ body {
   /* iOS/Safari: date/time tienen min-content ~140–180px y desbordan */
   main input[type="date"],
   main input[type="time"],
-  main input[type="datetime-local"] {
+  main input[type="datetime-local"],
+  main .ui-date-input {
     min-height: 44px !important;
     width: 100% !important;
     max-width: 100% !important;

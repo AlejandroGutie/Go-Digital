@@ -93,7 +93,9 @@ export async function deleteCuidador(id) {
 export async function getMascotasDeCuidador(id) {
   const { data, error } = await supabase
     .from('cuidador_mascota')
-    .select('fecha_inicio, activo, mascota(id, nombre, especie, raza, tamano)')
+    .select(
+      'fecha_inicio, activo, mascota(id, nombre, especie, raza, tamano, fecha_nacimiento)'
+    )
     .eq('id_cuidador', id)
     .order('fecha_inicio', { ascending: false });
   throwIfError(error, 'Error al obtener mascotas del cuidador');
@@ -104,6 +106,7 @@ export async function getMascotasDeCuidador(id) {
     especie: row.mascota?.especie,
     raza: row.mascota?.raza,
     tamano: row.mascota?.tamano,
+    fecha_nacimiento: row.mascota?.fecha_nacimiento,
     fecha_inicio: row.fecha_inicio,
     activo: row.activo,
   }));

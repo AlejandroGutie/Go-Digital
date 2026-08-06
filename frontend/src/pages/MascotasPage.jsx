@@ -11,13 +11,20 @@ import { useToast } from '../hooks/useToast';
 import { Toast } from '../components/Toast';
 import EmptyState from '../components/EmptyState';
 import PageHeader from '../components/ui/PageHeader';
-import Field, { Input } from '../components/ui/Field';
+import Field, { DateInput, Input } from '../components/ui/Field';
 import Button from '../components/ui/Button';
 import Skeleton from '../components/ui/Skeleton';
 import ConfirmSheet from '../components/ui/ConfirmSheet';
+import { formatFecha, hoyLocalISO, toDateOnly } from '../utils/format';
 import '../index.css';
 
-const EMPTY_FORM = { nombre: '', especie: '', raza: '', tamano: '' };
+const EMPTY_FORM = {
+  nombre: '',
+  especie: '',
+  raza: '',
+  tamano: '',
+  fecha_nacimiento: '',
+};
 const PAGE_SIZE = 20;
 
 const SUGGESTED_ESPECIES = ['Perro', 'Gato'];
@@ -141,12 +148,16 @@ export default function MascotasPage() {
       const especie = form.especie.trim();
       const raza = form.raza.trim();
       const tamano = form.tamano.trim();
+      const fecha_nacimiento = toDateOnly(form.fecha_nacimiento);
 
-      if (!nombre || !especie || !raza || !tamano) {
+      if (!nombre || !especie || !raza || !tamano || !fecha_nacimiento) {
         throw new Error('Todos los campos son requeridos');
       }
+      if (fecha_nacimiento > hoyLocalISO()) {
+        throw new Error('La fecha de nacimiento no puede ser futura');
+      }
 
-      await createMascota({ nombre, especie, raza, tamano });
+      await createMascota({ nombre, especie, raza, tamano, fecha_nacimiento });
       addToast('Mascota guardada correctamente', 'success');
       setForm(EMPTY_FORM);
       setFiltro('');
@@ -166,6 +177,7 @@ export default function MascotasPage() {
       especie: m.especie,
       raza: m.raza,
       tamano: m.tamano,
+      fecha_nacimiento: toDateOnly(m.fecha_nacimiento),
     });
   }
 
@@ -181,12 +193,16 @@ export default function MascotasPage() {
       const especie = inlineDraft.especie.trim();
       const raza = inlineDraft.raza.trim();
       const tamano = inlineDraft.tamano.trim();
+      const fecha_nacimiento = toDateOnly(inlineDraft.fecha_nacimiento);
 
-      if (!nombre || !especie || !raza || !tamano) {
+      if (!nombre || !especie || !raza || !tamano || !fecha_nacimiento) {
         throw new Error('Todos los campos son requeridos');
       }
+      if (fecha_nacimiento > hoyLocalISO()) {
+        throw new Error('La fecha de nacimiento no puede ser futura');
+      }
 
-      await updateMascota(id, { nombre, especie, raza, tamano });
+      await updateMascota(id, { nombre, especie, raza, tamano, fecha_nacimiento });
       addToast('Mascota actualizada correctamente', 'success');
       cancelEdit();
       await refresh();
@@ -293,6 +309,18 @@ export default function MascotasPage() {
                     onChange={(e) => setForm((p) => ({ ...p, tamano: e.target.value }))}
                   />
                 </Field>
+                <Field id="fecha_nacimiento" label="Fecha de Nacimiento" required>
+                  <DateInput
+                    id="fecha_nacimiento"
+                    value={form.fecha_nacimiento}
+                    required
+                    max={hoyLocalISO()}
+                    disabled={loading || !!inlineEditId}
+                    onChange={(e) =>
+                      setForm((p) => ({ ...p, fecha_nacimiento: e.target.value }))
+                    }
+                  />
+                </Field>
               </div>
               <Button
                 type="submit"
@@ -371,7 +399,15 @@ export default function MascotasPage() {
                 <table className="ui-table">
                   <thead>
                     <tr>
-                      {['ID', 'Nombre', 'Especie', 'Raza', 'Tamaño', 'Acciones'].map((h) => (
+                      {[
+                        'ID',
+                        'Nombre',
+                        'Especie',
+                        'Raza',
+                        'Tamaño',
+                        'Fecha de Nacimiento',
+                        'Acciones',
+                      ].map((h) => (
                         <th key={h}>{h}</th>
                       ))}
                     </tr>
@@ -426,6 +462,20 @@ export default function MascotasPage() {
                               />
                             </td>
                             <td>
+                              <DateInput
+                                value={inlineDraft.fecha_nacimiento}
+                                max={hoyLocalISO()}
+                                required
+                                disabled={loading}
+                                onChange={(e) =>
+                                  setInlineDraft((p) => ({
+                                    ...p,
+                                    fecha_nacimiento: e.target.value,
+                                  }))
+                                }
+                              />
+                            </td>
+                            <td>
                               <div className="ui-table__actions">
                                 <Button
                                   size="sm"
@@ -447,6 +497,7 @@ export default function MascotasPage() {
                             <td>{m.especie}</td>
                             <td>{m.raza}</td>
                             <td>{m.tamano}</td>
+                            <td>{formatFecha(m.fecha_nacimiento)}</td>
                             <td>
                               <div className="ui-table__actions">
                                 <Button

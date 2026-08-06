@@ -9,7 +9,7 @@ import { Toast } from '../components/Toast';
 import { formatFecha, formatHora, toDateOnly } from '../utils/format';
 import EmptyState from '../components/EmptyState';
 import PageHeader from '../components/ui/PageHeader';
-import Field, { Input } from '../components/ui/Field';
+import Field, { DateInput, Input } from '../components/ui/Field';
 import Button from '../components/ui/Button';
 import Skeleton from '../components/ui/Skeleton';
 import '../index.css';
@@ -460,8 +460,7 @@ export default function AgendasPage() {
                           </div>
                         </Field>
                         <Field label="Fecha">
-                          <Input
-                            type="date"
+                          <DateInput
                             value={fecha}
                             onChange={(e) => setFecha(e.target.value)}
                             disabled={loading}

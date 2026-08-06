@@ -1,6 +1,7 @@
 /**
  * Extrae YYYY-MM-DD sin aplicar zona horaria.
  * Evita el bug de `new Date("YYYY-MM-DD")` (UTC → día anterior en CO).
+ * Acepta también dd/mm/yyyy y dd-mm-yyyy (solo para lectura; el valor canónico sigue siendo ISO).
  */
 export function toDateOnly(valor) {
   if (valor == null || valor === '') return '';
@@ -11,8 +12,28 @@ export function toDateOnly(valor) {
     return `${y}-${m}-${d}`;
   }
   const s = String(valor).trim();
-  const match = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
-  if (match) return `${match[1]}-${match[2]}-${match[3]}`;
+  const iso = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (iso) {
+    const y = Number(iso[1]);
+    const m = Number(iso[2]);
+    const d = Number(iso[3]);
+    const date = new Date(y, m - 1, d);
+    if (date.getFullYear() !== y || date.getMonth() !== m - 1 || date.getDate() !== d) {
+      return '';
+    }
+    return `${iso[1]}-${iso[2]}-${iso[3]}`;
+  }
+  const dmy = s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
+  if (dmy) {
+    const d = Number(dmy[1]);
+    const m = Number(dmy[2]);
+    const y = Number(dmy[3]);
+    const date = new Date(y, m - 1, d);
+    if (date.getFullYear() !== y || date.getMonth() !== m - 1 || date.getDate() !== d) {
+      return '';
+    }
+    return `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+  }
   const parsed = new Date(s);
   if (Number.isNaN(parsed.getTime())) return '';
   return toDateOnly(parsed);
@@ -33,18 +54,20 @@ export function parseFechaLocal(valor) {
   return new Date(y, m - 1, d);
 }
 
-// Formato Fechas (calendario local, sin desfase UTC)
+/**
+ * Formato visible de fechas en UI, tablas, mensajes y reportes: dd/mm/yyyy.
+ * No altera el valor canónico ISO usado en APIs y filtros.
+ */
 export function formatFecha(iso) {
-  if (!iso) return '—';
-  const date = parseFechaLocal(iso);
-  if (!date) return '—';
+  const only = toDateOnly(iso);
+  if (!only) return '—';
+  const [y, m, d] = only.split('-');
+  return `${d}/${m}/${y}`;
+}
 
-  const mesBruto = date.toLocaleDateString('es-CO', { month: 'long' });
-  const mesMayuscula = mesBruto.charAt(0).toUpperCase() + mesBruto.slice(1);
-  const dia = date.toLocaleDateString('es-CO', { day: '2-digit' });
-  const anio = date.toLocaleDateString('es-CO', { year: 'numeric' });
-
-  return `${dia} de ${mesMayuscula} de ${anio}`;
+/** Alias de formatFecha (dd/mm/yyyy). */
+export function formatFechaCorta(iso) {
+  return formatFecha(iso);
 }
 
 // Formatos Hora
