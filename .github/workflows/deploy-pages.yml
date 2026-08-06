@@ -9,10 +9,11 @@ permissions:
   contents: read
   pages: write
   id-token: write
+  actions: read
 
 concurrency:
   group: pages
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   build:
@@ -27,11 +28,14 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
 
       - name: Install and build
+        working-directory: frontend
         env:
           VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
           VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
           VITE_BASE_PATH: /${{ github.event.repository.name }}/
-        run: cd frontend && npm install && npm run build
+        run: |
+          npm install
+          npm run build
 
       - uses: actions/upload-pages-artifact@v3
         with:
