@@ -833,6 +833,57 @@
   box-shadow: var(--shadow-md);
 }
 
+.ui-login__brand {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0 0 20px;
+  padding: 0;
+  background: transparent;
+  border: none;
+}
+
+.ui-login__logo {
+  display: block;
+  height: 80px;
+  width: auto;
+  max-width: min(280px, 100%);
+  object-fit: contain;
+  mix-blend-mode: multiply;
+}
+
+@media (max-width: 480px) {
+  .ui-login__logo {
+    height: 64px;
+  }
+}
+
+.ui-login__footer {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 24px;
+  width: 100%;
+}
+
+.ui-login__footer-logo {
+  display: block;
+  height: 20px;
+  width: auto;
+  object-fit: contain;
+  mix-blend-mode: multiply;
+  flex-shrink: 0;
+}
+
+.ui-login__footer-text {
+  font-size: 0.75rem;
+  font-weight: 400;
+  color: var(--color-purple-light);
+  line-height: 1.3;
+  text-align: center;
+}
+
 /* Combobox panel */
 .ui-combo {
   position: relative;

@@ -1,6 +1,11 @@
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { formatFecha, formatHora, hoyLocalISO } from './format';
+import clientLogoUrl from '../assets/logo-pelu-eli.png';
+import goDigitalLogoUrl from '../assets/LogoGo-Digital.png';
+
+/** Color primario de marca (--color-entorno), fallback Pelu Eli magenta. */
+const COLOR_ENTORNO_FALLBACK = [183, 65, 146]; // #B74192
 
 export const formatMoneda = (valor) =>
   new Intl.NumberFormat('es-CO', {
@@ -31,6 +36,145 @@ function csvEscape(v) {
   const s = String(v ?? '');
   if (/[",\n;]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
   return s;
+}
+
+function hexToRgb(hex) {
+  const h = String(hex).replace('#', '').trim();
+  if (!h) return null;
+  const full =
+    h.length === 3
+      ? h
+          .split('')
+          .map((c) => c + c)
+          .join('')
+      : h;
+  if (!/^[0-9a-fA-F]{6}$/.test(full)) return null;
+  const n = parseInt(full, 16);
+  return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+}
+
+function getBrandColor() {
+  if (typeof document === 'undefined') return COLOR_ENTORNO_FALLBACK;
+  const raw = getComputedStyle(document.documentElement)
+    .getPropertyValue('--color-entorno')
+    .trim();
+  if (!raw) return COLOR_ENTORNO_FALLBACK;
+  if (raw.startsWith('#')) return hexToRgb(raw) || COLOR_ENTORNO_FALLBACK;
+  const parts = raw.match(/(\d+)/g);
+  if (parts && parts.length >= 3) {
+    return [Number(parts[0]), Number(parts[1]), Number(parts[2])];
+  }
+  return COLOR_ENTORNO_FALLBACK;
+}
+
+let logoDataUrlCache = null;
+let goDigitalLogoDataUrlCache = null;
+
+async function loadImageAsDataUrl(url) {
+  try {
+    const res = await fetch(url);
+    const blob = await res.blob();
+    return await new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result);
+      reader.onerror = reject;
+      reader.readAsDataURL(blob);
+    });
+  } catch {
+    return null;
+  }
+}
+
+async function getLogoDataUrl() {
+  if (logoDataUrlCache) return logoDataUrlCache;
+  logoDataUrlCache = await loadImageAsDataUrl(clientLogoUrl);
+  return logoDataUrlCache;
+}
+
+async function getGoDigitalLogoDataUrl() {
+  if (goDigitalLogoDataUrlCache) return goDigitalLogoDataUrlCache;
+  goDigitalLogoDataUrlCache = await loadImageAsDataUrl(goDigitalLogoUrl);
+  return goDigitalLogoDataUrlCache;
+}
+
+/** Alto del membrete (logo + franja) reservado en cada página. */
+const LETTERHEAD_HEIGHT = 30;
+
+function drawLetterhead(doc, logoDataUrl) {
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const brand = getBrandColor();
+
+  if (logoDataUrl) {
+    // Relación landscape ~2:1; tamaño a la mitad, alineado a la derecha
+    const logoW = 21;
+    const logoH = 9;
+    doc.addImage(logoDataUrl, 'PNG', pageWidth - 14 - logoW, 8, logoW, logoH);
+  }
+
+  // Línea decorativa con color de entorno
+  doc.setFillColor(...brand);
+  doc.rect(0, 26, pageWidth, 2.2, 'F');
+}
+
+function drawFooter(doc, goDigitalLogoDataUrl) {
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const pageHeight = doc.internal.pageSize.getHeight();
+  const brand = getBrandColor();
+
+  doc.setDrawColor(...brand);
+  doc.setLineWidth(0.6);
+  doc.line(14, pageHeight - 12, pageWidth - 14, pageHeight - 12);
+
+  // Dimensiones nativas del logo Go-Digital (1219×1245 ≈ 1:1)
+  const LOGO_NATURAL_W = 1219;
+  const LOGO_NATURAL_H = 1245;
+  const logoH = 5.5;
+  const logoW = logoH * (LOGO_NATURAL_W / LOGO_NATURAL_H);
+  const gap = 3;
+  const leftX = 14;
+  const baselineY = pageHeight - 7;
+  const logoY = baselineY - logoH / 2 - 1.1;
+
+  if (goDigitalLogoDataUrl) {
+    doc.addImage(goDigitalLogoDataUrl, 'PNG', leftX, logoY, logoW, logoH);
+  }
+
+  const copyright = `© ${new Date().getFullYear()} Go-Digital · Pelu Eli`;
+  const textX = leftX + (goDigitalLogoDataUrl ? logoW + gap : 0);
+  doc.setFontSize(8);
+  doc.setTextColor(...brand);
+  // Alineación vertical centrada con el logo (baseline ≈ centro del icono)
+  doc.text(copyright, textX, baselineY);
+
+  try {
+    const n = doc.internal.getCurrentPageInfo().pageNumber;
+    doc.text(`Pág. ${n}`, pageWidth - 14, baselineY, { align: 'right' });
+  } catch {
+    /* ignore */
+  }
+
+  doc.setTextColor(0, 0, 0);
+}
+
+function applyPageChrome(doc, logoDataUrl, goDigitalLogoDataUrl) {
+  drawLetterhead(doc, logoDataUrl);
+  drawFooter(doc, goDigitalLogoDataUrl);
+}
+
+const tableBaseStyles = {
+  fontSize: 8,
+  cellPadding: 2.5,
+  lineColor: [220, 220, 225],
+  lineWidth: 0.1,
+};
+
+function headStylesFromBrand() {
+  return {
+    fillColor: getBrandColor(),
+    textColor: [255, 255, 255],
+    fontStyle: 'bold',
+    halign: 'left',
+  };
 }
 
 export function exportDashboardCSV(dashboard, filtros) {
@@ -118,31 +262,55 @@ function toCsvDate(f) {
   return f || '';
 }
 
-export function exportDashboardPDF(dashboard, filtros) {
-  const doc = new jsPDF();
-  const k = dashboard?.kpis || {};
-  let y = 14;
+function drawReportTitle(doc, title, subtitleLines, startY) {
+  let y = startY;
 
-  doc.setFontSize(16);
-  doc.text('Informe financiero', 14, y);
-  y += 8;
-  doc.setFontSize(10);
-  doc.text(`Generado: ${hoyLocalISO()}`, 14, y);
-  y += 5;
-  doc.text(
-    `Periodo: ${filtros.fecha_desde || '—'} a ${filtros.fecha_hasta || '—'}`,
-    14,
-    y
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(15);
+  doc.setTextColor(...getBrandColor());
+  doc.text(title, 14, y);
+  y += 7;
+
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(9);
+  doc.setTextColor(80, 80, 90);
+  for (const line of subtitleLines) {
+    doc.text(line, 14, y);
+    y += 5;
+  }
+  doc.setTextColor(0, 0, 0);
+  return y + 2;
+}
+
+export async function exportDashboardPDF(dashboard, filtros) {
+  const doc = new jsPDF();
+  const logoDataUrl = await getLogoDataUrl();
+  const goDigitalLogoDataUrl = await getGoDigitalLogoDataUrl();
+  const k = dashboard?.kpis || {};
+
+  applyPageChrome(doc, logoDataUrl, goDigitalLogoDataUrl);
+
+  const y = drawReportTitle(
+    doc,
+    'Informe financiero',
+    [
+      `Generado: ${hoyLocalISO()}`,
+      `Periodo: ${filtros.fecha_desde || '—'} a ${filtros.fecha_hasta || '—'}`,
+      `Profesional: ${filtros.id_profesional || 'Todos'} | Estado: ${filtros.estado || 'Todos'}`,
+    ],
+    LETTERHEAD_HEIGHT + 8
   );
-  y += 5;
-  doc.text(
-    `Profesional: ${filtros.id_profesional || 'Todos'} | Estado: ${filtros.estado || 'Todos'}`,
-    14,
-    y
-  );
-  y += 8;
+
+  const sharedTableOpts = {
+    styles: tableBaseStyles,
+    headStyles: headStylesFromBrand(),
+    alternateRowStyles: { fillColor: [252, 248, 251] },
+    margin: { top: LETTERHEAD_HEIGHT + 6, left: 14, right: 14, bottom: 18 },
+    didDrawPage: () => applyPageChrome(doc, logoDataUrl, goDigitalLogoDataUrl),
+  };
 
   autoTable(doc, {
+    ...sharedTableOpts,
     startY: y,
     head: [['KPI', 'Valor']],
     body: [
@@ -153,11 +321,11 @@ export function exportDashboardPDF(dashboard, filtros) {
       ['Ticket promedio', formatMoneda(k.ticket_promedio)],
       ['Citas agenda', String(k.total_citas_agenda ?? 0)],
     ],
-    styles: { fontSize: 9 },
-    headStyles: { fillColor: [79, 65, 183] },
+    styles: { ...tableBaseStyles, fontSize: 9 },
   });
 
   autoTable(doc, {
+    ...sharedTableOpts,
     startY: (doc.lastAutoTable?.finalY || y) + 8,
     head: [['Profesional', 'Atenciones', 'Citas', 'Ingresos', 'Pagado', 'Pendiente']],
     body: (dashboard?.por_profesional || []).map((p) => [
@@ -168,11 +336,10 @@ export function exportDashboardPDF(dashboard, filtros) {
       formatMoneda(p.pagado),
       formatMoneda(p.pendiente),
     ]),
-    styles: { fontSize: 8 },
-    headStyles: { fillColor: [79, 65, 183] },
   });
 
   autoTable(doc, {
+    ...sharedTableOpts,
     startY: (doc.lastAutoTable?.finalY || y) + 8,
     head: [['Mes', 'Atenciones', 'Ingresos', 'Pagado', 'Pendiente']],
     body: (dashboard?.por_mes || []).map((m) => [
@@ -182,26 +349,36 @@ export function exportDashboardPDF(dashboard, filtros) {
       formatMoneda(m.pagado),
       formatMoneda(m.pendiente),
     ]),
-    styles: { fontSize: 8 },
-    headStyles: { fillColor: [79, 65, 183] },
   });
+
+  const totalPages = doc.internal.getNumberOfPages();
+  for (let i = 1; i <= totalPages; i++) {
+    doc.setPage(i);
+    applyPageChrome(doc, logoDataUrl, goDigitalLogoDataUrl);
+  }
 
   doc.save(`informe_financiero_${hoyLocalISO()}.pdf`);
 }
 
-export function exportAgendaPDF(rows, filtros) {
+export async function exportAgendaPDF(rows, filtros) {
   const doc = new jsPDF({ orientation: 'landscape' });
-  doc.setFontSize(16);
-  doc.text('Informe de agendas', 14, 14);
-  doc.setFontSize(10);
-  doc.text(
-    `Periodo: ${filtros.fecha_desde || '—'} a ${filtros.fecha_hasta || '—'} | Generado: ${hoyLocalISO()}`,
-    14,
-    22
+  const logoDataUrl = await getLogoDataUrl();
+  const goDigitalLogoDataUrl = await getGoDigitalLogoDataUrl();
+
+  applyPageChrome(doc, logoDataUrl, goDigitalLogoDataUrl);
+
+  const y = drawReportTitle(
+    doc,
+    'Informe de agendas',
+    [
+      `Periodo: ${filtros.fecha_desde || '—'} a ${filtros.fecha_hasta || '—'} | Generado: ${hoyLocalISO()}`,
+      `Profesional: ${filtros.id_profesional || 'Todos'}`,
+    ],
+    LETTERHEAD_HEIGHT + 8
   );
 
   autoTable(doc, {
-    startY: 28,
+    startY: y,
     head: [['Fecha', 'Inicio', 'Fin', 'Profesional', 'Mascota', 'Especie', 'Raza']],
     body: (rows || []).map((r) => [
       formatFecha(r.fecha),
@@ -212,9 +389,18 @@ export function exportAgendaPDF(rows, filtros) {
       r.especie || '—',
       r.raza || '—',
     ]),
-    styles: { fontSize: 8 },
-    headStyles: { fillColor: [79, 65, 183] },
+    styles: tableBaseStyles,
+    headStyles: headStylesFromBrand(),
+    alternateRowStyles: { fillColor: [252, 248, 251] },
+    margin: { top: LETTERHEAD_HEIGHT + 6, left: 14, right: 14, bottom: 18 },
+    didDrawPage: () => applyPageChrome(doc, logoDataUrl, goDigitalLogoDataUrl),
   });
+
+  const totalPages = doc.internal.getNumberOfPages();
+  for (let i = 1; i <= totalPages; i++) {
+    doc.setPage(i);
+    applyPageChrome(doc, logoDataUrl, goDigitalLogoDataUrl);
+  }
 
   const suffix = filtros.id_profesional ? `_prof${filtros.id_profesional}` : '';
   doc.save(

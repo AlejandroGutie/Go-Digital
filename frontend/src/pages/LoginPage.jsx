@@ -5,6 +5,8 @@ import { useToast } from '../hooks/useToast';
 import { Toast } from '../components/Toast';
 import Field, { Input } from '../components/ui/Field';
 import Button from '../components/ui/Button';
+import clientLogo from '../assets/logo-pelu-eli.png';
+import goDigitalLogo from '../assets/LogoGo-Digital.png';
 import '../index.css';
 
 export default function LoginPage() {
@@ -47,6 +49,14 @@ export default function LoginPage() {
       <Toast toasts={toasts} removeToast={removeToast} />
 
       <div className="ui-login__card">
+        <div className="ui-login__brand">
+          <img
+            src={clientLogo}
+            alt="Logo"
+            className="ui-login__logo"
+          />
+        </div>
+
         <h1 className="font-display ui-page-title" style={{ textAlign: 'center', marginBottom: 8 }}>
           Iniciar sesión
         </h1>
@@ -81,6 +91,17 @@ export default function LoginPage() {
             {submitting ? 'Procesando…' : 'Ingresar'}
           </Button>
         </form>
+
+        <div className="ui-login__footer">
+          <img
+            src={goDigitalLogo}
+            alt="Go-Digital"
+            className="ui-login__footer-logo"
+          />
+          <span className="ui-login__footer-text">
+            © {new Date().getFullYear()} Go-Digital. Todos los derechos reservados.
+          </span>
+        </div>
       </div>
     </div>
   );

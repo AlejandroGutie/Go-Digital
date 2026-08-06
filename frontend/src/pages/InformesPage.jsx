@@ -189,7 +189,7 @@ export default function InformesPage() {
             }
             onExportFinPdf={() =>
               withExport(async () => {
-                exportDashboardPDF(dashboard, filtroExport);
+                await exportDashboardPDF(dashboard, filtroExport);
                 addToast('PDF financiero descargado', 'success');
               })
             }
@@ -211,7 +211,7 @@ export default function InformesPage() {
                   fecha_hasta: filtros.fecha_hasta,
                   id_profesional: filtros.id_profesional || undefined,
                 });
-                exportAgendaPDF(res.data, filtroExport);
+                await exportAgendaPDF(res.data, filtroExport);
                 addToast('PDF de agendas descargado', 'success');
               })
             }
