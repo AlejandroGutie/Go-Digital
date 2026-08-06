@@ -32,7 +32,9 @@ export async function listMascotas(page = 1, limit = 20, search = '') {
   const term = search?.trim();
   if (term) {
     const q = escapeIlike(term);
-    query = query.or(`nombre.ilike.%${q}%,raza.ilike.%${q}%`);
+    query = query.or(
+      `nombre.ilike.%${q}%,raza.ilike.%${q}%,especie.ilike.%${q}%`
+    );
   }
 
   const { data, error, count } = await query.range(from, to);

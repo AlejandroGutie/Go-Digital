@@ -13,6 +13,8 @@ import Button from '../components/ui/Button';
 import Skeleton from '../components/ui/Skeleton';
 import '../index.css';
 
+const LIST_LIMIT = 500;
+
 export default function AsignacionPage() {
   const [cuidadores, setCuidadores] = useState([]);
   const [mascotasDisp, setMascotasDisp] = useState([]);
@@ -29,6 +31,14 @@ export default function AsignacionPage() {
   const { toasts, addToast, removeToast } = useToast();
   const buscadorRef = useRef(null);
   const buscadorMascotaRef = useRef(null);
+  const mascotaSearchReq = useRef(0);
+
+  async function cargarMascotas(search = '') {
+    const reqId = ++mascotaSearchReq.current;
+    const res = await listMascotas(1, LIST_LIMIT, search);
+    if (reqId !== mascotaSearchReq.current) return;
+    setMascotasDisp(normalizeListPayload(res));
+  }
 
   useEffect(() => {
     async function init() {
@@ -36,8 +46,8 @@ export default function AsignacionPage() {
       setInitError(null);
       try {
         const [resCuidadores, resMascotas] = await Promise.all([
-          listCuidadores(1, 100),
-          listMascotas(1, 100),
+          listCuidadores(1, LIST_LIMIT),
+          listMascotas(1, LIST_LIMIT),
         ]);
         setCuidadores(normalizeListPayload(resCuidadores));
         setMascotasDisp(normalizeListPayload(resMascotas));
@@ -67,6 +77,18 @@ export default function AsignacionPage() {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
+  // Actualiza el listado de mascotas al buscar (incluye recién creadas)
+  useEffect(() => {
+    if (!cuidadorSel || mascotaIdAsignar) return undefined;
+    const q = busquedaMascota.trim();
+    const timer = setTimeout(() => {
+      cargarMascotas(q).catch((e) => {
+        addToast(e?.message || 'No se pudo actualizar el listado de mascotas', 'error');
+      });
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [busquedaMascota, cuidadorSel, mascotaIdAsignar]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const cuidadoresFiltrados = cuidadores.filter((c) => {
     const q = busquedaCuidador.trim().toLowerCase();
     if (!q) return true;
@@ -89,8 +111,11 @@ export default function AsignacionPage() {
     setListaAbierta(false);
     limpiarMascotaAsignar();
     try {
-      const res = await getMascotasDeCuidador(c.id);
-      setMascotasSel(normalizeListPayload(res));
+      const [resAsignadas] = await Promise.all([
+        getMascotasDeCuidador(c.id),
+        cargarMascotas(''),
+      ]);
+      setMascotasSel(normalizeListPayload(resAsignadas));
     } catch (e) {
       addToast(e?.message || 'Error al cargar mascotas del cuidador', 'error');
     }
@@ -134,6 +159,7 @@ export default function AsignacionPage() {
       limpiarMascotaAsignar();
       const res = await getMascotasDeCuidador(cuidadorSel.id);
       setMascotasSel(normalizeListPayload(res));
+      await cargarMascotas('');
     } catch (e) {
       addToast(e?.message || 'Error al asignar mascota', 'error');
     } finally {
@@ -147,10 +173,21 @@ export default function AsignacionPage() {
       await desasignarMascota(cuidadorSel.id, idMascota);
       addToast('Mascota desasignada correctamente', 'success');
       setMascotasSel((prev) => prev.filter((m) => m.id !== idMascota));
+      await cargarMascotas(busquedaMascota.trim());
     } catch (e) {
       addToast(e?.message || 'Error al desasignar mascota', 'error');
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function abrirListaMascotas() {
+    setListaMascotasAbierta(true);
+    if (mascotaIdAsignar) return;
+    try {
+      await cargarMascotas(busquedaMascota.trim());
+    } catch (e) {
+      addToast(e?.message || 'No se pudo actualizar el listado de mascotas', 'error');
     }
   }
 
@@ -309,7 +346,9 @@ export default function AsignacionPage() {
                               }
                             }
                           }}
-                          onFocus={() => setListaMascotasAbierta(true)}
+                          onFocus={() => {
+                            void abrirListaMascotas();
+                          }}
                         />
 
                         {listaMascotasAbierta && (
