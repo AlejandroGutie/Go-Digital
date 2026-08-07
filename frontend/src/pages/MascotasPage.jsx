@@ -8,6 +8,7 @@ import {
 } from '../api/mascotasApi';
 import { normalizeListPayload, normalizeMeta } from '../api/normalize';
 import { useToast } from '../hooks/useToast';
+import { useMutationLock } from '../hooks/useMutationLock';
 import { Toast } from '../components/Toast';
 import EmptyState from '../components/EmptyState';
 import PageHeader from '../components/ui/PageHeader';
@@ -80,6 +81,7 @@ export default function MascotasPage() {
   const [page, setPage] = useState(1);
   const [filtro, setFiltro] = useState('');
   const { toasts, addToast, removeToast } = useToast();
+  const { tryLock, unlock } = useMutationLock();
   const [listLoading, setListLoading] = useState(true);
   const [loadError, setLoadError] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -142,6 +144,7 @@ export default function MascotasPage() {
 
   async function onSubmit(e) {
     e.preventDefault();
+    if (!tryLock()) return;
     setLoading(true);
     try {
       const nombre = form.nombre.trim();
@@ -151,7 +154,7 @@ export default function MascotasPage() {
       const fecha_nacimiento = toDateOnly(form.fecha_nacimiento);
 
       if (!nombre || !especie || !raza || !tamano || !fecha_nacimiento) {
-        throw new Error('Todos los campos son requeridos');
+        throw new Error('Todos los campos con * son requeridos (incluye fecha de nacimiento)');
       }
       if (fecha_nacimiento > hoyLocalISO()) {
         throw new Error('La fecha de nacimiento no puede ser futura');
@@ -167,18 +170,26 @@ export default function MascotasPage() {
       addToast(e?.message || 'Error al guardar la mascota', 'error');
     } finally {
       setLoading(false);
+      unlock();
     }
   }
 
   function startEdit(m) {
+    const fecha = toDateOnly(m.fecha_nacimiento);
     setInlineEditId(m.id);
     setInlineDraft({
       nombre: m.nombre,
       especie: m.especie,
       raza: m.raza,
       tamano: m.tamano,
-      fecha_nacimiento: toDateOnly(m.fecha_nacimiento),
+      fecha_nacimiento: fecha,
     });
+    if (!fecha) {
+      addToast(
+        'Esta mascota no tiene fecha de nacimiento. Complétala para poder guardar (campo obligatorio).',
+        'error'
+      );
+    }
   }
 
   function cancelEdit() {
@@ -187,6 +198,7 @@ export default function MascotasPage() {
   }
 
   async function saveEdit(id) {
+    if (!tryLock()) return;
     setLoading(true);
     try {
       const nombre = inlineDraft.nombre.trim();
@@ -196,7 +208,9 @@ export default function MascotasPage() {
       const fecha_nacimiento = toDateOnly(inlineDraft.fecha_nacimiento);
 
       if (!nombre || !especie || !raza || !tamano || !fecha_nacimiento) {
-        throw new Error('Todos los campos son requeridos');
+        throw new Error(
+          'Todos los campos son requeridos, incluida la fecha de nacimiento (también en registros antiguos)'
+        );
       }
       if (fecha_nacimiento > hoyLocalISO()) {
         throw new Error('La fecha de nacimiento no puede ser futura');
@@ -210,10 +224,12 @@ export default function MascotasPage() {
       addToast(e?.message || 'Error al actualizar', 'error');
     } finally {
       setLoading(false);
+      unlock();
     }
   }
 
   async function confirmDelete() {
+    if (!tryLock()) return;
     setLoading(true);
     try {
       await deleteMascota(deleteModalId);
@@ -227,6 +243,7 @@ export default function MascotasPage() {
       addToast(e?.message || 'Error al eliminar', 'error');
     } finally {
       setLoading(false);
+      unlock();
     }
   }
 
@@ -244,7 +261,10 @@ export default function MascotasPage() {
       {inlineEditId && (
         <div className="ui-banner ui-banner--edit">
           <span>
-            Editando mascota <b>#{inlineEditId}</b> — cancela para crear una nueva.
+            Editando mascota <b>#{inlineEditId}</b>
+            {!inlineDraft.fecha_nacimiento
+              ? ' — falta la fecha de nacimiento (obligatoria para guardar).'
+              : ' — cancela para crear una nueva.'}
           </span>
           <Button variant="ghost" size="sm" onClick={cancelEdit} disabled={loading}>
             Cancelar
@@ -364,7 +384,7 @@ export default function MascotasPage() {
               />
               <Input
                 type="text"
-                placeholder="Buscar por nombre o raza…"
+                placeholder="Buscar por nombre, raza, especie o tamaño…"
                 value={filtro}
                 onChange={(e) => setFiltro(e.target.value)}
                 style={{ paddingLeft: 40 }}

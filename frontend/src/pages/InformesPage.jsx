@@ -22,6 +22,7 @@ import {
   EMPTY_FILTROS_INFORMES,
   rangoDesdePreset,
 } from '../utils/dateRanges';
+import { rangoFechasInvalido } from '../utils/format';
 import {
   exportDashboardCSV,
   exportDashboardPDF,
@@ -38,6 +39,8 @@ export default function InformesPage() {
   const [loadError, setLoadError] = useState(null);
   const [exporting, setExporting] = useState(false);
   const { toasts, addToast, removeToast } = useToast();
+
+  const rangoFechasError = rangoFechasInvalido(filtros.fecha_desde, filtros.fecha_hasta);
 
   useEffect(() => {
     let cancelled = false;
@@ -81,12 +84,13 @@ export default function InformesPage() {
   }
 
   useEffect(() => {
+    if (rangoFechasError) return undefined;
     const timer = setTimeout(() => {
       refresh(filtros);
     }, 400);
     return () => clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filtros.fecha_desde, filtros.fecha_hasta, filtros.id_profesional, filtros.estado]);
+  }, [filtros.fecha_desde, filtros.fecha_hasta, filtros.id_profesional, filtros.estado, rangoFechasError]);
 
   function onPreset(presetId) {
     const r = rangoDesdePreset(presetId);
@@ -140,6 +144,7 @@ export default function InformesPage() {
         onChange={setFiltros}
         onPreset={onPreset}
         onLimpiar={limpiarFiltros}
+        rangoFechasError={rangoFechasError}
       />
 
       {listLoading ? (

@@ -1,37 +1,38 @@
 import { useState, useEffect, useRef } from 'react';
-import { AlertTriangle, Banknote, Plus } from 'lucide-react';
+import { AlertTriangle, Banknote, Plus, Search, X } from 'lucide-react';
 import { listCobros, createCobro, updateCobro, deleteCobro } from '../api/cobrosApi';
 import { listProfesionales } from '../api/profesionalesApi';
 import { listTarifas } from '../api/tarifasApi';
 import { getAgendaDeProfesional } from '../api/agendasApi';
 import { normalizeListPayload, normalizeMeta } from '../api/normalize';
 import { useToast } from '../hooks/useToast';
+import { useMutationLock } from '../hooks/useMutationLock';
 import { Toast } from '../components/Toast';
-import { formatFecha, hoyLocalISO } from '../utils/format';
+import { formatFecha, hoyLocalISO, formatMoneda, rangoFechasInvalido } from '../utils/format';
 import EmptyState from '../components/EmptyState';
 import PageHeader from '../components/ui/PageHeader';
 import Field, { DateInput, Input, Select, Textarea } from '../components/ui/Field';
 import Button from '../components/ui/Button';
 import Skeleton from '../components/ui/Skeleton';
 import Sheet from '../components/ui/Sheet';
+import ConfirmSheet from '../components/ui/ConfirmSheet';
 import '../index.css';
 
 const EMPTY_FILTROS = { estado: '', id_profesional: '', fecha_desde: '', fecha_hasta: '' };
 const PAGE_SIZE = 20;
 
-const formatMoneda = (valor) =>
-  new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0 }).format(valor);
-
 function filtrosActivos(f) {
   return !!(f.estado || f.id_profesional || f.fecha_desde || f.fecha_hasta);
 }
 
-function buildCobrosParams(p, f) {
+function buildCobrosParams(p, f, search = '') {
   const params = { page: p, limit: PAGE_SIZE };
   if (f.estado) params.estado = f.estado;
   if (f.id_profesional) params.id_profesional = f.id_profesional;
   if (f.fecha_desde) params.fecha_desde = f.fecha_desde;
   if (f.fecha_hasta) params.fecha_hasta = f.fecha_hasta;
+  const term = search?.trim();
+  if (term) params.search = term;
   return params;
 }
 
@@ -41,10 +42,12 @@ export default function CobrosPage() {
   const [meta, setMeta] = useState(null);
   const [page, setPage] = useState(1);
   const [filtros, setFiltros] = useState(EMPTY_FILTROS);
+  const [filtro, setFiltro] = useState('');
   const [listLoading, setListLoading] = useState(true);
   const [loadError, setLoadError] = useState(null);
   const [loading, setLoading] = useState(false);
   const { toasts, addToast, removeToast } = useToast();
+  const { tryLock, unlock } = useMutationLock();
 
   const [modalOpen, setModalOpen] = useState(false);
   const [nuevoCobro, setNuevoCobro] = useState({
@@ -62,6 +65,7 @@ export default function CobrosPage() {
   const [nombreMascotaVisible, setNombreMascotaVisible] = useState('');
   const [busquedaProfFiltro, setBusquedaProfFiltro] = useState('');
   const [listaProfFiltroAbierta, setListaProfFiltroAbierta] = useState(false);
+  const [confirmAction, setConfirmAction] = useState(null); // { type: 'anular'|'eliminar', id }
 
   const pageRef = useRef(page);
   const skipPageEffect = useRef(false);
@@ -72,12 +76,12 @@ export default function CobrosPage() {
     pageRef.current = page;
   }, [page]);
 
-  async function refresh(p = page, f = filtros) {
+  async function refresh(p = page, f = filtros, search = filtro) {
     const fetchId = ++fetchIdRef.current;
     setListLoading(true);
     setLoadError(null);
     try {
-      const res = await listCobros(buildCobrosParams(p, f));
+      const res = await listCobros(buildCobrosParams(p, f, search));
       if (fetchId !== fetchIdRef.current) return;
       if (res?.status === 'error') throw new Error(res.message || 'Error al cargar cobros');
       setCobros(normalizeListPayload(res));
@@ -135,23 +139,29 @@ export default function CobrosPage() {
   }, [filtros.id_profesional, profesionales]);
 
   useEffect(() => {
+    if (rangoFechasInvalido(filtros.fecha_desde, filtros.fecha_hasta)) {
+      return undefined;
+    }
     const timer = setTimeout(() => {
-      refresh(1, filtros);
+      refresh(1, filtros, filtro);
       if (pageRef.current !== 1) {
         skipPageEffect.current = true;
       }
       setPage(1);
     }, 500);
     return () => clearTimeout(timer);
-  }, [filtros.estado, filtros.id_profesional, filtros.fecha_desde, filtros.fecha_hasta]);
+  }, [filtros.estado, filtros.id_profesional, filtros.fecha_desde, filtros.fecha_hasta, filtro]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (skipPageEffect.current) {
       skipPageEffect.current = false;
       return;
     }
-    refresh(page, filtros);
-  }, [page]);
+    if (rangoFechasInvalido(filtros.fecha_desde, filtros.fecha_hasta)) return;
+    refresh(page, filtros, filtro);
+  }, [page]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const rangoFechasError = rangoFechasInvalido(filtros.fecha_desde, filtros.fecha_hasta);
 
   function goToPage(p) {
     setPage(p);
@@ -165,10 +175,11 @@ export default function CobrosPage() {
 
   async function recargarTrasMutacion() {
     setFiltros(EMPTY_FILTROS);
+    setFiltro('');
     setBusquedaProfFiltro('');
     setListaProfFiltroAbierta(false);
     setPage(1);
-    await refresh(1, EMPTY_FILTROS);
+    await refresh(1, EMPTY_FILTROS, '');
   }
 
   const TODOS_PROF_LABEL = 'Todos los profesionales';
@@ -232,6 +243,33 @@ export default function CobrosPage() {
   };
 
   const guardarCobro = async () => {
+    if (!nuevoCobro.id_profesional) {
+      addToast('Selecciona un profesional', 'error');
+      return;
+    }
+    if (!nuevoCobro.id_agenda) {
+      addToast('Selecciona una agenda', 'error');
+      return;
+    }
+    if (!nuevoCobro.id_mascota) {
+      addToast('La agenda debe tener una mascota asociada', 'error');
+      return;
+    }
+    if (!nuevoCobro.id_tarifa) {
+      addToast('Selecciona una tarifa', 'error');
+      return;
+    }
+    const valorNum = parseFloat(nuevoCobro.valor);
+    if (Number.isNaN(valorNum) || valorNum < 0) {
+      addToast('Ingresa un valor válido (0 o mayor)', 'error');
+      return;
+    }
+    if (!nuevoCobro.fecha_cobro) {
+      addToast('La fecha de cobro es requerida', 'error');
+      return;
+    }
+
+    if (!tryLock()) return;
     setLoading(true);
     try {
       const res = await createCobro(nuevoCobro);
@@ -259,16 +297,19 @@ export default function CobrosPage() {
       addToast(e?.message || 'Error al crear cobro', 'error');
     } finally {
       setLoading(false);
+      unlock();
     }
   };
 
   const cambiarEstado = async (id, nuevoEstado) => {
+    if (!tryLock()) return;
     setLoading(true);
     try {
       const res = await updateCobro(id, { estado: nuevoEstado });
       if (res?.status === 'ok') {
         addToast(`Cobro ${nuevoEstado}`, 'success');
-        await refresh(page, filtros);
+        setConfirmAction(null);
+        await refresh(page, filtros, filtro);
       } else {
         addToast(res?.message || 'Error al actualizar', 'error');
       }
@@ -276,16 +317,18 @@ export default function CobrosPage() {
       addToast(e?.message || 'Error al actualizar cobro', 'error');
     } finally {
       setLoading(false);
+      unlock();
     }
   };
 
   const eliminarCobro = async (id) => {
-    if (!confirm('¿Estás seguro de eliminar este cobro?')) return;
+    if (!tryLock()) return;
     setLoading(true);
     try {
       const res = await deleteCobro(id);
       if (res?.status === 'ok') {
         addToast('Cobro eliminado', 'success');
+        setConfirmAction(null);
         await recargarTrasMutacion();
       } else {
         addToast(res?.message || 'Error al eliminar', 'error');
@@ -294,6 +337,18 @@ export default function CobrosPage() {
       addToast(e?.message || 'Error al eliminar cobro', 'error');
     } finally {
       setLoading(false);
+      unlock();
+    }
+  };
+
+  async function confirmarAccionCobro() {
+    if (!confirmAction) return;
+    if (confirmAction.type === 'anular') {
+      await cambiarEstado(confirmAction.id, 'anulado');
+      return;
+    }
+    if (confirmAction.type === 'eliminar') {
+      await eliminarCobro(confirmAction.id);
     }
   };
 
@@ -304,6 +359,7 @@ export default function CobrosPage() {
   };
 
   const hayFiltros = filtrosActivos(filtros);
+  const hayBusqueda = !!filtro.trim();
 
   function closeModal() {
     if (!loading) setModalOpen(false);
@@ -428,12 +484,14 @@ export default function CobrosPage() {
                 <DateInput
                   value={filtros.fecha_desde}
                   onChange={(e) => setFiltros({ ...filtros, fecha_desde: e.target.value })}
+                  max={filtros.fecha_hasta || undefined}
                 />
               </Field>
               <Field label="Hasta">
                 <DateInput
                   value={filtros.fecha_hasta}
                   onChange={(e) => setFiltros({ ...filtros, fecha_hasta: e.target.value })}
+                  min={filtros.fecha_desde || undefined}
                 />
               </Field>
               {hayFiltros && (
@@ -449,16 +507,63 @@ export default function CobrosPage() {
                 </span>
               )}
             </div>
+            {rangoFechasError && (
+              <div className="ui-banner ui-banner--warn" style={{ marginTop: 12 }}>
+                La fecha «Desde» no puede ser posterior a «Hasta».
+              </div>
+            )}
+          </div>
+
+          <div className="ui-toolbar">
+            <div style={{ position: 'relative', flex: 1, minWidth: 0 }}>
+              <Search
+                size={16}
+                style={{
+                  position: 'absolute',
+                  left: 14,
+                  top: '50%',
+                  transform: 'translateY(-50%)',
+                  color: 'var(--color-purple-light)',
+                  pointerEvents: 'none',
+                }}
+              />
+              <Input
+                type="text"
+                placeholder="Buscar por mascota, profesional, estado, método, ID o valor…"
+                value={filtro}
+                onChange={(e) => setFiltro(e.target.value)}
+                style={{ paddingLeft: 40 }}
+              />
+            </div>
+            {filtro && (
+              <Button variant="ghost" size="sm" onClick={() => setFiltro('')}>
+                <X size={16} />
+                Limpiar
+              </Button>
+            )}
+            {filtro && meta != null && (
+              <span className="ui-toolbar__meta">
+                {meta.total} resultado{meta.total !== 1 ? 's' : ''}
+              </span>
+            )}
           </div>
 
           {(meta?.total ?? cobros.length) === 0 ? (
             <EmptyState
               icon={<Banknote size={24} />}
-              title={hayFiltros ? 'Sin resultados con los filtros aplicados' : 'No hay cobros registrados'}
+              title={
+                hayBusqueda
+                  ? `Sin resultados para "${filtro.trim()}"`
+                  : hayFiltros
+                    ? 'Sin resultados con los filtros aplicados'
+                    : 'No hay cobros registrados'
+              }
               description={
-                hayFiltros
-                  ? 'Ajusta los filtros o pulsa Limpiar para ver todos los cobros'
-                  : 'Usa el botón «Nuevo cobro» para registrar el primer cobro'
+                hayBusqueda
+                  ? 'Intenta con otro nombre, estado, método, ID o valor'
+                  : hayFiltros
+                    ? 'Ajusta los filtros o pulsa Limpiar para ver todos los cobros'
+                    : 'Usa el botón «Nuevo cobro» para registrar el primer cobro'
               }
             />
           ) : (
@@ -482,7 +587,7 @@ export default function CobrosPage() {
                         <td style={{ fontWeight: 600 }}>{formatMoneda(c.valor)}</td>
                         <td>
                           <span className="ui-badge" style={getBadgeStyle(c.estado)}>
-                            {c.estado.toUpperCase()}
+                            {(c.estado || '—').toString().toUpperCase()}
                           </span>
                         </td>
                         <td>{c.metodo_pago || '—'}</td>
@@ -501,7 +606,7 @@ export default function CobrosPage() {
                                 <Button
                                   size="sm"
                                   variant="ghost"
-                                  onClick={() => cambiarEstado(c.id, 'anulado')}
+                                  onClick={() => setConfirmAction({ type: 'anular', id: c.id })}
                                   disabled={loading}
                                 >
                                   Anular
@@ -509,7 +614,12 @@ export default function CobrosPage() {
                               </>
                             )}
                             {c.estado === 'anulado' && (
-                              <Button size="sm" variant="ghost" onClick={() => eliminarCobro(c.id)} disabled={loading}>
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={() => setConfirmAction({ type: 'eliminar', id: c.id })}
+                                disabled={loading}
+                              >
                                 Eliminar
                               </Button>
                             )}
@@ -561,11 +671,12 @@ export default function CobrosPage() {
         }
       >
         <div className="ui-form">
-          <Field label="Profesional">
+          <Field label="Profesional" required>
             <Select
               value={nuevoCobro.id_profesional}
               onChange={(e) => handleProfesionalChange(e.target.value)}
               disabled={loading}
+              required
             >
               <option value="">Seleccionar profesional</option>
               {profesionales.map((p) => (
@@ -575,11 +686,12 @@ export default function CobrosPage() {
               ))}
             </Select>
           </Field>
-          <Field label="Agenda">
+          <Field label="Agenda" required>
             <Select
               value={nuevoCobro.id_agenda}
               onChange={(e) => handleAgendaChange(e.target.value)}
               disabled={loading || !nuevoCobro.id_profesional}
+              required
             >
               <option value="">Seleccionar agenda</option>
               {agendas.map((a) => (
@@ -587,14 +699,15 @@ export default function CobrosPage() {
               ))}
             </Select>
           </Field>
-          <Field label="Mascota">
+          <Field label="Mascota" required>
             <Input type="text" value={nombreMascotaVisible} readOnly placeholder="Mascota (se autocompleta)" />
           </Field>
-          <Field label="Tarifa">
+          <Field label="Tarifa" required>
             <Select
               value={nuevoCobro.id_tarifa}
               onChange={(e) => handleTarifaChange(e.target.value)}
               disabled={loading || !nuevoCobro.id_profesional}
+              required
             >
               <option value="">Seleccionar tarifa</option>
               {tarifas.map((t) => (
@@ -602,13 +715,16 @@ export default function CobrosPage() {
               ))}
             </Select>
           </Field>
-          <Field label="Valor">
+          <Field label="Valor" required>
             <Input
               type="number"
               value={nuevoCobro.valor}
               onChange={(e) => setNuevoCobro({ ...nuevoCobro, valor: e.target.value })}
               placeholder="Valor"
               disabled={loading}
+              required
+              min="0"
+              step="any"
             />
           </Field>
           <Field label="Método de pago">
@@ -631,15 +747,30 @@ export default function CobrosPage() {
               disabled={loading}
             />
           </Field>
-          <Field label="Fecha de cobro">
+          <Field label="Fecha de cobro" required>
             <DateInput
               value={nuevoCobro.fecha_cobro}
               onChange={(e) => setNuevoCobro({ ...nuevoCobro, fecha_cobro: e.target.value })}
               disabled={loading}
+              required
             />
           </Field>
         </div>
       </Sheet>
+
+      <ConfirmSheet
+        open={!!confirmAction}
+        onClose={() => setConfirmAction(null)}
+        onConfirm={confirmarAccionCobro}
+        title={confirmAction?.type === 'eliminar' ? 'Confirmar eliminación' : 'Confirmar anulación'}
+        confirmLabel={confirmAction?.type === 'eliminar' ? 'Eliminar' : 'Anular'}
+        loading={loading}
+        danger
+      >
+        {confirmAction?.type === 'eliminar'
+          ? <>¿Eliminar el cobro <b>#{confirmAction?.id}</b>? Esta acción no se puede deshacer.</>
+          : <>¿Anular el cobro <b>#{confirmAction?.id}</b>?</>}
+      </ConfirmSheet>
 
       <Toast toasts={toasts} removeToast={removeToast} />
     </div>

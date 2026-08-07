@@ -2,6 +2,27 @@ import { supabase } from '../lib/supabaseClient';
 import { throwIfError } from '../lib/apiResponse';
 import { toDateOnly } from '../utils/format';
 
+/** Tamaño de página PostgREST; evita truncar silenciosamente en ~1000 filas. */
+const FETCH_PAGE_SIZE = 1000;
+
+/**
+ * Ejecuta una query de Supabase paginando con .range hasta agotar filas.
+ * `makeQuery` debe devolver una query fresca en cada llamada (sin .range previo).
+ */
+async function fetchAllRows(makeQuery, errorMsg) {
+  const all = [];
+  let from = 0;
+  for (;;) {
+    const { data, error } = await makeQuery().range(from, from + FETCH_PAGE_SIZE - 1);
+    throwIfError(error, errorMsg);
+    const rows = data ?? [];
+    all.push(...rows);
+    if (rows.length < FETCH_PAGE_SIZE) break;
+    from += FETCH_PAGE_SIZE;
+  }
+  return all;
+}
+
 function num(v) {
   const n = Number(v);
   return Number.isFinite(n) ? n : 0;
@@ -162,46 +183,36 @@ function buildDashboardFromRows(cobros, agendas, profesionales, params) {
 }
 
 async function getDashboardFallback(params) {
-  let cobrosQuery = supabase
-    .from('cobro')
-    .select('*, profesional(nombre), tarifa(descripcion)')
-    .order('fecha_cobro', { ascending: true });
-  cobrosQuery = applyCobroFilters(cobrosQuery, params);
-
-  let agendasQuery = supabase
-    .from('agenda')
-    .select('id, id_profesional, fecha')
-    .order('fecha', { ascending: true });
-  if (params.fecha_desde) agendasQuery = agendasQuery.gte('fecha', params.fecha_desde);
-  if (params.fecha_hasta) agendasQuery = agendasQuery.lte('fecha', params.fecha_hasta);
-  if (params.id_profesional) {
-    agendasQuery = agendasQuery.eq('id_profesional', params.id_profesional);
-  }
-
-  let profQuery = supabase
-    .from('profesional')
-    .select('id, nombre')
-    .eq('activo', true)
-    .order('nombre');
-  if (params.id_profesional) {
-    profQuery = profQuery.eq('id', params.id_profesional);
-  }
-
-  const [cobrosRes, agendasRes, profRes] = await Promise.all([
-    cobrosQuery,
-    agendasQuery,
-    profQuery,
+  const [cobros, agendas, profesionales] = await Promise.all([
+    fetchAllRows(() => {
+      let q = supabase
+        .from('cobro')
+        .select('*, profesional(nombre), tarifa(descripcion)')
+        .order('fecha_cobro', { ascending: true });
+      return applyCobroFilters(q, params);
+    }, 'Error al cargar cobros del informe'),
+    fetchAllRows(() => {
+      let q = supabase
+        .from('agenda')
+        .select('id, id_profesional, fecha')
+        .order('fecha', { ascending: true });
+      if (params.fecha_desde) q = q.gte('fecha', params.fecha_desde);
+      if (params.fecha_hasta) q = q.lte('fecha', params.fecha_hasta);
+      if (params.id_profesional) q = q.eq('id_profesional', params.id_profesional);
+      return q;
+    }, 'Error al cargar agendas del informe'),
+    fetchAllRows(() => {
+      let q = supabase
+        .from('profesional')
+        .select('id, nombre')
+        .eq('activo', true)
+        .order('nombre');
+      if (params.id_profesional) q = q.eq('id', params.id_profesional);
+      return q;
+    }, 'Error al cargar profesionales'),
   ]);
-  throwIfError(cobrosRes.error, 'Error al cargar cobros del informe');
-  throwIfError(agendasRes.error, 'Error al cargar agendas del informe');
-  throwIfError(profRes.error, 'Error al cargar profesionales');
 
-  return buildDashboardFromRows(
-    cobrosRes.data ?? [],
-    agendasRes.data ?? [],
-    profRes.data ?? [],
-    params
-  );
+  return buildDashboardFromRows(cobros, agendas, profesionales, params);
 }
 
 export async function getDashboardInformes(params = {}) {
@@ -234,21 +245,21 @@ export async function getAgendaInforme(params = {}) {
     return { status: 'success', data: data.rows ?? data ?? [], source: 'rpc' };
   }
 
-  let q = supabase
-    .from('agenda')
-    .select(
-      'id, fecha, hora_inicio, hora_fin, id_profesional, id_mascota, profesional(nombre), mascota(nombre, especie, raza, tamano)'
-    )
-    .order('fecha', { ascending: true })
-    .order('hora_inicio', { ascending: true });
-  if (params.fecha_desde) q = q.gte('fecha', params.fecha_desde);
-  if (params.fecha_hasta) q = q.lte('fecha', params.fecha_hasta);
-  if (params.id_profesional) q = q.eq('id_profesional', params.id_profesional);
+  const agendaRows = await fetchAllRows(() => {
+    let q = supabase
+      .from('agenda')
+      .select(
+        'id, fecha, hora_inicio, hora_fin, id_profesional, id_mascota, profesional(nombre), mascota(nombre, especie, raza, tamano)'
+      )
+      .order('fecha', { ascending: true })
+      .order('hora_inicio', { ascending: true });
+    if (params.fecha_desde) q = q.gte('fecha', params.fecha_desde);
+    if (params.fecha_hasta) q = q.lte('fecha', params.fecha_hasta);
+    if (params.id_profesional) q = q.eq('id_profesional', params.id_profesional);
+    return q;
+  }, 'Error al cargar agenda para exportar');
 
-  const res = await q;
-  throwIfError(res.error, 'Error al cargar agenda para exportar');
-
-  const rows = (res.data ?? []).map((a) => ({
+  const rows = agendaRows.map((a) => ({
     id: a.id,
     fecha: toDateOnly(a.fecha),
     hora_inicio: a.hora_inicio,

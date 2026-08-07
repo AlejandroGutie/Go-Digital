@@ -4,6 +4,7 @@ import {
   successOk,
   throwIfError,
   pageRange,
+  escapeIlike,
 } from '../lib/apiResponse';
 import { hoyLocalISO, toDateOnly } from '../utils/format';
 
@@ -15,6 +16,16 @@ function flattenCobroRow(row) {
     profesional: undefined,
     mascota: undefined,
   };
+}
+
+async function idsPorNombreIlike(table, termEscaped, limit = 200) {
+  const { data, error } = await supabase
+    .from(table)
+    .select('id')
+    .ilike('nombre', `%${termEscaped}%`)
+    .limit(limit);
+  if (error) return [];
+  return (data ?? []).map((r) => r.id).filter((id) => id != null);
 }
 
 export async function listCobros(params = {}) {
@@ -33,6 +44,40 @@ export async function listCobros(params = {}) {
   }
   if (params.fecha_desde) query = query.gte('fecha_cobro', params.fecha_desde);
   if (params.fecha_hasta) query = query.lte('fecha_cobro', params.fecha_hasta);
+
+  const term = params.search?.trim();
+  if (term) {
+    const q = escapeIlike(term);
+    const termLower = term.toLowerCase();
+    const [mascotaIds, profesionalIds] = await Promise.all([
+      idsPorNombreIlike('mascota', q),
+      idsPorNombreIlike('profesional', q),
+    ]);
+
+    // `estado` es enum (cobro_estado): no admite ILIKE; se compara por igualdad.
+    const ESTADOS_COBRO = ['pendiente', 'pagado', 'anulado'];
+    const estadosCoincidentes = ESTADOS_COBRO.filter((e) => e.includes(termLower));
+
+    const orParts = [
+      `observacion.ilike.%${q}%`,
+      `metodo_pago.ilike.%${q}%`,
+    ];
+    for (const estado of estadosCoincidentes) {
+      orParts.push(`estado.eq.${estado}`);
+    }
+    if (mascotaIds.length) {
+      orParts.push(`id_mascota.in.(${mascotaIds.join(',')})`);
+    }
+    if (profesionalIds.length) {
+      orParts.push(`id_profesional.in.(${profesionalIds.join(',')})`);
+    }
+    if (/^\d+$/.test(term)) {
+      orParts.push(`id.eq.${term}`);
+      orParts.push(`valor.eq.${term}`);
+    }
+
+    query = query.or(orParts.join(','));
+  }
 
   const { data, error, count } = await query.range(from, to);
   throwIfError(error, 'Error al listar cobros');

@@ -8,9 +8,10 @@ import {
   getMascotasDeCuidador,
   asignarMascota,
 } from '../api/cuidadoresApi';
-import { createMascota } from '../api/mascotasApi';
+import { createMascota, listMascotasConCuidadores } from '../api/mascotasApi';
 import { normalizeListPayload, normalizeMeta } from '../api/normalize';
 import { useToast } from '../hooks/useToast';
+import { useMutationLock } from '../hooks/useMutationLock';
 import { Toast } from '../components/Toast';
 import EmptyState from '../components/EmptyState';
 import PageHeader from '../components/ui/PageHeader';
@@ -31,6 +32,13 @@ const EMPTY_MASCOTA_FORM = {
   fecha_nacimiento: '',
 };
 const PAGE_SIZE = 20;
+const MASCOTAS_LIST_LIMIT = 500;
+
+function labelCuidadoresMascota(m) {
+  const nombres = (m.cuidadores || []).map((c) => c.nombre).filter(Boolean);
+  if (nombres.length === 0) return 'Sin cuidador asignado';
+  return `Cuidador${nombres.length > 1 ? 'es' : ''}: ${nombres.join(', ')}`;
+}
 
 export default function CuidadoresPage() {
   // ── Estados Principales de Cuidadores ───────────────────────
@@ -43,6 +51,7 @@ export default function CuidadoresPage() {
   const [loadError, setLoadError] = useState(null);
   const [loading, setLoading] = useState(false);
   const { toasts, addToast, removeToast } = useToast();
+  const { tryLock, unlock } = useMutationLock();
   const [inlineEditId, setInlineEditId] = useState(null);
   const [inlineDraft, setInlineDraft] = useState(EMPTY_FORM);
   const [deleteModalId, setDeleteModalId] = useState(null);
@@ -52,6 +61,13 @@ export default function CuidadoresPage() {
   const [mascotasModal, setMascotasModal] = useState(null);
   const [mascotaForm, setMascotaForm] = useState(EMPTY_MASCOTA_FORM);
   const [modalLoading, setModalLoading] = useState(false);
+  const [mascotasDisp, setMascotasDisp] = useState([]);
+  const [busquedaMascota, setBusquedaMascota] = useState('');
+  const [listaMascotasAbierta, setListaMascotasAbierta] = useState(false);
+  const [mascotaIdAsignar, setMascotaIdAsignar] = useState('');
+  const [buscandoMascotas, setBuscandoMascotas] = useState(false);
+  const buscadorMascotaRef = useRef(null);
+  const mascotaSearchReq = useRef(0);
 
   // ── Constantes de Sugerencias para el Autocompletado ────────
   const SUGGESTED_ESPECIES = ['Perro', 'Gato'];
@@ -147,6 +163,58 @@ export default function CuidadoresPage() {
     }
   }
 
+  function resetAsignacionModal() {
+    setMascotasDisp([]);
+    setBusquedaMascota('');
+    setListaMascotasAbierta(false);
+    setMascotaIdAsignar('');
+    setBuscandoMascotas(false);
+    setMascotaForm(EMPTY_MASCOTA_FORM);
+  }
+
+  function cerrarMascotasModal() {
+    setMascotasModal(null);
+    resetAsignacionModal();
+  }
+
+  async function cargarMascotasDisponibles(search = '') {
+    const reqId = ++mascotaSearchReq.current;
+    setBuscandoMascotas(true);
+    try {
+      const res = await listMascotasConCuidadores(1, MASCOTAS_LIST_LIMIT, search);
+      if (reqId !== mascotaSearchReq.current) return;
+      setMascotasDisp(normalizeListPayload(res));
+    } catch (e) {
+      if (reqId !== mascotaSearchReq.current) return;
+      addToast(e?.message || 'No se pudo cargar el listado de mascotas', 'error');
+      setMascotasDisp([]);
+    } finally {
+      if (reqId === mascotaSearchReq.current) {
+        setBuscandoMascotas(false);
+      }
+    }
+  }
+
+  useEffect(() => {
+    function handleClickOutside(e) {
+      if (buscadorMascotaRef.current && !buscadorMascotaRef.current.contains(e.target)) {
+        setListaMascotasAbierta(false);
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  // Búsqueda de mascotas existentes dentro del modal (servidor)
+  useEffect(() => {
+    if (!mascotasModal || mascotaIdAsignar) return undefined;
+    const q = busquedaMascota.trim();
+    const timer = setTimeout(() => {
+      cargarMascotasDisponibles(q).catch(() => {});
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [busquedaMascota, mascotasModal, mascotaIdAsignar]); // eslint-disable-line react-hooks/exhaustive-deps
+
   useEffect(() => {
     const timer = setTimeout(() => {
       refresh(1, filtro);
@@ -168,10 +236,13 @@ export default function CuidadoresPage() {
 
   async function onSubmit(e) {
     e.preventDefault();
+    if (!tryLock()) return;
     setLoading(true);
     try {
       const { nombre, email, telefono, direccion } = form;
-      if (!nombre.trim() || !telefono.trim()) throw new Error('Nombre y teléfono son requeridos');
+      if (!nombre.trim() || !telefono.trim() || !direccion.trim()) {
+        throw new Error('Nombre, teléfono y dirección son requeridos');
+      }
 
       await createCuidador({
         nombre: nombre.trim(),
@@ -189,17 +260,25 @@ export default function CuidadoresPage() {
       addToast(e?.message || 'Error al guardar el cuidador', 'error');
     } finally {
       setLoading(false);
+      unlock();
     }
   }
 
   function startEdit(c) {
+    const direccion = c.direccion || '';
     setInlineEditId(c.id);
     setInlineDraft({
       nombre: c.nombre,
       telefono: c.telefono || '',
-      direccion: c.direccion || '',
+      direccion,
       email: c.email || '',
     });
+    if (!direccion.trim()) {
+      addToast(
+        'Este cuidador no tiene dirección. Complétala para poder guardar (campo obligatorio).',
+        'error'
+      );
+    }
   }
 
   function cancelEdit() {
@@ -208,19 +287,23 @@ export default function CuidadoresPage() {
   }
 
   async function saveEdit(id) {
+    if (!tryLock()) return;
     setLoading(true);
     try {
       const nombre = inlineDraft.nombre.trim();
       const telefono = inlineDraft.telefono.trim();
+      const direccion = inlineDraft.direccion.trim();
 
-      if (!nombre || !telefono) {
-        throw new Error('Nombre y teléfono son requeridos para actualizar');
+      if (!nombre || !telefono || !direccion) {
+        throw new Error(
+          'Nombre, teléfono y dirección son requeridos (también en registros antiguos)'
+        );
       }
 
       await updateCuidador(id, {
         nombre,
         telefono,
-        direccion: inlineDraft.direccion.trim(),
+        direccion,
         email: inlineDraft.email.trim(),
       });
 
@@ -231,10 +314,12 @@ export default function CuidadoresPage() {
       addToast(e?.message || 'Error al actualizar', 'error');
     } finally {
       setLoading(false);
+      unlock();
     }
   }
 
   async function confirmDelete() {
+    if (!tryLock()) return;
     setLoading(true);
     try {
       await deleteCuidador(deleteModalId);
@@ -248,19 +333,62 @@ export default function CuidadoresPage() {
       addToast(e?.message || 'Error al eliminar', 'error');
     } finally {
       setLoading(false);
+      unlock();
     }
   }
 
   async function verMascotas(c) {
+    resetAsignacionModal();
     try {
-      const res = await getMascotasDeCuidador(c.id);
+      const [resAsignadas] = await Promise.all([
+        getMascotasDeCuidador(c.id),
+        cargarMascotasDisponibles(''),
+      ]);
       setMascotasModal({
         id: c.id,
         nombre: c.nombre,
-        mascotas: normalizeListPayload(res),
+        mascotas: normalizeListPayload(resAsignadas),
       });
     } catch (e) {
       addToast(e?.message || 'Error al cargar mascotas', 'error');
+    }
+  }
+
+  function seleccionarMascotaExistente(m) {
+    setMascotaIdAsignar(String(m.id));
+    setBusquedaMascota(m.nombre || '');
+    setListaMascotasAbierta(false);
+  }
+
+  function limpiarMascotaAsignar() {
+    setMascotaIdAsignar('');
+    setBusquedaMascota('');
+    setListaMascotasAbierta(false);
+  }
+
+  async function abrirListaMascotasExistentes() {
+    setListaMascotasAbierta(true);
+    if (mascotaIdAsignar) return;
+    try {
+      await cargarMascotasDisponibles(busquedaMascota.trim());
+    } catch {
+      /* toast ya en cargarMascotasDisponibles */
+    }
+  }
+
+  async function handleAsignarExistente() {
+    if (!mascotasModal?.id || !mascotaIdAsignar || modalLoading) return;
+    setModalLoading(true);
+    try {
+      await asignarMascota(mascotasModal.id, Number(mascotaIdAsignar));
+      addToast('Mascota asignada al cuidador correctamente', 'success');
+      limpiarMascotaAsignar();
+      await refreshModalMascotas(mascotasModal.id);
+      await cargarMascotasDisponibles('');
+    } catch (error) {
+      addToast(error?.message || 'Error al asignar la mascota', 'error');
+    } finally {
+      setModalLoading(false);
     }
   }
 
@@ -301,8 +429,10 @@ export default function CuidadoresPage() {
 
       addToast('Mascota creada y asignada al cuidador correctamente', 'success');
       setMascotaForm(EMPTY_MASCOTA_FORM);
+      limpiarMascotaAsignar();
 
       await refreshModalMascotas(mascotasModal.id);
+      await cargarMascotasDisponibles('');
     } catch (error) {
       addToast(error?.message || 'Error en el flujo de guardado de mascota', 'error');
     } finally {
@@ -314,6 +444,9 @@ export default function CuidadoresPage() {
     setPage(p);
   }
 
+  const mascotasAsignadasIds = new Set((mascotasModal?.mascotas || []).map((m) => m.id));
+  const mascotasParaAsignar = mascotasDisp.filter((m) => !mascotasAsignadasIds.has(m.id));
+
   return (
     <div className="ui-page">
       <PageHeader
@@ -324,7 +457,10 @@ export default function CuidadoresPage() {
       {inlineEditId && (
         <div className="ui-banner ui-banner--edit">
           <span>
-            Editando cuidador <b>#{inlineEditId}</b> — cancela para crear uno nuevo.
+            Editando cuidador <b>#{inlineEditId}</b>
+            {!inlineDraft.direccion?.trim()
+              ? ' — falta la dirección (obligatoria para guardar).'
+              : ' — cancela para crear uno nuevo.'}
           </span>
           <Button variant="ghost" size="sm" onClick={cancelEdit} disabled={loading}>
             Cancelar
@@ -375,11 +511,12 @@ export default function CuidadoresPage() {
                     onChange={(e) => setForm((p) => ({ ...p, telefono: e.target.value }))}
                   />
                 </Field>
-                <Field id="cdireccion" label="Dirección">
+                <Field id="cdireccion" label="Dirección" required>
                   <Input
                     id="cdireccion"
                     type="text"
                     value={form.direccion}
+                    required
                     disabled={loading || !!inlineEditId}
                     onChange={(e) => setForm((p) => ({ ...p, direccion: e.target.value }))}
                   />
@@ -507,6 +644,8 @@ export default function CuidadoresPage() {
                               <Input
                                 type="text"
                                 value={inlineDraft.direccion}
+                                required
+                                placeholder="Dirección obligatoria"
                                 disabled={loading}
                                 onChange={(e) =>
                                   setInlineDraft((p) => ({ ...p, direccion: e.target.value }))
@@ -620,22 +759,22 @@ export default function CuidadoresPage() {
 
       <Sheet
         open={!!mascotasModal}
-        onClose={() => setMascotasModal(null)}
+        onClose={cerrarMascotasModal}
         title={mascotasModal ? `Mascotas de ${mascotasModal.nombre}` : ''}
         size="lg"
         footer={
-          <Button variant="ghost" onClick={() => setMascotasModal(null)}>
+          <Button variant="ghost" onClick={cerrarMascotasModal}>
             Cerrar
           </Button>
         }
       >
-        {modalLoading && mascotasModal?.mascotas.length === 0 ? (
+        {modalLoading && (!mascotasModal?.mascotas || mascotasModal.mascotas.length === 0) ? (
           <Skeleton rows={3} />
         ) : mascotasModal?.mascotas.length === 0 ? (
           <EmptyState
             icon={<PawPrint size={24} />}
             title="Sin mascotas asignadas"
-            description="Este cuidador no tiene mascotas asignadas todavía."
+            description="Asigna una mascota existente o registra una nueva abajo."
           />
         ) : (
           <div className="ui-table-wrap table-scroll">
@@ -664,6 +803,146 @@ export default function CuidadoresPage() {
             </table>
           </div>
         )}
+
+        <hr className="ui-divider" />
+
+        <div style={{ marginBottom: 20 }}>
+          <p
+            style={{
+              margin: '0 0 12px',
+              fontSize: '0.875rem',
+              fontWeight: 500,
+              color: 'var(--color-entorno)',
+            }}
+          >
+            Asignar mascota existente
+          </p>
+          <label className="ui-field__label" htmlFor="buscador-mascota-cuidador">
+            Buscar mascota
+          </label>
+          <div
+            className="ui-btn-row"
+            style={{
+              marginTop: 6,
+              alignItems: 'center',
+              flexWrap: 'nowrap',
+            }}
+          >
+            <div ref={buscadorMascotaRef} className="ui-combo" style={{ flex: 1, minWidth: 0 }}>
+              <Input
+                id="buscador-mascota-cuidador"
+                type="text"
+                role="combobox"
+                aria-expanded={listaMascotasAbierta}
+                aria-controls="lista-mascotas-cuidador"
+                aria-autocomplete="list"
+                placeholder="Buscar por nombre, raza, especie o tamaño…"
+                value={busquedaMascota}
+                disabled={modalLoading}
+                onChange={(e) => {
+                  const value = e.target.value;
+                  setBusquedaMascota(value);
+                  setListaMascotasAbierta(true);
+                  if (mascotaIdAsignar) {
+                    const selected = mascotasParaAsignar.find(
+                      (m) => String(m.id) === String(mascotaIdAsignar)
+                    );
+                    if (!selected || value !== (selected.nombre || '')) {
+                      setMascotaIdAsignar('');
+                    }
+                  }
+                }}
+                onFocus={() => {
+                  void abrirListaMascotasExistentes();
+                }}
+              />
+
+              {listaMascotasAbierta && (
+                <ul
+                  id="lista-mascotas-cuidador"
+                  role="listbox"
+                  className="ui-combo__list"
+                >
+                  {buscandoMascotas ? (
+                    <li
+                      className="ui-combo__item"
+                      style={{ cursor: 'default', color: 'var(--color-purple-light)' }}
+                    >
+                      Buscando mascotas…
+                    </li>
+                  ) : mascotasParaAsignar.length === 0 ? (
+                    <li
+                      className="ui-combo__item"
+                      style={{ cursor: 'default', color: 'var(--color-purple-light)' }}
+                    >
+                      {busquedaMascota.trim()
+                        ? 'No hay mascotas disponibles con esa búsqueda'
+                        : 'No hay mascotas disponibles para asignar'}
+                    </li>
+                  ) : (
+                    mascotasParaAsignar.map((m) => (
+                      <li
+                        key={m.id}
+                        role="option"
+                        aria-selected={String(mascotaIdAsignar) === String(m.id)}
+                      >
+                        <button
+                          type="button"
+                          className={`ui-combo__item${
+                            String(mascotaIdAsignar) === String(m.id)
+                              ? ' ui-combo__item--active'
+                              : ''
+                          }`}
+                          onClick={() => seleccionarMascotaExistente(m)}
+                        >
+                          <div>
+                            {m.nombre}
+                            <span
+                              style={{
+                                marginLeft: 6,
+                                fontSize: '0.75rem',
+                                color: 'var(--color-purple-light)',
+                                fontWeight: 400,
+                              }}
+                            >
+                              #{m.id}
+                            </span>
+                          </div>
+                          <div
+                            style={{
+                              fontSize: '0.75rem',
+                              color: 'var(--color-purple-light)',
+                              fontWeight: 400,
+                            }}
+                          >
+                            {[m.especie, m.raza, m.tamano].filter(Boolean).join(' · ')}
+                          </div>
+                          <div
+                            style={{
+                              fontSize: '0.75rem',
+                              color: 'var(--color-purple-light)',
+                              fontWeight: 400,
+                            }}
+                          >
+                            {labelCuidadoresMascota(m)}
+                          </div>
+                        </button>
+                      </li>
+                    ))
+                  )}
+                </ul>
+              )}
+            </div>
+            <Button
+              variant="primary"
+              onClick={handleAsignarExistente}
+              disabled={modalLoading || !mascotaIdAsignar}
+              style={{ flexShrink: 0, alignSelf: 'center' }}
+            >
+              {modalLoading ? '…' : 'Asignar'}
+            </Button>
+          </div>
+        </div>
 
         <hr className="ui-divider" />
 

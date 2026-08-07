@@ -17,8 +17,9 @@ import {
 } from '../api/profesionalesApi';
 import { normalizeListPayload, normalizeMeta } from '../api/normalize';
 import { getAgendaDeProfesional } from '../api/agendasApi';
-import { listTarifas, createTarifa, deleteTarifa } from '../api/tarifasApi';
+import { listTarifas, createTarifa, updateTarifa, deleteTarifa } from '../api/tarifasApi';
 import { useToast } from '../hooks/useToast';
+import { useMutationLock } from '../hooks/useMutationLock';
 import { Toast } from '../components/Toast';
 import EmptyState from '../components/EmptyState';
 import PageHeader from '../components/ui/PageHeader';
@@ -27,7 +28,7 @@ import Button from '../components/ui/Button';
 import Skeleton from '../components/ui/Skeleton';
 import ConfirmSheet from '../components/ui/ConfirmSheet';
 import Sheet from '../components/ui/Sheet';
-import { formatFecha, formatHora } from '../utils/format';
+import { formatFecha, formatHora, formatMoneda } from '../utils/format';
 import '../index.css';
 
 const EMPTY_FORM = { nombre: '', telefono: '' };
@@ -43,12 +44,16 @@ export default function ProfesionalesPage() {
   const [loadError, setLoadError] = useState(null);
   const [loading, setLoading] = useState(false);
   const { toasts, addToast, removeToast } = useToast();
+  const { tryLock, unlock } = useMutationLock();
   const [inlineEditId, setInlineEditId] = useState(null);
   const [inlineDraft, setInlineDraft] = useState(EMPTY_FORM);
   const [deleteModalId, setDeleteModalId] = useState(null);
+  const [deleteTarifaId, setDeleteTarifaId] = useState(null);
   const [agendaModal, setAgendaModal] = useState(null);
   const [tarifasModal, setTarifasModal] = useState(null);
   const [nuevaTarifa, setNuevaTarifa] = useState({ descripcion: '', valor: '' });
+  const [editTarifaId, setEditTarifaId] = useState(null);
+  const [editTarifaDraft, setEditTarifaDraft] = useState({ descripcion: '', valor: '' });
   const [formOpen, setFormOpen] = useState(true);
 
   const pageRef = useRef(page);
@@ -118,40 +123,94 @@ export default function ProfesionalesPage() {
   }
 
   async function handleAddTarifa() {
-    if (!nuevaTarifa.descripcion || !nuevaTarifa.valor) return;
+    const descripcion = nuevaTarifa.descripcion.trim();
+    const valorNum = parseFloat(nuevaTarifa.valor);
+    if (!descripcion || Number.isNaN(valorNum) || valorNum < 0) {
+      addToast('Ingresa descripción y un valor válido (0 o mayor)', 'error');
+      return;
+    }
+    if (!tryLock()) return;
     setLoading(true);
     try {
       await createTarifa(tarifasModal.id, {
-        descripcion: nuevaTarifa.descripcion,
-        valor: parseFloat(nuevaTarifa.valor)
+        descripcion,
+        valor: valorNum,
       });
       addToast('Tarifa agregada', 'success');
       setNuevaTarifa({ descripcion: '', valor: '' });
-      // Recargar la lista del modal
       const res = await listTarifas(tarifasModal.id);
-      setTarifasModal(prev => ({ ...prev, lista: res.data }));
+      setTarifasModal((prev) => ({ ...prev, lista: res.data }));
     } catch (e) {
-      addToast('Error al guardar tarifa', 'error');
+      addToast(e?.message || 'Error al guardar tarifa', 'error');
     } finally {
       setLoading(false);
+      unlock();
     }
   }
 
-  async function handleDeleteTarifa(tid) {
-    if (!window.confirm('¿Eliminar esta tarifa?')) return;
+  function startEditTarifa(t) {
+    setEditTarifaId(t.id);
+    setEditTarifaDraft({
+      descripcion: t.descripcion || '',
+      valor: t.valor != null ? String(t.valor) : '',
+    });
+  }
+
+  function cancelEditTarifa() {
+    setEditTarifaId(null);
+    setEditTarifaDraft({ descripcion: '', valor: '' });
+  }
+
+  async function saveEditTarifa() {
+    if (editTarifaId == null || !tarifasModal?.id) return;
+    const descripcion = editTarifaDraft.descripcion.trim();
+    const valorNum = parseFloat(editTarifaDraft.valor);
+    if (!descripcion || Number.isNaN(valorNum) || valorNum < 0) {
+      addToast('Ingresa descripción y un valor válido (0 o mayor)', 'error');
+      return;
+    }
+    if (!tryLock()) return;
+    setLoading(true);
     try {
-      await deleteTarifa(tarifasModal.id, tid);
+      await updateTarifa(tarifasModal.id, editTarifaId, {
+        descripcion,
+        valor: valorNum,
+      });
       const res = await listTarifas(tarifasModal.id);
-      setTarifasModal(prev => ({ ...prev, lista: res.data }));
+      setTarifasModal((prev) => ({ ...prev, lista: res.data }));
+      cancelEditTarifa();
+      addToast('Tarifa actualizada', 'success');
+    } catch (e) {
+      addToast(e?.message || 'Error al actualizar tarifa', 'error');
+    } finally {
+      setLoading(false);
+      unlock();
+    }
+  }
+
+  async function confirmDeleteTarifa() {
+    if (deleteTarifaId == null || !tarifasModal?.id) return;
+    if (!tryLock()) return;
+    setLoading(true);
+    try {
+      await deleteTarifa(tarifasModal.id, deleteTarifaId);
+      const res = await listTarifas(tarifasModal.id);
+      setTarifasModal((prev) => ({ ...prev, lista: res.data }));
+      if (editTarifaId === deleteTarifaId) cancelEditTarifa();
+      setDeleteTarifaId(null);
       addToast('Tarifa eliminada', 'success');
     } catch (e) {
-      addToast('Error al eliminar', 'error');
+      addToast(e?.message || 'Error al eliminar', 'error');
+    } finally {
+      setLoading(false);
+      unlock();
     }
   }
   // --- Fin Lógica de Tarifas ---
 
   async function onSubmit(e) {
     e.preventDefault();
+    if (!tryLock()) return;
     setLoading(true);
     try {
       const nombre = form.nombre.trim();
@@ -167,6 +226,7 @@ export default function ProfesionalesPage() {
       addToast(e?.message || 'Error al guardar', 'error');
     } finally {
       setLoading(false);
+      unlock();
     }
   }
 
@@ -181,6 +241,7 @@ export default function ProfesionalesPage() {
   }
 
   async function saveEdit(id) {
+    if (!tryLock()) return;
     setLoading(true);
     try {
       const nombre = inlineDraft.nombre.trim();
@@ -195,10 +256,12 @@ export default function ProfesionalesPage() {
       addToast(e?.message || 'Error al actualizar', 'error');
     } finally {
       setLoading(false);
+      unlock();
     }
   }
 
   async function confirmDelete() {
+    if (!tryLock()) return;
     setLoading(true);
     try {
       await deleteProfesional(deleteModalId);
@@ -212,6 +275,7 @@ export default function ProfesionalesPage() {
       addToast(e?.message || 'Error al inactivar el profesional', 'error');
     } finally {
       setLoading(false);
+      unlock();
     }
   }
 
@@ -279,6 +343,7 @@ export default function ProfesionalesPage() {
                     id="ptelefono"
                     type="text"
                     value={form.telefono}
+                    required
                     disabled={loading || !!inlineEditId}
                     onChange={(e) => setForm((p) => ({ ...p, telefono: e.target.value }))}
                   />
@@ -386,6 +451,7 @@ export default function ProfesionalesPage() {
                               <Input
                                 type="text"
                                 value={inlineDraft.telefono}
+                                required
                                 disabled={loading}
                                 onChange={(e) =>
                                   setInlineDraft((d) => ({ ...d, telefono: e.target.value }))
@@ -499,11 +565,22 @@ export default function ProfesionalesPage() {
 
       <Sheet
         open={!!tarifasModal}
-        onClose={() => setTarifasModal(null)}
+        onClose={() => {
+          setTarifasModal(null);
+          cancelEditTarifa();
+          setNuevaTarifa({ descripcion: '', valor: '' });
+        }}
         title={tarifasModal ? `Tarifas de ${tarifasModal.nombre}` : ''}
         footer={
           <div style={{ display: 'flex', justifyContent: 'flex-end', width: '100%' }}>
-            <Button variant="ghost" onClick={() => setTarifasModal(null)}>
+            <Button
+              variant="ghost"
+              onClick={() => {
+                setTarifasModal(null);
+                cancelEditTarifa();
+                setNuevaTarifa({ descripcion: '', valor: '' });
+              }}
+            >
               Cerrar
             </Button>
           </div>
@@ -514,6 +591,7 @@ export default function ProfesionalesPage() {
             placeholder="Descripción (ej: Baño)"
             value={nuevaTarifa.descripcion}
             onChange={(e) => setNuevaTarifa((t) => ({ ...t, descripcion: e.target.value }))}
+            disabled={loading || editTarifaId != null}
             style={{ flex: '2 1 140px', minWidth: 0 }}
           />
           <Input
@@ -521,12 +599,15 @@ export default function ProfesionalesPage() {
             placeholder="Valor"
             value={nuevaTarifa.valor}
             onChange={(e) => setNuevaTarifa((t) => ({ ...t, valor: e.target.value }))}
+            disabled={loading || editTarifaId != null}
+            min="0"
+            step="any"
             style={{ flex: '1 1 80px', minWidth: 0 }}
           />
           <Button
             variant="primary"
             onClick={handleAddTarifa}
-            disabled={loading}
+            disabled={loading || editTarifaId != null}
             aria-label="Agregar tarifa"
           >
             <Plus size={16} />
@@ -552,18 +633,78 @@ export default function ProfesionalesPage() {
               <tbody>
                 {tarifasModal?.lista.map((t) => (
                   <tr key={t.id}>
-                    <td>{t.descripcion}</td>
-                    <td>${parseFloat(t.valor).toLocaleString()}</td>
-                    <td>
-                      <Button
-                        variant="ghost"
-                        icon
-                        aria-label="Eliminar tarifa"
-                        onClick={() => handleDeleteTarifa(t.id)}
-                      >
-                        <X size={16} />
-                      </Button>
-                    </td>
+                    {editTarifaId === t.id ? (
+                      <>
+                        <td>
+                          <Input
+                            value={editTarifaDraft.descripcion}
+                            disabled={loading}
+                            onChange={(e) =>
+                              setEditTarifaDraft((d) => ({ ...d, descripcion: e.target.value }))
+                            }
+                          />
+                        </td>
+                        <td>
+                          <Input
+                            type="number"
+                            value={editTarifaDraft.valor}
+                            disabled={loading}
+                            min="0"
+                            step="any"
+                            onChange={(e) =>
+                              setEditTarifaDraft((d) => ({ ...d, valor: e.target.value }))
+                            }
+                          />
+                        </td>
+                        <td>
+                          <div className="ui-table__actions">
+                            <Button
+                              size="sm"
+                              variant="primary"
+                              onClick={saveEditTarifa}
+                              disabled={loading}
+                            >
+                              Guardar
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onClick={cancelEditTarifa}
+                              disabled={loading}
+                            >
+                              Cancelar
+                            </Button>
+                          </div>
+                        </td>
+                      </>
+                    ) : (
+                      <>
+                        <td>{t.descripcion}</td>
+                        <td>{formatMoneda(t.valor)}</td>
+                        <td>
+                          <div className="ui-table__actions">
+                            <Button
+                              variant="ghost"
+                              icon
+                              aria-label="Editar tarifa"
+                              onClick={() => startEditTarifa(t)}
+                              disabled={loading || editTarifaId != null}
+                            >
+                              <Pencil size={16} />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              icon
+                              aria-label="Eliminar tarifa"
+                              onClick={() => setDeleteTarifaId(t.id)}
+                              disabled={loading || editTarifaId != null}
+                            >
+                              <X size={16} />
+                            </Button>
+                          </div>
+                        </td>
+                      </>
+                    )}
                   </tr>
                 ))}
               </tbody>
@@ -596,7 +737,7 @@ export default function ProfesionalesPage() {
             <table className="ui-table">
               <thead>
                 <tr>
-                  {['ID', 'Mascota', 'Raza', 'Fecha', 'Inicio', 'Fin'].map((h) => (
+                  {['ID', 'Mascota', 'Especie', 'Raza', 'Fecha', 'Inicio', 'Fin'].map((h) => (
                     <th key={h}>{h}</th>
                   ))}
                 </tr>
@@ -606,6 +747,7 @@ export default function ProfesionalesPage() {
                   <tr key={c.id}>
                     <td className="ui-num">{c.id}</td>
                     <td>{c.mascota_nombre}</td>
+                    <td>{c.especie || '—'}</td>
                     <td>{c.raza}</td>
                     <td style={{ color: 'var(--color-purple-light)' }}>{formatFecha(c.fecha)}</td>
                     <td>{formatHora(c.hora_inicio)}</td>
@@ -628,6 +770,18 @@ export default function ProfesionalesPage() {
         danger
       >
         El profesional dejará de aparecer en la lista, pero sus datos se conservan.
+      </ConfirmSheet>
+
+      <ConfirmSheet
+        open={deleteTarifaId != null}
+        onClose={() => setDeleteTarifaId(null)}
+        onConfirm={confirmDeleteTarifa}
+        title="Confirmar eliminación"
+        confirmLabel="Eliminar"
+        loading={loading}
+        danger
+      >
+        ¿Eliminar la tarifa <b>#{deleteTarifaId}</b>? Esta acción no se puede deshacer.
       </ConfirmSheet>
 
       <Toast toasts={toasts} removeToast={removeToast} />

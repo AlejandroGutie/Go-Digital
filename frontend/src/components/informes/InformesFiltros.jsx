@@ -11,6 +11,7 @@ export default function InformesFiltros({
   onChange,
   onPreset,
   onLimpiar,
+  rangoFechasError = false,
 }) {
   const [busquedaProf, setBusquedaProf] = useState('');
   const [listaAbierta, setListaAbierta] = useState(false);
@@ -48,7 +49,11 @@ export default function InformesFiltros({
     const q = busquedaProf.trim().toLowerCase();
     const list = profesionales || [];
     if (!q) return list;
-    return list.filter((p) => (p.nombre || '').toLowerCase().includes(q));
+    return list.filter(
+      (p) =>
+        (p.nombre || '').toLowerCase().includes(q) ||
+        (p.telefono || '').toLowerCase().includes(q)
+    );
   }, [profesionales, busquedaProf]);
 
   const mostrarOpcionTodos =
@@ -106,6 +111,7 @@ export default function InformesFiltros({
             onChange={(e) =>
               onChange({ ...filtros, fecha_desde: e.target.value, preset: 'personalizado' })
             }
+            max={filtros.fecha_hasta || undefined}
             aria-label="Fecha desde"
           />
         </Field>
@@ -115,6 +121,7 @@ export default function InformesFiltros({
             onChange={(e) =>
               onChange({ ...filtros, fecha_hasta: e.target.value, preset: 'personalizado' })
             }
+            min={filtros.fecha_desde || undefined}
             aria-label="Fecha hasta"
           />
         </Field>
@@ -128,7 +135,7 @@ export default function InformesFiltros({
               aria-expanded={listaAbierta}
               aria-controls="lista-profesionales-informe"
               aria-autocomplete="list"
-              placeholder={TODOS_LABEL}
+              placeholder="Buscar por nombre o teléfono…"
               value={busquedaProf}
               onChange={(e) => handleBusquedaChange(e.target.value)}
               onFocus={() => setListaAbierta(true)}
@@ -176,7 +183,12 @@ export default function InformesFiltros({
                         }`}
                         onClick={() => seleccionarProfesional(p)}
                       >
-                        {p.nombre}
+                        <div>{p.nombre}</div>
+                        {p.telefono ? (
+                          <div style={{ fontSize: '0.75rem', color: 'var(--color-purple-light)' }}>
+                            {p.telefono}
+                          </div>
+                        ) : null}
                       </button>
                     </li>
                   ))
@@ -202,6 +214,12 @@ export default function InformesFiltros({
           Limpiar filtros
         </Button>
       </div>
+
+      {rangoFechasError && (
+        <div className="ui-banner ui-banner--warn" style={{ marginTop: 12 }}>
+          La fecha «Desde» no puede ser posterior a «Hasta».
+        </div>
+      )}
     </div>
   );
 }

@@ -70,6 +70,21 @@ export function formatFechaCorta(iso) {
   return formatFecha(iso);
 }
 
+/** Moneda COP (es-CO), formato único en UI y reportes. */
+export function formatMoneda(valor) {
+  return new Intl.NumberFormat('es-CO', {
+    style: 'currency',
+    currency: 'COP',
+    minimumFractionDigits: 0,
+  }).format(valor || 0);
+}
+
+/** true si ambas fechas existen y desde > hasta (ISO YYYY-MM-DD). */
+export function rangoFechasInvalido(fechaDesde, fechaHasta) {
+  if (!fechaDesde || !fechaHasta) return false;
+  return String(fechaDesde) > String(fechaHasta);
+}
+
 // Formatos Hora
 export function formatHora(timeStr) {
   if (!timeStr) return '—';

@@ -37,9 +37,12 @@ export function throwIfError(error, fallbackMsg = 'Error en la operación') {
   throw new Error(error.message || fallbackMsg);
 }
 
+/** Tope alineado con el máximo por request de PostgREST/Supabase (1000). */
+const MAX_PAGE_LIMIT = 1000;
+
 export function pageRange(page = 1, limit = 20) {
   const safePage = Math.max(1, page);
-  const safeLimit = Math.min(100, Math.max(1, limit));
+  const safeLimit = Math.min(MAX_PAGE_LIMIT, Math.max(1, limit));
   const from = (safePage - 1) * safeLimit;
   const to = from + safeLimit - 1;
   return { from, to, page: safePage, limit: safeLimit };

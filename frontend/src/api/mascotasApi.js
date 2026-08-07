@@ -33,13 +33,63 @@ export async function listMascotas(page = 1, limit = 20, search = '') {
   if (term) {
     const q = escapeIlike(term);
     query = query.or(
-      `nombre.ilike.%${q}%,raza.ilike.%${q}%,especie.ilike.%${q}%`
+      `nombre.ilike.%${q}%,raza.ilike.%${q}%,especie.ilike.%${q}%,tamano.ilike.%${q}%`
     );
   }
 
   const { data, error, count } = await query.range(from, to);
   throwIfError(error, 'Error al listar mascotas');
   return successList(data ?? [], count, p, l);
+}
+
+/**
+ * Listado para asignar: incluye nombres de cuidadores ya vinculados
+ * (desambiguación en combos). No altera el contrato de listMascotas.
+ */
+export async function listMascotasConCuidadores(page = 1, limit = 20, search = '') {
+  const { from, to, page: p, limit: l } = pageRange(page, limit);
+  let query = supabase
+    .from('mascota')
+    .select(
+      `${MASCOTA_COLUMNS}, cuidador_mascota(cuidador(id, nombre))`,
+      { count: 'exact' }
+    )
+    .order('id');
+
+  const term = search?.trim();
+  if (term) {
+    const q = escapeIlike(term);
+    query = query.or(
+      `nombre.ilike.%${q}%,raza.ilike.%${q}%,especie.ilike.%${q}%,tamano.ilike.%${q}%`
+    );
+  }
+
+  const { data, error, count } = await query.range(from, to);
+  throwIfError(error, 'Error al listar mascotas');
+
+  const rows = (data ?? []).map((row) => {
+    const cuidadores = (row.cuidador_mascota ?? [])
+      .map((link) => link?.cuidador)
+      .filter((c) => c?.id && c?.nombre);
+    const seen = new Set();
+    const cuidadoresUnicos = [];
+    for (const c of cuidadores) {
+      if (seen.has(c.id)) continue;
+      seen.add(c.id);
+      cuidadoresUnicos.push({ id: c.id, nombre: c.nombre });
+    }
+    return {
+      id: row.id,
+      nombre: row.nombre,
+      especie: row.especie,
+      raza: row.raza,
+      tamano: row.tamano,
+      fecha_nacimiento: row.fecha_nacimiento,
+      cuidadores: cuidadoresUnicos,
+    };
+  });
+
+  return successList(rows, count, p, l);
 }
 
 export async function getMascotaById(id) {

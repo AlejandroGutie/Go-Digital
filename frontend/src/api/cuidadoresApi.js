@@ -39,10 +39,10 @@ export async function getCuidadorById(id) {
 export async function createCuidador(payload) {
   const nombre = payload.nombre?.trim();
   const telefono = payload.telefono?.trim();
-  const direccion = payload.direccion?.trim() || null;
+  const direccion = payload.direccion?.trim();
   const email = payload.email?.trim().toLowerCase() || null;
-  if (!nombre || !telefono) {
-    throw new Error('Nombre y teléfono son requeridos');
+  if (!nombre || !telefono || !direccion) {
+    throw new Error('Nombre, teléfono y dirección son requeridos');
   }
 
   const { data, error } = await supabase
@@ -57,14 +57,12 @@ export async function createCuidador(payload) {
 export async function updateCuidador(id, payload) {
   const nombre = payload.nombre?.trim();
   const telefono = payload.telefono?.trim();
-  if (!nombre || !telefono) {
-    throw new Error('Nombre y teléfono son requeridos para actualizar');
+  const direccion = payload.direccion?.trim();
+  if (!nombre || !telefono || !direccion) {
+    throw new Error('Nombre, teléfono y dirección son requeridos para actualizar');
   }
 
-  const patch = { nombre, telefono };
-  if (Object.prototype.hasOwnProperty.call(payload, 'direccion')) {
-    patch.direccion = payload.direccion?.trim() || null;
-  }
+  const patch = { nombre, telefono, direccion };
   if (Object.prototype.hasOwnProperty.call(payload, 'email')) {
     patch.email = payload.email?.trim().toLowerCase() || null;
   }

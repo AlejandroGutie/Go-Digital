@@ -1,18 +1,13 @@
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
-import { formatFecha, formatHora, hoyLocalISO } from './format';
+import { formatFecha, formatHora, formatMoneda, hoyLocalISO } from './format';
 import clientLogoUrl from '../assets/logo-pelu-eli.png';
 import goDigitalLogoUrl from '../assets/LogoGo-Digital.png';
 
+export { formatMoneda };
+
 /** Color primario de marca (--color-entorno), fallback Pelu Eli magenta. */
 const COLOR_ENTORNO_FALLBACK = [183, 65, 146]; // #B74192
-
-export const formatMoneda = (valor) =>
-  new Intl.NumberFormat('es-CO', {
-    style: 'currency',
-    currency: 'COP',
-    minimumFractionDigits: 0,
-  }).format(valor || 0);
 
 export function formatMesLabel(mes) {
   if (!mes) return '—';
@@ -409,3 +404,112 @@ export async function exportAgendaPDF(rows, filtros) {
     `agenda_${filtros.fecha_desde || 'inicio'}_${filtros.fecha_hasta || 'fin'}${suffix}.pdf`
   );
 }
+
+/**
+ * Comprobante PDF de una agenda individual (mismo membrete/pie que informes).
+ * @param {{ agenda: object, profesional: object, cuidador: object|null, mascota?: object }} data
+ */
+export async function exportAgendaConfirmacionPDF(data) {
+  const agenda = data?.agenda || {};
+  const profesional = data?.profesional || {};
+  const cuidador = data?.cuidador || {};
+  const mascota = data?.mascota || {};
+
+  const doc = new jsPDF();
+  const logoDataUrl = await getLogoDataUrl();
+  const goDigitalLogoDataUrl = await getGoDigitalLogoDataUrl();
+
+  applyPageChrome(doc, logoDataUrl, goDigitalLogoDataUrl);
+
+  const y = drawReportTitle(
+    doc,
+    'Confirmación de agenda',
+    [
+      `Generado: ${formatFecha(hoyLocalISO())}`,
+      `Cita #${agenda.id ?? '—'} · Estado: Asignada`,
+    ],
+    LETTERHEAD_HEIGHT + 8
+  );
+
+  const sharedTableOpts = {
+    styles: { ...tableBaseStyles, fontSize: 9 },
+    headStyles: headStylesFromBrand(),
+    alternateRowStyles: { fillColor: [252, 248, 251] },
+    margin: { top: LETTERHEAD_HEIGHT + 6, left: 14, right: 14, bottom: 18 },
+    didDrawPage: () => applyPageChrome(doc, logoDataUrl, goDigitalLogoDataUrl),
+  };
+
+  const tarifaTxt =
+    agenda.tarifa_descripcion || agenda.tarifa_valor != null
+      ? `${agenda.tarifa_descripcion || 'Tarifa'}${
+          agenda.tarifa_valor != null ? ` · ${formatMoneda(agenda.tarifa_valor)}` : ''
+        }`
+      : '—';
+
+  autoTable(doc, {
+    ...sharedTableOpts,
+    startY: y,
+    head: [['Datos del profesional', '']],
+    body: [
+      ['Nombre', profesional.nombre || '—'],
+      ['Teléfono', profesional.telefono || '—'],
+    ],
+    columnStyles: { 0: { cellWidth: 45, fontStyle: 'bold' } },
+  });
+
+  autoTable(doc, {
+    ...sharedTableOpts,
+    startY: (doc.lastAutoTable?.finalY || y) + 8,
+    head: [['Datos del cuidador', '']],
+    body: [
+      ['Nombre', cuidador.nombre || '—'],
+      ['Teléfono', cuidador.telefono || '—'],
+      ['Dirección', cuidador.direccion || '—'],
+      ['Email', cuidador.email || '—'],
+    ],
+    columnStyles: { 0: { cellWidth: 45, fontStyle: 'bold' } },
+  });
+
+  autoTable(doc, {
+    ...sharedTableOpts,
+    startY: (doc.lastAutoTable?.finalY || y) + 8,
+    head: [['Datos de la mascota', '']],
+    body: [
+      ['Nombre', agenda.mascota_nombre || mascota.nombre || '—'],
+      ['Especie', mascota.especie || agenda.especie || '—'],
+      ['Raza', agenda.raza || mascota.raza || '—'],
+      ['Tamaño', agenda.tamano || mascota.tamano || '—'],
+      [
+        'Fecha de nacimiento',
+        mascota.fecha_nacimiento ? formatFecha(mascota.fecha_nacimiento) : '—',
+      ],
+    ],
+    columnStyles: { 0: { cellWidth: 45, fontStyle: 'bold' } },
+  });
+
+  autoTable(doc, {
+    ...sharedTableOpts,
+    startY: (doc.lastAutoTable?.finalY || y) + 8,
+    head: [['Datos de la agenda', '']],
+    body: [
+      ['Fecha', formatFecha(agenda.fecha)],
+      ['Hora inicio', formatHora(agenda.hora_inicio)],
+      ['Hora fin', formatHora(agenda.hora_fin)],
+      ['Tarifa / servicio', tarifaTxt],
+      ['Estado', 'Asignada'],
+    ],
+    columnStyles: { 0: { cellWidth: 45, fontStyle: 'bold' } },
+  });
+
+  const totalPages = doc.internal.getNumberOfPages();
+  for (let i = 1; i <= totalPages; i++) {
+    doc.setPage(i);
+    applyPageChrome(doc, logoDataUrl, goDigitalLogoDataUrl);
+  }
+
+  const fechaFile = toCsvDate(agenda.fecha) || hoyLocalISO();
+  const filename = `confirmacion_agenda_${agenda.id || 'cita'}_${fechaFile.replace(/\//g, '-')}.pdf`;
+  doc.save(filename);
+  return filename;
+}
+

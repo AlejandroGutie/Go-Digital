@@ -4,6 +4,7 @@ import { listCuidadores, getMascotasDeCuidador, asignarMascota, desasignarMascot
 import { listMascotas } from '../api/mascotasApi';
 import { normalizeListPayload } from '../api/normalize';
 import { useToast } from '../hooks/useToast';
+import { useMutationLock } from '../hooks/useMutationLock';
 import { Toast } from '../components/Toast';
 import { formatFecha } from '../utils/format';
 import EmptyState from '../components/EmptyState';
@@ -11,6 +12,7 @@ import PageHeader from '../components/ui/PageHeader';
 import Field, { Input } from '../components/ui/Field';
 import Button from '../components/ui/Button';
 import Skeleton from '../components/ui/Skeleton';
+import ConfirmSheet from '../components/ui/ConfirmSheet';
 import '../index.css';
 
 const LIST_LIMIT = 500;
@@ -28,16 +30,26 @@ export default function AsignacionPage() {
   const [listaAbierta, setListaAbierta] = useState(false);
   const [busquedaMascota, setBusquedaMascota] = useState('');
   const [listaMascotasAbierta, setListaMascotasAbierta] = useState(false);
+  const [desasignarModalId, setDesasignarModalId] = useState(null);
   const { toasts, addToast, removeToast } = useToast();
+  const { tryLock, unlock } = useMutationLock();
   const buscadorRef = useRef(null);
   const buscadorMascotaRef = useRef(null);
   const mascotaSearchReq = useRef(0);
+  const cuidadorSearchReq = useRef(0);
 
   async function cargarMascotas(search = '') {
     const reqId = ++mascotaSearchReq.current;
     const res = await listMascotas(1, LIST_LIMIT, search);
     if (reqId !== mascotaSearchReq.current) return;
     setMascotasDisp(normalizeListPayload(res));
+  }
+
+  async function cargarCuidadores(search = '') {
+    const reqId = ++cuidadorSearchReq.current;
+    const res = await listCuidadores(1, LIST_LIMIT, search);
+    if (reqId !== cuidadorSearchReq.current) return;
+    setCuidadores(normalizeListPayload(res));
   }
 
   useEffect(() => {
@@ -77,6 +89,18 @@ export default function AsignacionPage() {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
+  // Actualiza cuidadores al buscar (incluye recién creados)
+  useEffect(() => {
+    if (cuidadorSel) return undefined;
+    const q = busquedaCuidador.trim();
+    const timer = setTimeout(() => {
+      cargarCuidadores(q).catch((e) => {
+        addToast(e?.message || 'No se pudo actualizar el listado de cuidadores', 'error');
+      });
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [busquedaCuidador, cuidadorSel]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // Actualiza el listado de mascotas al buscar (incluye recién creadas)
   useEffect(() => {
     if (!cuidadorSel || mascotaIdAsignar) return undefined;
@@ -89,15 +113,8 @@ export default function AsignacionPage() {
     return () => clearTimeout(timer);
   }, [busquedaMascota, cuidadorSel, mascotaIdAsignar]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const cuidadoresFiltrados = cuidadores.filter((c) => {
-    const q = busquedaCuidador.trim().toLowerCase();
-    if (!q) return true;
-    return (
-      (c.nombre || '').toLowerCase().includes(q) ||
-      (c.telefono || '').toLowerCase().includes(q) ||
-      (c.email || '').toLowerCase().includes(q)
-    );
-  });
+  // Listados filtrados en servidor; en cliente solo se excluyen las ya asignadas.
+  const cuidadoresFiltrados = cuidadores;
 
   function limpiarMascotaAsignar() {
     setMascotaIdAsignar('');
@@ -139,19 +156,11 @@ export default function AsignacionPage() {
     (m) => !mascotasSel.some((ms) => ms.id === m.id)
   );
 
-  const mascotasFiltradas = mascotasNoAsignadas.filter((m) => {
-    const q = busquedaMascota.trim().toLowerCase();
-    if (!q) return true;
-    return (
-      (m.nombre || '').toLowerCase().includes(q) ||
-      (m.raza || '').toLowerCase().includes(q) ||
-      (m.especie || '').toLowerCase().includes(q) ||
-      (m.tamano || '').toLowerCase().includes(q)
-    );
-  });
+  const mascotasFiltradas = mascotasNoAsignadas;
 
   async function handleAsignar() {
     if (!mascotaIdAsignar) return;
+    if (!tryLock()) return;
     setLoading(true);
     try {
       await asignarMascota(cuidadorSel.id, Number(mascotaIdAsignar));
@@ -164,20 +173,26 @@ export default function AsignacionPage() {
       addToast(e?.message || 'Error al asignar mascota', 'error');
     } finally {
       setLoading(false);
+      unlock();
     }
   }
 
-  async function handleDesasignar(idMascota) {
+  async function confirmDesasignar() {
+    if (desasignarModalId == null || !cuidadorSel?.id) return;
+    if (!tryLock()) return;
+    const idMascota = desasignarModalId;
     setLoading(true);
     try {
       await desasignarMascota(cuidadorSel.id, idMascota);
       addToast('Mascota desasignada correctamente', 'success');
       setMascotasSel((prev) => prev.filter((m) => m.id !== idMascota));
+      setDesasignarModalId(null);
       await cargarMascotas(busquedaMascota.trim());
     } catch (e) {
       addToast(e?.message || 'Error al desasignar mascota', 'error');
     } finally {
       setLoading(false);
+      unlock();
     }
   }
 
@@ -188,6 +203,16 @@ export default function AsignacionPage() {
       await cargarMascotas(busquedaMascota.trim());
     } catch (e) {
       addToast(e?.message || 'No se pudo actualizar el listado de mascotas', 'error');
+    }
+  }
+
+  async function abrirListaCuidadores() {
+    setListaAbierta(true);
+    if (cuidadorSel) return;
+    try {
+      await cargarCuidadores(busquedaCuidador.trim());
+    } catch (e) {
+      addToast(e?.message || 'No se pudo actualizar el listado de cuidadores', 'error');
     }
   }
 
@@ -205,12 +230,6 @@ export default function AsignacionPage() {
           icon={<AlertTriangle size={24} />}
           title="No se pudo cargar la información"
           description={initError}
-        />
-      ) : cuidadores.length === 0 ? (
-        <EmptyState
-          icon={<User size={24} />}
-          title="No hay cuidadores registrados"
-          description="Agrega un cuidador desde el módulo de Cuidadores"
         />
       ) : (
         <div className="ui-split">
@@ -237,7 +256,9 @@ export default function AsignacionPage() {
                         limpiarMascotaAsignar();
                       }
                     }}
-                    onFocus={() => setListaAbierta(true)}
+                    onFocus={() => {
+                      void abrirListaCuidadores();
+                    }}
                   />
                   {(cuidadorSel || busquedaCuidador) && (
                     <Button
@@ -256,7 +277,9 @@ export default function AsignacionPage() {
                   <ul id="lista-cuidadores" role="listbox" className="ui-combo__list">
                     {cuidadoresFiltrados.length === 0 ? (
                       <li className="ui-combo__item" style={{ cursor: 'default', color: 'var(--color-purple-light)' }}>
-                        Sin resultados para “{busquedaCuidador.trim()}”
+                        {busquedaCuidador.trim()
+                          ? `Sin resultados para “${busquedaCuidador.trim()}”`
+                          : 'No hay cuidadores registrados'}
                       </li>
                     ) : (
                       cuidadoresFiltrados.map((c) => (
@@ -330,7 +353,7 @@ export default function AsignacionPage() {
                           aria-expanded={listaMascotasAbierta}
                           aria-controls="lista-mascotas-asignar"
                           aria-autocomplete="list"
-                          placeholder="Buscar por nombre, raza o tamaño…"
+                          placeholder="Buscar por nombre, raza, especie o tamaño…"
                           value={busquedaMascota}
                           disabled={loading}
                           onChange={(e) => {
@@ -409,7 +432,9 @@ export default function AsignacionPage() {
                   </div>
                 ) : (
                   <div className="ui-banner ui-banner--warn" style={{ marginBottom: 20 }}>
-                    Todas las mascotas registradas ya están asignadas a este cuidador.
+                    {busquedaMascota.trim()
+                      ? 'No hay mascotas disponibles con esa búsqueda para asignar a este cuidador.'
+                      : 'No hay mascotas disponibles para asignar en el listado actual. Usa la búsqueda por nombre si necesitas encontrar otra.'}
                   </div>
                 )}
 
@@ -424,8 +449,8 @@ export default function AsignacionPage() {
                     <table className="ui-table">
                       <thead>
                         <tr>
-                          {['ID', 'Nombre', 'Raza', 'Tamaño', 'Desde', 'Activo', ''].map((h) => (
-                            <th key={h}>{h}</th>
+                          {['ID', 'Nombre', 'Especie', 'Raza', 'Tamaño', 'Desde', 'Activo', ''].map((h) => (
+                            <th key={h || 'acciones'}>{h}</th>
                           ))}
                         </tr>
                       </thead>
@@ -434,6 +459,7 @@ export default function AsignacionPage() {
                           <tr key={m.id}>
                             <td className="ui-num">{m.id}</td>
                             <td>{m.nombre}</td>
+                            <td>{m.especie || '—'}</td>
                             <td>{m.raza}</td>
                             <td>{m.tamano}</td>
                             <td style={{ color: 'var(--color-purple-light)' }}>{formatFecha(m.fecha_inicio)}</td>
@@ -452,7 +478,7 @@ export default function AsignacionPage() {
                               <Button
                                 size="sm"
                                 variant="ghost"
-                                onClick={() => handleDesasignar(m.id)}
+                                onClick={() => setDesasignarModalId(m.id)}
                                 disabled={loading}
                               >
                                 <UserX size={14} />
@@ -470,6 +496,18 @@ export default function AsignacionPage() {
           </div>
         </div>
       )}
+
+      <ConfirmSheet
+        open={desasignarModalId != null}
+        onClose={() => setDesasignarModalId(null)}
+        onConfirm={confirmDesasignar}
+        title="Confirmar desasignación"
+        confirmLabel="Quitar"
+        loading={loading}
+        danger
+      >
+        ¿Quitar la mascota <b>#{desasignarModalId}</b> de este cuidador?
+      </ConfirmSheet>
 
       <Toast toasts={toasts} removeToast={removeToast} />
     </div>
