@@ -1,6 +1,8 @@
--- Go-Digital: final tenant RLS (auth.uid() = user_id)
--- Removes open/duplicate policies. Adds user_id triggers for app inserts.
--- Prefer this over any USING(true) policy.
+-- =============================================================================
+-- 20260808_000004_rls_tenant_policies.sql
+-- RLS final: auth.uid() = user_id. Elimina políticas abiertas/duplicadas.
+-- Triggers fijan y protegen user_id (el frontend no lo envía).
+-- =============================================================================
 
 CREATE OR REPLACE FUNCTION public.set_tenant_user_id()
 RETURNS trigger LANGUAGE plpgsql SECURITY INVOKER AS $$
