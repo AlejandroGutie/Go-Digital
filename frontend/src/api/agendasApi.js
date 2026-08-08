@@ -17,6 +17,7 @@ function flattenAgendaRow(row) {
     fecha: toDateOnly(row.fecha),
     hora_inicio: row.hora_inicio,
     hora_fin: row.hora_fin,
+    cobrada: row.cobrada === true,
     mascota_nombre: m?.nombre ?? row.mascota_nombre,
     especie: m?.especie ?? row.especie,
     raza: m?.raza ?? row.raza,
@@ -35,19 +36,41 @@ function normalizeIdTarifa(valor) {
   return id;
 }
 
-export async function getAgendaDeProfesional(idProfesional) {
-  const { data, error } = await supabase
+export async function getAgendaDeProfesional(idProfesional, options = {}) {
+  const incluirCobradas = options.incluirCobradas === true;
+  let query = supabase
     .from('agenda')
     .select(
-      'id, id_profesional, id_mascota, id_tarifa, fecha, hora_inicio, hora_fin, mascota(nombre, especie, raza, tamano), tarifa(descripcion, valor)'
+      'id, id_profesional, id_mascota, id_tarifa, fecha, hora_inicio, hora_fin, cobrada, mascota(nombre, especie, raza, tamano), tarifa(descripcion, valor)'
     )
     .eq('id_profesional', idProfesional)
     .order('fecha', { ascending: true })
     .order('hora_inicio', { ascending: true });
+
+  // Listado activo: solo agendas pendientes de cobro (el registro histórico se conserva).
+  if (!incluirCobradas) {
+    query = query.eq('cobrada', false);
+  }
+
+  const { data, error } = await query;
   throwIfError(error, 'Error al cargar la agenda');
 
   const rows = (data ?? []).map(flattenAgendaRow);
   return successList(rows, rows.length, 1, rows.length || 1);
+}
+
+export async function marcarAgendaCobrada(idAgenda) {
+  const { data, error } = await supabase
+    .from('agenda')
+    .update({ cobrada: true })
+    .eq('id', idAgenda)
+    .select('id, cobrada')
+    .maybeSingle();
+  throwIfError(error, 'Error al marcar la agenda como cobrada');
+  if (!data) {
+    throw new Error('Agenda no encontrada');
+  }
+  return successOk(data);
 }
 
 export async function crearCitaAgenda(idProfesional, payload) {

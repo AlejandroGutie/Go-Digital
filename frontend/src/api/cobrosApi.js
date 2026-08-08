@@ -116,6 +116,17 @@ export async function createCobro(payload) {
     .select()
     .single();
   throwIfError(error, 'Error al crear cobro');
+
+  // Ocultar del listado activo sin borrar la agenda (histórico / informes).
+  const { error: agendaError } = await supabase
+    .from('agenda')
+    .update({ cobrada: true })
+    .eq('id', id_agenda);
+  throwIfError(
+    agendaError,
+    'Cobro creado, pero no se pudo marcar la agenda como cobrada. Revisa la columna agenda.cobrada en Supabase.'
+  );
+
   return successOk(data);
 }
 

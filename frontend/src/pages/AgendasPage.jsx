@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef } from 'react';
-import { AlertTriangle, Calendar, CalendarClock, MessageCircle, Stethoscope, Trash2 } from 'lucide-react';
+import { AlertTriangle, Banknote, Calendar, CalendarClock, MessageCircle, PawPrint, Stethoscope, Trash2 } from 'lucide-react';
 import { listProfesionales } from '../api/profesionalesApi';
 import {
   getAgendaDeProfesional,
@@ -9,13 +9,15 @@ import {
 } from '../api/agendasApi';
 import { getCuidadoresDeMascota, getMascotaById, listMascotas } from '../api/mascotasApi';
 import { listTarifas } from '../api/tarifasApi';
+import { createCobro } from '../api/cobrosApi';
 import { normalizeListPayload } from '../api/normalize';
 import { useToast } from '../hooks/useToast';
 import { useMutationLock } from '../hooks/useMutationLock';
 import { Toast } from '../components/Toast';
-import { formatFecha, formatHora, formatMoneda, toDateOnly } from '../utils/format';
+import { formatFecha, formatHora, formatMoneda, hoyLocalISO, toDateOnly } from '../utils/format';
 import {
   buildWhatsAppConfirmMessage,
+  buildWhatsAppMascotaListaMessage,
   openWhatsAppChat,
   sanitizePhoneCO,
 } from '../utils/whatsapp';
@@ -26,9 +28,23 @@ import Button from '../components/ui/Button';
 import Skeleton from '../components/ui/Skeleton';
 import Sheet from '../components/ui/Sheet';
 import ConfirmSheet from '../components/ui/ConfirmSheet';
+import CobroFormSheet from '../components/cobros/CobroFormSheet';
 import '../index.css';
 
 const LIST_LIMIT = 500;
+
+const EMPTY_COBRO_FORM = {
+  id_profesional: '',
+  id_agenda: '',
+  id_mascota: '',
+  id_tarifa: '',
+  valor: '',
+  metodo_pago: '',
+  observacion: '',
+  fecha_cobro: hoyLocalISO(),
+  profesional_nombre: '',
+  agenda_label: '',
+};
 
 function formatTarifaLabel(c) {
   if (!c?.id_tarifa && c?.tarifa_descripcion == null && c?.tarifa_valor == null) {
@@ -94,7 +110,7 @@ export default function AgendasPage() {
   const [idTarifa, setIdTarifa] = useState('');
   const [tarifas, setTarifas] = useState([]);
   const [loading, setLoading] = useState(false);
-  const [confirmingId, setConfirmingId] = useState(null);
+  const [whatsappBusy, setWhatsappBusy] = useState(null); // { id, kind: 'confirm'|'lista' }
   const [initLoading, setInitLoading] = useState(true);
   const [initError, setInitError] = useState(null);
   const [busquedaProf, setBusquedaProf] = useState('');
@@ -112,6 +128,10 @@ export default function AgendasPage() {
   const [editBusquedaMascota, setEditBusquedaMascota] = useState('');
   const [editListaMascotasAbierta, setEditListaMascotasAbierta] = useState(false);
   const [deleteModalId, setDeleteModalId] = useState(null);
+  const [cobroModalOpen, setCobroModalOpen] = useState(false);
+  const [cobroForm, setCobroForm] = useState(EMPTY_COBRO_FORM);
+  const [cobroMascotaNombre, setCobroMascotaNombre] = useState('');
+  const [cobroTarifas, setCobroTarifas] = useState([]);
   const { toasts, addToast, removeToast } = useToast();
   const { tryLock, unlock } = useMutationLock();
   const buscadorRef = useRef(null);
@@ -445,56 +465,65 @@ export default function AgendasPage() {
     }
   }
 
-  async function handleConfirmarWhatsApp(cita) {
+  async function resolverCuidadorParaWhatsApp(cita) {
     if (!cita?.id_mascota) {
-      addToast('La cita no tiene mascota asociada', 'error');
-      return;
+      throw new Error('La cita no tiene mascota asociada');
     }
-    if (confirmingId != null) return;
-    setConfirmingId(cita.id);
+
+    const [resCuidadores, resMascota] = await Promise.all([
+      getCuidadoresDeMascota(cita.id_mascota),
+      getMascotaById(cita.id_mascota).catch(() => null),
+    ]);
+    const cuidadores = normalizeListPayload(resCuidadores);
+    const mascotaData = resMascota?.data?.[0] || resMascota?.data || null;
+
+    const cuidador =
+      cuidadores.find((c) => c.activo !== false && c.telefono) ||
+      cuidadores.find((c) => c.telefono) ||
+      cuidadores[0] ||
+      null;
+
+    if (!cuidador) {
+      throw new Error(
+        'Esta mascota no tiene un cuidador asignado. Asígnalo en el módulo de Asignación.'
+      );
+    }
+
+    const phone = sanitizePhoneCO(cuidador.telefono);
+    if (!phone) {
+      throw new Error(
+        'El cuidador no tiene un celular colombiano válido (10 dígitos iniciando en 3, o con prefijo 57). Actualízalo en Cuidadores.'
+      );
+    }
+
+    return { cuidador, phone, mascotaData };
+  }
+
+  function resolverTarifaCita(cita) {
+    const tarifaFromList =
+      cita.id_tarifa != null
+        ? tarifas.find((t) => String(t.id) === String(cita.id_tarifa))
+        : null;
+    const tarifaDescripcion =
+      cita.tarifa_descripcion || tarifaFromList?.descripcion || '';
+    const tarifaValor =
+      cita.tarifa_valor != null && cita.tarifa_valor !== ''
+        ? cita.tarifa_valor
+        : tarifaFromList?.valor;
+    return { tarifaDescripcion, tarifaValor };
+  }
+
+  async function handleConfirmarWhatsApp(cita) {
+    if (whatsappBusy != null) return;
+    setWhatsappBusy({ id: cita.id, kind: 'confirm' });
     try {
-      const [resCuidadores, resMascota] = await Promise.all([
-        getCuidadoresDeMascota(cita.id_mascota),
-        getMascotaById(cita.id_mascota).catch(() => null),
-      ]);
-      const cuidadores = normalizeListPayload(resCuidadores);
-      const mascotaData = resMascota?.data?.[0] || resMascota?.data || null;
+      const { cuidador, phone, mascotaData } = await resolverCuidadorParaWhatsApp(cita);
 
-      const cuidador =
-        cuidadores.find((c) => c.activo !== false && c.telefono) ||
-        cuidadores.find((c) => c.telefono) ||
-        cuidadores[0] ||
-        null;
-
-      if (!cuidador) {
-        throw new Error(
-          'Esta mascota no tiene un cuidador asignado. Asígnalo en el módulo de Asignación.'
-        );
-      }
-
-      const phone = sanitizePhoneCO(cuidador.telefono);
-      if (!phone) {
-        throw new Error(
-          'El cuidador no tiene un celular colombiano válido (10 dígitos iniciando en 3, o con prefijo 57). Actualízalo en Cuidadores antes de confirmar.'
-        );
-      }
-
-      const mascotaNombre =
-        mascotaData?.nombre || cita.mascota_nombre || '';
+      const mascotaNombre = mascotaData?.nombre || cita.mascota_nombre || '';
       const mascotaEspecie = mascotaData?.especie || cita.especie || '';
       const mascotaRaza = mascotaData?.raza || cita.raza || '';
       const mascotaTamano = mascotaData?.tamano || cita.tamano || '';
-
-      const tarifaFromList =
-        cita.id_tarifa != null
-          ? tarifas.find((t) => String(t.id) === String(cita.id_tarifa))
-          : null;
-      const tarifaDescripcion =
-        cita.tarifa_descripcion || tarifaFromList?.descripcion || '';
-      const tarifaValor =
-        cita.tarifa_valor != null && cita.tarifa_valor !== ''
-          ? cita.tarifa_valor
-          : tarifaFromList?.valor;
+      const { tarifaDescripcion, tarifaValor } = resolverTarifaCita(cita);
 
       const message = buildWhatsAppConfirmMessage({
         cuidadorNombre: cuidador.nombre,
@@ -519,7 +548,150 @@ export default function AgendasPage() {
     } catch (e) {
       addToast(e?.message || 'No se pudo confirmar la agenda por WhatsApp', 'error');
     } finally {
-      setConfirmingId(null);
+      setWhatsappBusy(null);
+    }
+  }
+
+  async function handleMascotaListaWhatsApp(cita) {
+    if (whatsappBusy != null) return;
+    setWhatsappBusy({ id: cita.id, kind: 'lista' });
+    try {
+      const { cuidador, phone, mascotaData } = await resolverCuidadorParaWhatsApp(cita);
+      const mascotaNombre = mascotaData?.nombre || cita.mascota_nombre || '';
+      const { tarifaDescripcion } = resolverTarifaCita(cita);
+
+      const message = buildWhatsAppMascotaListaMessage({
+        cuidadorNombre: cuidador.nombre,
+        mascotaNombre,
+        profesionalNombre: profSel?.nombre || '',
+        fechaLabel: formatFecha(cita.fecha),
+        horaFinLabel: formatHora(cita.hora_fin),
+        tarifaDescripcion,
+      });
+
+      openWhatsAppChat(phone, message);
+      addToast('Se abrió WhatsApp con el aviso de mascota lista.', 'success');
+    } catch (e) {
+      addToast(e?.message || 'No se pudo notificar por WhatsApp', 'error');
+    } finally {
+      setWhatsappBusy(null);
+    }
+  }
+
+  function cerrarCobroModal({ force = false } = {}) {
+    if (loading && !force) return;
+    setCobroModalOpen(false);
+    setCobroForm(EMPTY_COBRO_FORM);
+    setCobroMascotaNombre('');
+    setCobroTarifas([]);
+  }
+
+  async function abrirCobrar(cita) {
+    if (!profSel?.id || !cita?.id) return;
+    const { tarifaDescripcion, tarifaValor } = resolverTarifaCita(cita);
+    let tarifasProf = tarifas;
+    if (!tarifasProf.length) {
+      try {
+        const resT = await listTarifas(profSel.id);
+        tarifasProf = normalizeListPayload(resT);
+        setTarifas(tarifasProf);
+      } catch (e) {
+        addToast(e?.message || 'No se pudieron cargar las tarifas', 'error');
+        return;
+      }
+    }
+
+    const idTarifa =
+      cita.id_tarifa != null
+        ? String(cita.id_tarifa)
+        : '';
+    const valor =
+      tarifaValor != null && tarifaValor !== ''
+        ? String(tarifaValor)
+        : '';
+
+    setCobroTarifas(tarifasProf);
+    setCobroMascotaNombre(cita.mascota_nombre || '');
+    setCobroForm({
+      id_profesional: String(profSel.id),
+      id_agenda: String(cita.id),
+      id_mascota: String(cita.id_mascota || ''),
+      id_tarifa: idTarifa,
+      valor,
+      metodo_pago: '',
+      observacion: tarifaDescripcion
+        ? `Cobro agenda #${cita.id} · ${tarifaDescripcion}`
+        : `Cobro agenda #${cita.id}`,
+      fecha_cobro: toDateOnly(cita.fecha) || hoyLocalISO(),
+      profesional_nombre: profSel.nombre || '',
+      agenda_label: `${formatFecha(cita.fecha)} — ${cita.mascota_nombre || 'Mascota'} · ${formatHora(cita.hora_inicio)}-${formatHora(cita.hora_fin)}`,
+    });
+    setCobroModalOpen(true);
+  }
+
+  function handleCobroTarifaChange(id_tarifa) {
+    const tarifa = cobroTarifas.find((t) => String(t.id) === String(id_tarifa));
+    setCobroForm((prev) => ({
+      ...prev,
+      id_tarifa,
+      valor: tarifa ? String(tarifa.valor) : prev.valor,
+    }));
+  }
+
+  async function guardarCobroDesdeAgenda() {
+    if (!cobroForm.id_profesional) {
+      addToast('Selecciona un profesional', 'error');
+      return;
+    }
+    if (!cobroForm.id_agenda) {
+      addToast('La agenda es requerida', 'error');
+      return;
+    }
+    if (!cobroForm.id_mascota) {
+      addToast('La agenda debe tener una mascota asociada', 'error');
+      return;
+    }
+    if (!cobroForm.id_tarifa) {
+      addToast('Selecciona una tarifa', 'error');
+      return;
+    }
+    const valorNum = parseFloat(cobroForm.valor);
+    if (Number.isNaN(valorNum) || valorNum < 0) {
+      addToast('Ingresa un valor válido (0 o mayor)', 'error');
+      return;
+    }
+    if (!cobroForm.fecha_cobro) {
+      addToast('La fecha de cobro es requerida', 'error');
+      return;
+    }
+
+    if (!tryLock()) return;
+    setLoading(true);
+    try {
+      const res = await createCobro({
+        id_profesional: cobroForm.id_profesional,
+        id_agenda: cobroForm.id_agenda,
+        id_mascota: cobroForm.id_mascota,
+        id_tarifa: cobroForm.id_tarifa,
+        valor: cobroForm.valor,
+        metodo_pago: cobroForm.metodo_pago,
+        observacion: cobroForm.observacion,
+        fecha_cobro: cobroForm.fecha_cobro,
+      });
+      if (res?.status === 'ok') {
+        const agendaId = String(cobroForm.id_agenda);
+        addToast('Cobro registrado. La agenda quedó marcada como cobrada.', 'success');
+        setCitas((prev) => prev.filter((c) => String(c.id) !== agendaId));
+        if (editCita != null && String(editCita.id) === agendaId) cerrarReprogramar();
+        cerrarCobroModal({ force: true });
+      } else {
+        addToast(res?.message || 'Error al crear cobro', 'error');
+      }
+    } catch (e) {
+      addToast(e?.message || 'Error al crear cobro', 'error');
+    } finally {
+      setLoading(false);
+      unlock();
     }
   }
 
@@ -962,18 +1134,43 @@ export default function AgendasPage() {
                                   size="sm"
                                   variant="ghost"
                                   onClick={() => handleConfirmarWhatsApp(c)}
-                                  disabled={loading || confirmingId != null}
+                                  disabled={loading || whatsappBusy != null}
                                   aria-label="Confirmar por WhatsApp"
                                   style={{ color: '#128C7E' }}
                                 >
                                   <MessageCircle size={14} />
-                                  {confirmingId === c.id ? 'Abriendo…' : 'Confirmar'}
+                                  {whatsappBusy?.id === c.id && whatsappBusy?.kind === 'confirm'
+                                    ? 'Abriendo…'
+                                    : 'Confirmar'}
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  onClick={() => handleMascotaListaWhatsApp(c)}
+                                  disabled={loading || whatsappBusy != null}
+                                  aria-label="Notificar mascota lista por WhatsApp"
+                                  style={{ color: '#128C7E' }}
+                                >
+                                  <PawPrint size={14} />
+                                  {whatsappBusy?.id === c.id && whatsappBusy?.kind === 'lista'
+                                    ? 'Abriendo…'
+                                    : 'Mascota lista'}
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  onClick={() => abrirCobrar(c)}
+                                  disabled={loading || whatsappBusy != null || cobroModalOpen}
+                                  aria-label="Registrar cobro"
+                                >
+                                  <Banknote size={14} />
+                                  Cobrar
                                 </Button>
                                 <Button
                                   size="sm"
                                   variant="ghost"
                                   onClick={() => abrirReprogramar(c)}
-                                  disabled={loading || confirmingId != null}
+                                  disabled={loading || whatsappBusy != null}
                                   aria-label="Reprogramar"
                                 >
                                   <CalendarClock size={14} />
@@ -983,7 +1180,7 @@ export default function AgendasPage() {
                                   size="sm"
                                   variant="ghost"
                                   onClick={() => setDeleteModalId(c.id)}
-                                  disabled={loading || confirmingId != null}
+                                  disabled={loading || whatsappBusy != null}
                                   aria-label="Quitar"
                                 >
                                   <Trash2 size={14} />
@@ -1200,6 +1397,20 @@ export default function AgendasPage() {
           </div>
         )}
       </Sheet>
+
+      <CobroFormSheet
+        open={cobroModalOpen}
+        onClose={cerrarCobroModal}
+        onSubmit={guardarCobroDesdeAgenda}
+        loading={loading}
+        title="Registrar cobro"
+        values={cobroForm}
+        nombreMascotaVisible={cobroMascotaNombre}
+        tarifas={cobroTarifas}
+        onTarifaChange={handleCobroTarifaChange}
+        onFieldChange={setCobroForm}
+        lockAgendaContext
+      />
 
       <ConfirmSheet
         open={deleteModalId != null}

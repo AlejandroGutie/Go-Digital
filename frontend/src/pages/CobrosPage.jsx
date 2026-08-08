@@ -11,11 +11,11 @@ import { Toast } from '../components/Toast';
 import { formatFecha, hoyLocalISO, formatMoneda, rangoFechasInvalido } from '../utils/format';
 import EmptyState from '../components/EmptyState';
 import PageHeader from '../components/ui/PageHeader';
-import Field, { DateInput, Input, Select, Textarea } from '../components/ui/Field';
+import Field, { DateInput, Input, Select } from '../components/ui/Field';
 import Button from '../components/ui/Button';
 import Skeleton from '../components/ui/Skeleton';
-import Sheet from '../components/ui/Sheet';
 import ConfirmSheet from '../components/ui/ConfirmSheet';
+import CobroFormSheet from '../components/cobros/CobroFormSheet';
 import '../index.css';
 
 const EMPTY_FILTROS = { estado: '', id_profesional: '', fecha_desde: '', fecha_hasta: '' };
@@ -654,109 +654,22 @@ export default function CobrosPage() {
         </>
       )}
 
-      <Sheet
+      <CobroFormSheet
         open={modalOpen}
         onClose={closeModal}
+        onSubmit={guardarCobro}
+        loading={loading}
         title="Nuevo cobro"
-        dismissible={!loading}
-        footer={
-          <div className="ui-btn-row" style={{ justifyContent: 'flex-end' }}>
-            <Button variant="ghost" onClick={closeModal} disabled={loading}>
-              Cancelar
-            </Button>
-            <Button variant="primary" onClick={guardarCobro} disabled={loading}>
-              {loading ? 'Procesando…' : 'Guardar'}
-            </Button>
-          </div>
-        }
-      >
-        <div className="ui-form">
-          <Field label="Profesional" required>
-            <Select
-              value={nuevoCobro.id_profesional}
-              onChange={(e) => handleProfesionalChange(e.target.value)}
-              disabled={loading}
-              required
-            >
-              <option value="">Seleccionar profesional</option>
-              {profesionales.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.nombre}
-                </option>
-              ))}
-            </Select>
-          </Field>
-          <Field label="Agenda" required>
-            <Select
-              value={nuevoCobro.id_agenda}
-              onChange={(e) => handleAgendaChange(e.target.value)}
-              disabled={loading || !nuevoCobro.id_profesional}
-              required
-            >
-              <option value="">Seleccionar agenda</option>
-              {agendas.map((a) => (
-                <option key={a.id} value={a.id}>{`${formatFecha(a.fecha)} — ${a.mascota_nombre}`}</option>
-              ))}
-            </Select>
-          </Field>
-          <Field label="Mascota" required>
-            <Input type="text" value={nombreMascotaVisible} readOnly placeholder="Mascota (se autocompleta)" />
-          </Field>
-          <Field label="Tarifa" required>
-            <Select
-              value={nuevoCobro.id_tarifa}
-              onChange={(e) => handleTarifaChange(e.target.value)}
-              disabled={loading || !nuevoCobro.id_profesional}
-              required
-            >
-              <option value="">Seleccionar tarifa</option>
-              {tarifas.map((t) => (
-                <option key={t.id} value={t.id}>{`${t.descripcion} — ${formatMoneda(t.valor)}`}</option>
-              ))}
-            </Select>
-          </Field>
-          <Field label="Valor" required>
-            <Input
-              type="number"
-              value={nuevoCobro.valor}
-              onChange={(e) => setNuevoCobro({ ...nuevoCobro, valor: e.target.value })}
-              placeholder="Valor"
-              disabled={loading}
-              required
-              min="0"
-              step="any"
-            />
-          </Field>
-          <Field label="Método de pago">
-            <Select
-              value={nuevoCobro.metodo_pago}
-              onChange={(e) => setNuevoCobro({ ...nuevoCobro, metodo_pago: e.target.value })}
-              disabled={loading}
-            >
-              <option value="">Método de pago</option>
-              <option value="Efectivo">Efectivo</option>
-              <option value="Transferencia">Transferencia</option>
-              <option value="Tarjeta">Tarjeta</option>
-            </Select>
-          </Field>
-          <Field label="Observación">
-            <Textarea
-              value={nuevoCobro.observacion}
-              onChange={(e) => setNuevoCobro({ ...nuevoCobro, observacion: e.target.value })}
-              placeholder="Observación (opcional)"
-              disabled={loading}
-            />
-          </Field>
-          <Field label="Fecha de cobro" required>
-            <DateInput
-              value={nuevoCobro.fecha_cobro}
-              onChange={(e) => setNuevoCobro({ ...nuevoCobro, fecha_cobro: e.target.value })}
-              disabled={loading}
-              required
-            />
-          </Field>
-        </div>
-      </Sheet>
+        values={nuevoCobro}
+        nombreMascotaVisible={nombreMascotaVisible}
+        profesionales={profesionales}
+        agendas={agendas}
+        tarifas={tarifas}
+        onProfesionalChange={handleProfesionalChange}
+        onAgendaChange={handleAgendaChange}
+        onTarifaChange={handleTarifaChange}
+        onFieldChange={setNuevoCobro}
+      />
 
       <ConfirmSheet
         open={!!confirmAction}
