@@ -222,7 +222,7 @@ body {
   }
 
   /* ── Inputs, selects y textareas ──────────────────────────── */
-  main input:not([type="checkbox"]):not([type="radio"]),
+  main input:not([type="checkbox"]):not([type="radio"]):not(.ui-date-input__picker),
   main select,
   main textarea {
     width: 100% !important;
@@ -233,7 +233,7 @@ body {
   }
 
   /* iOS/Safari: date/time tienen min-content ~140–180px y desbordan */
-  main input[type="date"],
+  main input[type="date"]:not(.ui-date-input__picker),
   main input[type="time"],
   main input[type="datetime-local"],
   main .ui-date-input {
@@ -245,6 +245,24 @@ body {
     display: block !important;
     -webkit-appearance: none;
     appearance: none;
+  }
+
+  /* No estirar el picker oculto del DateInput (debe quedar solo sobre el ícono) */
+  main .ui-date-input__picker,
+  main input.ui-date-input__picker[type="date"] {
+    position: absolute !important;
+    top: 0 !important;
+    right: 0 !important;
+    width: 2.75rem !important;
+    min-width: 2.75rem !important;
+    max-width: 2.75rem !important;
+    height: 100% !important;
+    min-height: 0 !important;
+    flex: none !important;
+    display: block !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    opacity: 0 !important;
   }
 
   /* Filas de filtros / agenda / cobros */

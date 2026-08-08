@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { formatFecha, toDateOnly } from '../../utils/format';
 
 export default function Field({
@@ -48,7 +48,6 @@ export function DateInput({
   const maxIso = toDateOnly(max) || undefined;
   const minIso = toDateOnly(min) || undefined;
   const [text, setText] = useState(isoValue ? formatFecha(isoValue) : '');
-  const pickerRef = useRef(null);
 
   useEffect(() => {
     const next = isoValue ? formatFecha(isoValue) : '';
@@ -105,24 +104,6 @@ export function DateInput({
     emit(iso);
   }
 
-  function openCalendar(e) {
-    e.preventDefault();
-    e.stopPropagation();
-    if (disabled) return;
-    const el = pickerRef.current;
-    if (!el) return;
-    try {
-      if (typeof el.showPicker === 'function') {
-        el.showPicker();
-        return;
-      }
-    } catch {
-      /* fallback abajo */
-    }
-    el.focus();
-    el.click();
-  }
-
   return (
     <div className="ui-date-input">
       <input
@@ -142,22 +123,17 @@ export function DateInput({
         aria-label={rest['aria-label']}
         {...rest}
       />
+      {/*
+        Cubre el ícono del calendario. El toque/clic directo en type="date"
+        abre el picker nativo (necesario en iOS; showPicker no soporta date ahí).
+      */}
       <input
-        ref={pickerRef}
         type="date"
         className="ui-date-input__picker"
         value={isoValue}
         onChange={handlePickerChange}
         max={maxIso}
         min={minIso}
-        disabled={disabled}
-        tabIndex={-1}
-        aria-hidden="true"
-      />
-      <button
-        type="button"
-        className="ui-date-input__trigger"
-        onMouseDown={openCalendar}
         disabled={disabled}
         tabIndex={-1}
         aria-label="Abrir calendario"
