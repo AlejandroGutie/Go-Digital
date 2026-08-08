@@ -16,27 +16,87 @@ export function sanitizePhoneCO(telefono) {
   return '';
 }
 
+function line(label, value) {
+  const v = value == null || String(value).trim() === '' ? '—' : String(value).trim();
+  return `• ${label}: ${v}`;
+}
+
+/**
+ * Mensaje de confirmación de agenda para WhatsApp (sin PDF).
+ * Los labels de fecha/hora/valor deben venir ya formateados desde la UI.
+ */
 export function buildWhatsAppConfirmMessage({
   cuidadorNombre,
+  cuidadorTelefono,
   mascotaNombre,
+  mascotaEspecie,
+  mascotaRaza,
+  mascotaTamano,
+  profesionalNombre,
   fechaLabel,
-  horaLabel,
+  horaInicioLabel,
+  horaFinLabel,
+  tarifaDescripcion,
+  valorLabel,
 }) {
-  const nombre = cuidadorNombre || 'cuidador';
-  const mascota = mascotaNombre || 'tu mascota';
-  const fecha = fechaLabel || 'la fecha indicada';
-  const hora = horaLabel || 'la hora indicada';
-  return (
-    `Hola ${nombre}, te confirmamos la siguiente agenda asignada para la mascota ${mascota} ` +
-    `el día ${fecha} a las ${hora}. ` +
-    `Hemos descargado el comprobante en PDF en tu dispositivo; ` +
-    `por favor adjúntalo manualmente a este chat si deseas enviarlo junto con la confirmación.`
+  const nombre = cuidadorNombre?.trim() || 'cliente';
+  const horaRango =
+    horaInicioLabel && horaFinLabel
+      ? `${horaInicioLabel} – ${horaFinLabel}`
+      : horaInicioLabel || horaFinLabel || '—';
+
+  const detalleMascota = [mascotaEspecie, mascotaRaza, mascotaTamano]
+    .filter(Boolean)
+    .join(' · ');
+
+  const lines = [
+    `🐾 ¡Hola, ${nombre}! 🐾`,
+    '',
+    '¡Tu agenda ha sido confirmada con éxito! 🎉',
+    'A continuación te compartimos la información de tu reserva:',
+    '',
+    '📅 Detalles de la Agenda',
+    line('Fecha', fechaLabel),
+    line('Hora', horaRango),
+    line(
+      'Tarifa',
+      [tarifaDescripcion, valorLabel].filter(Boolean).join(' · ') || '—'
+    ),
+  ];
+
+  lines.push(
+    '',
+    '🐶 Mascota',
+    line('Nombre', mascotaNombre || '—')
   );
+  if (detalleMascota) {
+    lines.push(line('Detalle', detalleMascota));
+  }
+
+  lines.push(
+    '',
+    '👨‍⚕️ Profesional asignado',
+    line('Nombre', profesionalNombre || '—')
+  );
+
+  lines.push('', '👤 Datos del cuidador', line('Nombre', nombre));
+  if (cuidadorTelefono) {
+    lines.push(line('Teléfono', cuidadorTelefono));
+  }
+
+  lines.push(
+    '',
+    'Quedamos atentos a cualquier inquietud.',
+    '¡Nos vemos pronto! 👋'
+  );
+
+  return lines.join('\n');
 }
 
 /**
  * Abre WhatsApp priorizando la app nativa (`whatsapp://`).
  * Si no hay app o el sistema no la abre, cae a `wa.me` (web).
+ * El mensaje se codifica con encodeURIComponent.
  */
 export function openWhatsAppChat(phoneDigits, message) {
   if (!phoneDigits) {

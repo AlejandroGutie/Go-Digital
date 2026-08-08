@@ -14,7 +14,6 @@ import { useToast } from '../hooks/useToast';
 import { useMutationLock } from '../hooks/useMutationLock';
 import { Toast } from '../components/Toast';
 import { formatFecha, formatHora, formatMoneda, toDateOnly } from '../utils/format';
-import { exportAgendaConfirmacionPDF } from '../utils/exportInformes';
 import {
   buildWhatsAppConfirmMessage,
   openWhatsAppChat,
@@ -480,32 +479,43 @@ export default function AgendasPage() {
         );
       }
 
-      await exportAgendaConfirmacionPDF({
-        agenda: cita,
-        profesional: profSel || {},
-        cuidador,
-        mascota: mascotaData || {
-          nombre: cita.mascota_nombre,
-          especie: cita.especie,
-          raza: cita.raza,
-          tamano: cita.tamano,
-        },
-      });
+      const mascotaNombre =
+        mascotaData?.nombre || cita.mascota_nombre || '';
+      const mascotaEspecie = mascotaData?.especie || cita.especie || '';
+      const mascotaRaza = mascotaData?.raza || cita.raza || '';
+      const mascotaTamano = mascotaData?.tamano || cita.tamano || '';
+
+      const tarifaFromList =
+        cita.id_tarifa != null
+          ? tarifas.find((t) => String(t.id) === String(cita.id_tarifa))
+          : null;
+      const tarifaDescripcion =
+        cita.tarifa_descripcion || tarifaFromList?.descripcion || '';
+      const tarifaValor =
+        cita.tarifa_valor != null && cita.tarifa_valor !== ''
+          ? cita.tarifa_valor
+          : tarifaFromList?.valor;
 
       const message = buildWhatsAppConfirmMessage({
         cuidadorNombre: cuidador.nombre,
-        mascotaNombre: cita.mascota_nombre,
+        cuidadorTelefono: cuidador.telefono,
+        mascotaNombre,
+        mascotaEspecie,
+        mascotaRaza,
+        mascotaTamano,
+        profesionalNombre: profSel?.nombre || '',
         fechaLabel: formatFecha(cita.fecha),
-        horaLabel: formatHora(cita.hora_inicio),
+        horaInicioLabel: formatHora(cita.hora_inicio),
+        horaFinLabel: formatHora(cita.hora_fin),
+        tarifaDescripcion,
+        valorLabel:
+          tarifaValor != null && tarifaValor !== ''
+            ? formatMoneda(tarifaValor)
+            : '',
       });
 
-      // Pequeña pausa para que el navegador inicie la descarga del PDF
-      await new Promise((r) => setTimeout(r, 400));
       openWhatsAppChat(phone, message);
-      addToast(
-        'PDF descargado. Se abrió WhatsApp: adjunta el PDF manualmente al chat si quieres enviarlo.',
-        'success'
-      );
+      addToast('Se abrió WhatsApp con el mensaje de confirmación.', 'success');
     } catch (e) {
       addToast(e?.message || 'No se pudo confirmar la agenda por WhatsApp', 'error');
     } finally {
@@ -957,7 +967,7 @@ export default function AgendasPage() {
                                   style={{ color: '#128C7E' }}
                                 >
                                   <MessageCircle size={14} />
-                                  {confirmingId === c.id ? 'Generando…' : 'Confirmar'}
+                                  {confirmingId === c.id ? 'Abriendo…' : 'Confirmar'}
                                 </Button>
                                 <Button
                                   size="sm"
