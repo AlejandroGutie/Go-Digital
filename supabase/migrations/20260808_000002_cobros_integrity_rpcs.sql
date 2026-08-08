@@ -41,7 +41,20 @@ CREATE UNIQUE INDEX uq_cobro_agenda_vigente
   ON public.cobro (id_agenda)
   WHERE estado IS DISTINCT FROM 'anulado';
 
--- 4) Helpers de solape (HH:MM / TIME → minutos)
+-- 4) Helpers de solape.
+-- hora_inicio/hora_fin son TIME: hace falta overload time (el trigger llama con time).
+CREATE OR REPLACE FUNCTION public.agenda_hora_a_minutos(h time)
+RETURNS integer
+LANGUAGE sql
+IMMUTABLE
+SET search_path = public
+AS $$
+  SELECT CASE
+    WHEN h IS NULL THEN NULL
+    ELSE (EXTRACT(HOUR FROM h)::integer * 60) + EXTRACT(MINUTE FROM h)::integer
+  END;
+$$;
+
 CREATE OR REPLACE FUNCTION public.agenda_hora_a_minutos(h text)
 RETURNS integer
 LANGUAGE plpgsql
@@ -67,7 +80,7 @@ END;
 $$;
 
 CREATE OR REPLACE FUNCTION public.agenda_franjas_se_solapan(
-  inicio_a text, fin_a text, inicio_b text, fin_b text
+  inicio_a time, fin_a time, inicio_b time, fin_b time
 )
 RETURNS boolean
 LANGUAGE sql
@@ -81,6 +94,22 @@ AS $$
     AND agenda_hora_a_minutos(fin_b) IS NOT NULL
     AND agenda_hora_a_minutos(inicio_a) < agenda_hora_a_minutos(fin_b)
     AND agenda_hora_a_minutos(inicio_b) < agenda_hora_a_minutos(fin_a);
+$$;
+
+CREATE OR REPLACE FUNCTION public.agenda_franjas_se_solapan(
+  inicio_a text, fin_a text, inicio_b text, fin_b text
+)
+RETURNS boolean
+LANGUAGE sql
+IMMUTABLE
+SET search_path = public
+AS $$
+  SELECT public.agenda_franjas_se_solapan(
+    NULLIF(btrim(inicio_a), '')::time,
+    NULLIF(btrim(fin_a), '')::time,
+    NULLIF(btrim(inicio_b), '')::time,
+    NULLIF(btrim(fin_b), '')::time
+  );
 $$;
 
 -- 5) Crear cobro + marcar agenda (atómico)
@@ -221,11 +250,10 @@ AS $$
 DECLARE
   choque agenda%ROWTYPE;
 BEGIN
-  IF agenda_hora_a_minutos(NEW.hora_inicio::text) IS NULL
-     OR agenda_hora_a_minutos(NEW.hora_fin::text) IS NULL THEN
+  IF NEW.hora_inicio IS NULL OR NEW.hora_fin IS NULL THEN
     RAISE EXCEPTION 'Horario inválido';
   END IF;
-  IF agenda_hora_a_minutos(NEW.hora_fin::text) <= agenda_hora_a_minutos(NEW.hora_inicio::text) THEN
+  IF NEW.hora_fin <= NEW.hora_inicio THEN
     RAISE EXCEPTION 'La hora final debe ser posterior a la hora de inicio';
   END IF;
 
@@ -234,9 +262,9 @@ BEGIN
   WHERE a.id_profesional = NEW.id_profesional
     AND a.fecha = NEW.fecha
     AND (TG_OP = 'INSERT' OR a.id IS DISTINCT FROM NEW.id)
-    AND agenda_franjas_se_solapan(
-      NEW.hora_inicio::text, NEW.hora_fin::text,
-      a.hora_inicio::text, a.hora_fin::text
+    AND public.agenda_franjas_se_solapan(
+      NEW.hora_inicio, NEW.hora_fin,
+      a.hora_inicio, a.hora_fin
     )
   LIMIT 1;
 

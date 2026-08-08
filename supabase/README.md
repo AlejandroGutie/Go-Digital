@@ -26,7 +26,8 @@ Ejecutar en **Supabase → SQL Editor** en este orden (idempotente; se puede re-
 4. `migrations/20260808_000001_add_cobrada_agenda.sql`  
 5. `migrations/20260808_000002_cobros_integrity_rpcs.sql` — dedupe, unique vigente, RPCs cobro, solape  
 6. `migrations/20260808_000003_informes_rpcs.sql` — dashboard / exportación agendas  
-7. `migrations/20260808_000004_rls_tenant_policies.sql` — RLS `auth.uid() = user_id` + triggers `user_id`
+7. `migrations/20260808_000004_rls_tenant_policies.sql` — RLS `auth.uid() = user_id` + triggers `user_id`  
+8. `migrations/20260808_000005_fix_agenda_hora_time_overload.sql` — overload `agenda_hora_a_minutos(time)` (hotfix solape)
 
 ### BD nueva
 
