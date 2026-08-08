@@ -75,17 +75,7 @@ export function buildWhatsAppConfirmMessage({
   lines.push(
     '',
     '*PROFESIONAL*',
-    line('Nombre', profesionalNombre || '-'),
-    '',
-    '*CUIDADOR*',
-    line('Nombre', nombre)
-  );
-
-  if (cuidadorTelefono) {
-    lines.push(line('Teléfono', cuidadorTelefono));
-  }
-
-  lines.push(
+    line('Nombre', profesionalNombre || ''),
     '',
     'Quedamos atentos a cualquier inquietud.',
     '¡Nos vemos pronto!'
@@ -144,7 +134,7 @@ export function buildWhatsAppMascotaListaMessage({
 /**
  * Abre WhatsApp priorizando la app nativa (`whatsapp://`).
  * Si no hay app o el sistema no la abre, cae a `wa.me` (web).
- * El mensaje se codifica con encodeURIComponent.
+ * Devuelve `{ cancel }` para limpiar timers al desmontar / nuevo intento.
  */
 export function openWhatsAppChat(phoneDigits, message) {
   if (!phoneDigits) {
@@ -156,39 +146,58 @@ export function openWhatsAppChat(phoneDigits, message) {
   const webUrl = `https://wa.me/${phoneDigits}?text=${text}`;
 
   let fellBack = false;
+  let cancelled = false;
+  let iframeEl = null;
+  let removeTimer = null;
+  let fallbackTimer = null;
+
   const openWebFallback = () => {
-    if (fellBack) return;
+    if (cancelled || fellBack) return;
     fellBack = true;
     window.open(webUrl, '_blank', 'noopener,noreferrer');
   };
 
-  // Intento nativo sin salir de la SPA
-  try {
-    const iframe = document.createElement('iframe');
-    iframe.style.display = 'none';
-    iframe.src = nativeUrl;
-    document.body.appendChild(iframe);
-    setTimeout(() => {
+  const cancel = () => {
+    cancelled = true;
+    if (removeTimer != null) clearTimeout(removeTimer);
+    if (fallbackTimer != null) clearTimeout(fallbackTimer);
+    if (iframeEl && iframeEl.parentNode) {
       try {
-        document.body.removeChild(iframe);
+        iframeEl.parentNode.removeChild(iframeEl);
       } catch {
         /* ignore */
       }
+    }
+  };
+
+  try {
+    iframeEl = document.createElement('iframe');
+    iframeEl.style.display = 'none';
+    iframeEl.src = nativeUrl;
+    document.body.appendChild(iframeEl);
+    removeTimer = setTimeout(() => {
+      if (iframeEl && iframeEl.parentNode) {
+        try {
+          iframeEl.parentNode.removeChild(iframeEl);
+        } catch {
+          /* ignore */
+        }
+      }
     }, 2000);
   } catch {
-    // Si el iframe falla, intenta por location (último recurso nativo)
     try {
       window.location.href = nativeUrl;
     } catch {
       openWebFallback();
-      return;
+      return { cancel };
     }
   }
 
-  // Si la app no toma el foco, abrir WhatsApp Web como respaldo
-  setTimeout(() => {
-    if (document.visibilityState === 'visible') {
+  fallbackTimer = setTimeout(() => {
+    if (!cancelled && document.visibilityState === 'visible') {
       openWebFallback();
     }
   }, 1500);
+
+  return { cancel };
 }

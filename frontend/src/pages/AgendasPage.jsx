@@ -33,18 +33,20 @@ import '../index.css';
 
 const LIST_LIMIT = 500;
 
-const EMPTY_COBRO_FORM = {
-  id_profesional: '',
-  id_agenda: '',
-  id_mascota: '',
-  id_tarifa: '',
-  valor: '',
-  metodo_pago: '',
-  observacion: '',
-  fecha_cobro: hoyLocalISO(),
-  profesional_nombre: '',
-  agenda_label: '',
-};
+function emptyCobroForm() {
+  return {
+    id_profesional: '',
+    id_agenda: '',
+    id_mascota: '',
+    id_tarifa: '',
+    valor: '',
+    metodo_pago: '',
+    observacion: '',
+    fecha_cobro: hoyLocalISO(),
+    profesional_nombre: '',
+    agenda_label: '',
+  };
+}
 
 function formatTarifaLabel(c) {
   if (!c?.id_tarifa && c?.tarifa_descripcion == null && c?.tarifa_valor == null) {
@@ -129,7 +131,7 @@ export default function AgendasPage() {
   const [editListaMascotasAbierta, setEditListaMascotasAbierta] = useState(false);
   const [deleteModalId, setDeleteModalId] = useState(null);
   const [cobroModalOpen, setCobroModalOpen] = useState(false);
-  const [cobroForm, setCobroForm] = useState(EMPTY_COBRO_FORM);
+  const [cobroForm, setCobroForm] = useState(() => emptyCobroForm());
   const [cobroMascotaNombre, setCobroMascotaNombre] = useState('');
   const [cobroTarifas, setCobroTarifas] = useState([]);
   const { toasts, addToast, removeToast } = useToast();
@@ -139,6 +141,8 @@ export default function AgendasPage() {
   const editBuscadorMascotaRef = useRef(null);
   const mascotaSearchReq = useRef(0);
   const profesionalSearchReq = useRef(0);
+  const profesionalAgendaReq = useRef(0);
+  const whatsappCancelRef = useRef(null);
 
   async function cargarMascotas(search = '') {
     const reqId = ++mascotaSearchReq.current;
@@ -177,6 +181,12 @@ export default function AgendasPage() {
     }
     init();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    return () => {
+      whatsappCancelRef.current?.cancel?.();
+    };
+  }, []);
 
   // Actualiza profesionales al buscar (incluye recién creados)
   useEffect(() => {
@@ -314,24 +324,34 @@ export default function AgendasPage() {
   }
 
   async function seleccionarProfesional(p) {
+    const reqId = ++profesionalAgendaReq.current;
     setProfSel(p);
     setBusquedaProf(p.nombre || '');
     setListaAbierta(false);
+    setCitas([]);
+    setTarifas([]);
     limpiarMascotaSeleccion();
     setFecha('');
     setHoraInicio('');
     setHoraFin('');
     setIdTarifa('');
     cerrarReprogramar();
+    setLoading(true);
     try {
       const [resAgenda, resTarifas] = await Promise.all([
         getAgendaDeProfesional(p.id),
         listTarifas(p.id),
       ]);
+      if (reqId !== profesionalAgendaReq.current) return;
       setCitas(normalizeListPayload(resAgenda));
       setTarifas(normalizeListPayload(resTarifas));
     } catch (e) {
+      if (reqId !== profesionalAgendaReq.current) return;
+      setCitas([]);
+      setTarifas([]);
       addToast(e?.message || 'Error al cargar la agenda del profesional', 'error');
+    } finally {
+      if (reqId === profesionalAgendaReq.current) setLoading(false);
     }
   }
 
@@ -514,9 +534,10 @@ export default function AgendasPage() {
   }
 
   async function handleConfirmarWhatsApp(cita) {
-    if (whatsappBusy != null) return;
+    if (!tryLock()) return;
     setWhatsappBusy({ id: cita.id, kind: 'confirm' });
     try {
+      whatsappCancelRef.current?.cancel?.();
       const { cuidador, phone, mascotaData } = await resolverCuidadorParaWhatsApp(cita);
 
       const mascotaNombre = mascotaData?.nombre || cita.mascota_nombre || '';
@@ -527,7 +548,6 @@ export default function AgendasPage() {
 
       const message = buildWhatsAppConfirmMessage({
         cuidadorNombre: cuidador.nombre,
-        cuidadorTelefono: cuidador.telefono,
         mascotaNombre,
         mascotaEspecie,
         mascotaRaza,
@@ -543,19 +563,21 @@ export default function AgendasPage() {
             : '',
       });
 
-      openWhatsAppChat(phone, message);
+      whatsappCancelRef.current = openWhatsAppChat(phone, message);
       addToast('Se abrió WhatsApp con el mensaje de confirmación.', 'success');
     } catch (e) {
       addToast(e?.message || 'No se pudo confirmar la agenda por WhatsApp', 'error');
     } finally {
       setWhatsappBusy(null);
+      unlock();
     }
   }
 
   async function handleMascotaListaWhatsApp(cita) {
-    if (whatsappBusy != null) return;
+    if (!tryLock()) return;
     setWhatsappBusy({ id: cita.id, kind: 'lista' });
     try {
+      whatsappCancelRef.current?.cancel?.();
       const { cuidador, phone, mascotaData } = await resolverCuidadorParaWhatsApp(cita);
       const mascotaNombre = mascotaData?.nombre || cita.mascota_nombre || '';
       const { tarifaDescripcion } = resolverTarifaCita(cita);
@@ -569,19 +591,20 @@ export default function AgendasPage() {
         tarifaDescripcion,
       });
 
-      openWhatsAppChat(phone, message);
+      whatsappCancelRef.current = openWhatsAppChat(phone, message);
       addToast('Se abrió WhatsApp con el aviso de mascota lista.', 'success');
     } catch (e) {
       addToast(e?.message || 'No se pudo notificar por WhatsApp', 'error');
     } finally {
       setWhatsappBusy(null);
+      unlock();
     }
   }
 
   function cerrarCobroModal({ force = false } = {}) {
     if (loading && !force) return;
     setCobroModalOpen(false);
-    setCobroForm(EMPTY_COBRO_FORM);
+    setCobroForm(emptyCobroForm());
     setCobroMascotaNombre('');
     setCobroTarifas([]);
   }

@@ -51,3 +51,13 @@ export function pageRange(page = 1, limit = 20) {
 export function escapeIlike(term) {
   return String(term).replace(/[%_\\]/g, '\\$&');
 }
+
+/**
+ * Elimina caracteres que rompen el filtro `.or(...)` de PostgREST.
+ */
+export function sanitizePostgrestOrTerm(term) {
+  return String(term ?? '')
+    .replace(/[,.()]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}

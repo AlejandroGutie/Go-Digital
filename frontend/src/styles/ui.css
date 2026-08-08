@@ -583,6 +583,57 @@
   border-color: var(--color-entorno);
 }
 
+/* Subnavegación de informes */
+.ui-tabs {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+  margin-bottom: 20px;
+  padding: 4px;
+  border-radius: 14px;
+  background: var(--color-white);
+  border: 1px solid var(--border-soft);
+}
+
+.ui-tabs::-webkit-scrollbar {
+  display: none;
+}
+
+.ui-tabs__btn {
+  flex: 1 1 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 44px;
+  min-width: max-content;
+  padding: 10px 16px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--color-entorno);
+  font-size: 0.875rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s ease, color 0.2s ease, transform 0.2s ease;
+}
+
+.ui-tabs__btn:active {
+  transform: scale(0.98);
+}
+
+.ui-tabs__btn--active {
+  background: var(--color-entorno);
+  color: var(--color-white);
+}
+
+.ui-tabs__btn:focus-visible {
+  outline: 2px solid var(--color-purple-light);
+  outline-offset: 2px;
+}
+
 /* Badge */
 .ui-badge {
   display: inline-flex;

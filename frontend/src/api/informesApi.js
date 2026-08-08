@@ -228,9 +228,23 @@ export async function getDashboardInformes(params = {}) {
     return { status: 'success', data, source: 'rpc' };
   }
 
-  // Fallback si el RPC aún no está desplegado en Supabase
+  const missingRpc =
+    error?.code === 'PGRST202' ||
+    /could not find the function|schema cache/i.test(error?.message || '');
+
+  // Solo cae a agregación cliente si el RPC no existe; otros errores se propagan
+  if (!missingRpc && error) {
+    throwIfError(error, error.message || 'Error al generar informe');
+  }
+
   const fallback = await getDashboardFallback(params);
-  return { status: 'success', data: fallback, source: 'client' };
+  return {
+    status: 'success',
+    data: fallback,
+    source: 'client',
+    warning:
+      'Informe calculado en el cliente porque el RPC get_dashboard_informes no está disponible en Supabase.',
+  };
 }
 
 export async function getAgendaInforme(params = {}) {
@@ -243,6 +257,14 @@ export async function getAgendaInforme(params = {}) {
   const { data, error } = await supabase.rpc('get_agenda_informe', payload);
   if (!error && data) {
     return { status: 'success', data: data.rows ?? data ?? [], source: 'rpc' };
+  }
+
+  const missingRpc =
+    error?.code === 'PGRST202' ||
+    /could not find the function|schema cache/i.test(error?.message || '');
+
+  if (!missingRpc && error) {
+    throwIfError(error, error.message || 'Error al generar informe de agendas');
   }
 
   const agendaRows = await fetchAllRows(() => {
@@ -273,5 +295,11 @@ export async function getAgendaInforme(params = {}) {
     tamano: a.mascota?.tamano,
   }));
 
-  return { status: 'success', data: rows, source: 'client' };
+  return {
+    status: 'success',
+    data: rows,
+    source: 'client',
+    warning:
+      'Agenda exportada desde consulta cliente porque el RPC get_agenda_informe no está disponible.',
+  };
 }

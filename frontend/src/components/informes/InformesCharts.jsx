@@ -182,6 +182,61 @@ export function ChartPagadoVsPendiente({ kpis }) {
   );
 }
 
+/** Volumen de citas en el tiempo (informe de agendas). */
+export function ChartTendenciaCitas({ serie, agruparPor }) {
+  const data = (serie || []).map((s) => ({
+    ...s,
+    label: labelPeriodo(s.periodo, agruparPor),
+    citas: Number(s.citas) || 0,
+  }));
+
+  return (
+    <ChartCard title="Tendencia de citas programadas">
+      {data.length === 0 ? (
+        <EmptyChart />
+      ) : (
+        <ResponsiveContainer>
+          <BarChart data={data}>
+            <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+            <XAxis dataKey="label" tick={{ fontSize: 10 }} interval="preserveStartEnd" />
+            <YAxis allowDecimals={false} tick={{ fontSize: 10 }} />
+            <Tooltip />
+            <Bar dataKey="citas" name="Citas" fill="#4f41b7" radius={[4, 4, 0, 0]} />
+          </BarChart>
+        </ResponsiveContainer>
+      )}
+    </ChartCard>
+  );
+}
+
+export function ChartCitasPorProfesional({ rows }) {
+  const data = (rows || [])
+    .filter((r) => Number(r.citas) > 0)
+    .map((r) => ({
+      nombre: r.nombre,
+      citas: Number(r.citas) || 0,
+    }))
+    .sort((a, b) => a.citas - b.citas);
+
+  return (
+    <ChartCard title="Citas por profesional">
+      {data.length === 0 ? (
+        <EmptyChart />
+      ) : (
+        <ResponsiveContainer>
+          <BarChart data={data} layout="vertical" margin={{ left: 8, right: 16 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+            <XAxis type="number" allowDecimals={false} tick={{ fontSize: 10 }} />
+            <YAxis type="category" dataKey="nombre" width={90} tick={{ fontSize: 10 }} />
+            <Tooltip />
+            <Bar dataKey="citas" name="Citas" fill="#8D78A2" radius={[0, 4, 4, 0]} />
+          </BarChart>
+        </ResponsiveContainer>
+      )}
+    </ChartCard>
+  );
+}
+
 function EmptyChart() {
   return (
     <div

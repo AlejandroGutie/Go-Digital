@@ -1,6 +1,6 @@
 import { formatMoneda } from '../../utils/exportInformes';
 
-export default function KpiCards({ kpis }) {
+export default function KpiCards({ kpis, showAgendaKpi = false }) {
   const k = kpis || {};
   const cards = [
     { label: 'Ingresos totales', value: formatMoneda(k.total_ingresos) },
@@ -35,7 +35,7 @@ export default function KpiCards({ kpis }) {
           <p style={{ margin: 0, fontSize: 20, fontWeight: 800 }}>{c.value}</p>
         </div>
       ))}
-      {typeof k.total_citas_agenda === 'number' && (
+      {showAgendaKpi && typeof k.total_citas_agenda === 'number' && (
         <div
           style={{
             background: 'var(--color-white)',
@@ -49,6 +49,62 @@ export default function KpiCards({ kpis }) {
           <p style={{ margin: 0, fontSize: 20, fontWeight: 800 }}>{k.total_citas_agenda}</p>
         </div>
       )}
+    </div>
+  );
+}
+
+/** KPIs específicos del informe de agendas. */
+export function KpiCardsAgenda({ kpis }) {
+  const k = kpis || {};
+  const cards = [
+    { label: 'Citas programadas', value: String(k.total_citas ?? 0), tone: 'solid' },
+    { label: 'Promedio diario', value: String(k.promedio_diario ?? 0), tone: 'outline' },
+    { label: 'Profesionales con citas', value: String(k.profesionales_activos ?? 0), tone: 'outline' },
+    { label: 'Mascotas atendidas', value: String(k.mascotas_unicas ?? 0), tone: 'outline' },
+  ];
+
+  return (
+    <div
+      style={{
+        display: 'grid',
+        gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))',
+        gap: 16,
+        marginBottom: 24,
+      }}
+    >
+      {cards.map((c) => (
+        <div
+          key={c.label}
+          style={
+            c.tone === 'solid'
+              ? {
+                  background: 'var(--color-entorno)',
+                  color: 'var(--color-white)',
+                  borderRadius: 12,
+                  padding: 16,
+                }
+              : {
+                  background: 'var(--color-white)',
+                  color: 'var(--color-entorno)',
+                  borderRadius: 12,
+                  padding: 16,
+                  border: '1px solid var(--color-purple-light)',
+                }
+          }
+        >
+          <p
+            style={{
+              margin: '0 0 8px',
+              fontSize: 13,
+              fontWeight: 500,
+              opacity: c.tone === 'solid' ? 0.95 : 1,
+            }}
+          >
+            {c.label}
+          </p>
+          <p style={{ margin: 0, fontSize: 20, fontWeight: 800 }}>{c.value}</p>
+        </div>
+      ))}
     </div>
   );
 }

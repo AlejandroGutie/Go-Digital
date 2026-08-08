@@ -12,6 +12,8 @@ export default function InformesFiltros({
   onPreset,
   onLimpiar,
   rangoFechasError = false,
+  showEstado = true,
+  title = 'Filtros del informe',
 }) {
   const [busquedaProf, setBusquedaProf] = useState('');
   const [listaAbierta, setListaAbierta] = useState(false);
@@ -85,7 +87,7 @@ export default function InformesFiltros({
   return (
     <div className="ui-card" style={{ marginBottom: 20 }}>
       <div style={{ fontWeight: 600, marginBottom: 12, fontSize: '0.9375rem', color: 'var(--color-black)' }}>
-        Filtros del informe
+        {title}
       </div>
 
       <div className="ui-chips">
@@ -198,18 +200,20 @@ export default function InformesFiltros({
           </div>
         </Field>
 
-        <Field label="Estado">
-          <Select
-            value={filtros.estado}
-            onChange={(e) => onChange({ ...filtros, estado: e.target.value })}
-            aria-label="Estado del cobro"
-          >
-            <option value="">Todos los estados</option>
-            <option value="pagado">Pagados</option>
-            <option value="pendiente">Pendientes</option>
-            <option value="anulado">Anulados</option>
-          </Select>
-        </Field>
+        {showEstado ? (
+          <Field label="Estado">
+            <Select
+              value={filtros.estado}
+              onChange={(e) => onChange({ ...filtros, estado: e.target.value })}
+              aria-label="Estado del cobro"
+            >
+              <option value="">Todos los estados</option>
+              <option value="pagado">Pagados</option>
+              <option value="pendiente">Pendientes</option>
+              <option value="anulado">Anulados</option>
+            </Select>
+          </Field>
+        ) : null}
         <Button variant="ghost" onClick={handleLimpiar} block>
           Limpiar filtros
         </Button>

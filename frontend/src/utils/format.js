@@ -72,11 +72,14 @@ export function formatFechaCorta(iso) {
 
 /** Moneda COP (es-CO), formato único en UI y reportes. */
 export function formatMoneda(valor) {
+  if (valor == null || valor === '') return '—';
+  const n = Number(valor);
+  if (!Number.isFinite(n)) return '—';
   return new Intl.NumberFormat('es-CO', {
     style: 'currency',
     currency: 'COP',
     minimumFractionDigits: 0,
-  }).format(valor || 0);
+  }).format(n);
 }
 
 /** true si ambas fechas existen y desde > hasta (ISO YYYY-MM-DD). */
@@ -90,8 +93,12 @@ export function formatHora(timeStr) {
   if (!timeStr) return '—';
 
   const [horas, minutos] = String(timeStr).split(':');
+  const hh = parseInt(horas, 10);
+  const mm = parseInt(minutos, 10);
+  if (Number.isNaN(hh) || Number.isNaN(mm)) return '—';
+
   const date = new Date();
-  date.setHours(parseInt(horas, 10), parseInt(minutos, 10), 0, 0);
+  date.setHours(hh, mm, 0, 0);
 
   const opciones = {
     hour: 'numeric',

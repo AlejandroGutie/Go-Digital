@@ -70,6 +70,7 @@ export default function CobrosPage() {
   const pageRef = useRef(page);
   const skipPageEffect = useRef(false);
   const fetchIdRef = useRef(0);
+  const cobroProfReq = useRef(0);
   const buscadorProfFiltroRef = useRef(null);
 
   useEffect(() => {
@@ -210,7 +211,15 @@ export default function CobrosPage() {
   }
 
   const handleProfesionalChange = async (id_profesional) => {
-    setNuevoCobro({ ...nuevoCobro, id_profesional, id_agenda: '', id_mascota: '', id_tarifa: '', valor: '' });
+    const reqId = ++cobroProfReq.current;
+    setNuevoCobro((prev) => ({
+      ...prev,
+      id_profesional,
+      id_agenda: '',
+      id_mascota: '',
+      id_tarifa: '',
+      valor: '',
+    }));
     setNombreMascotaVisible('');
     if (id_profesional) {
       try {
@@ -218,9 +227,13 @@ export default function CobrosPage() {
           getAgendaDeProfesional(id_profesional),
           listTarifas(id_profesional),
         ]);
+        if (reqId !== cobroProfReq.current) return;
         setAgendas(normalizeListPayload(resAg));
         setTarifas(normalizeListPayload(resT));
       } catch (e) {
+        if (reqId !== cobroProfReq.current) return;
+        setAgendas([]);
+        setTarifas([]);
         addToast(e?.message || 'Error al cargar agendas y tarifas', 'error');
       }
     } else {
@@ -230,16 +243,24 @@ export default function CobrosPage() {
   };
 
   const handleAgendaChange = (id_agenda) => {
-    const agenda = agendas.find((a) => a.id == id_agenda);
+    const agenda = agendas.find((a) => String(a.id) === String(id_agenda));
     if (agenda) {
-      setNuevoCobro({ ...nuevoCobro, id_agenda, id_mascota: agenda.id_mascota });
+      setNuevoCobro((prev) => ({
+        ...prev,
+        id_agenda,
+        id_mascota: agenda.id_mascota,
+      }));
       setNombreMascotaVisible(agenda.mascota_nombre);
     }
   };
 
   const handleTarifaChange = (id_tarifa) => {
-    const tarifa = tarifas.find((t) => t.id == id_tarifa);
-    setNuevoCobro({ ...nuevoCobro, id_tarifa, valor: tarifa ? tarifa.valor : '' });
+    const tarifa = tarifas.find((t) => String(t.id) === String(id_tarifa));
+    setNuevoCobro((prev) => ({
+      ...prev,
+      id_tarifa,
+      valor: tarifa ? tarifa.valor : '',
+    }));
   };
 
   const guardarCobro = async () => {

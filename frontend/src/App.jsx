@@ -109,6 +109,7 @@ export default function App() {
             <Route path="/agendas" element={<AgendasPage />} />
             <Route path="/cobros" element={<CobrosPage />} />
             <Route path="/informes" element={<InformesPage />} />
+            <Route path="*" element={<Navigate to="/mascotas" replace />} />
           </Route>
         </Routes>
       </HashRouter>

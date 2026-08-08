@@ -296,3 +296,194 @@ export function TablaMensual({ rows }) {
     </TableShell>
   );
 }
+
+/** Resumen de citas por profesional (pestaña Agendas). */
+export function TablaCitasPorProfesional({ rows, filtros = {} }) {
+  const [searchTerm, setSearchTerm] = useState('');
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage, setItemsPerPage] = useState(DEFAULT_PAGE_SIZE);
+
+  const filtrosKey = [
+    filtros.fecha_desde || '',
+    filtros.fecha_hasta || '',
+    filtros.id_profesional || '',
+  ].join('|');
+
+  // Paso 1 — filas con citas + filtro de profesional superior
+  const scopedRows = useMemo(() => {
+    let list = (rows || []).filter((p) => Number(p.citas) > 0);
+    const idProf = filtros.id_profesional ? String(filtros.id_profesional) : '';
+    if (idProf) {
+      list = list.filter((p) => String(p.id) === idProf);
+    }
+    return list.slice().sort((a, b) => Number(b.citas) - Number(a.citas));
+  }, [rows, filtros.id_profesional]);
+
+  useEffect(() => {
+    setSearchTerm('');
+    setCurrentPage(1);
+  }, [filtrosKey, rows]);
+
+  // Paso 2 — búsqueda local por nombre
+  const filteredRows = useMemo(() => {
+    const q = searchTerm.trim().toLowerCase();
+    if (!q) return scopedRows;
+    return scopedRows.filter((p) => (p.nombre || '').toLowerCase().includes(q));
+  }, [scopedRows, searchTerm]);
+
+  const total = filteredRows.length;
+  const pages = Math.max(1, Math.ceil(total / itemsPerPage) || 1);
+  const page = Math.min(currentPage, pages);
+
+  const pageRows = useMemo(() => {
+    const from = (page - 1) * itemsPerPage;
+    return filteredRows.slice(from, from + itemsPerPage);
+  }, [filteredRows, page, itemsPerPage]);
+
+  const fromRecord = total === 0 ? 0 : (page - 1) * itemsPerPage + 1;
+  const toRecord = Math.min(page * itemsPerPage, total);
+
+  const hasTopFilters = !!(
+    filtros.fecha_desde ||
+    filtros.fecha_hasta ||
+    filtros.id_profesional
+  );
+
+  function handleSearchChange(value) {
+    setSearchTerm(value);
+    setCurrentPage(1);
+  }
+
+  function handlePageSizeChange(value) {
+    setItemsPerPage(Number(value) || DEFAULT_PAGE_SIZE);
+    setCurrentPage(1);
+  }
+
+  function goToPage(p) {
+    setCurrentPage(Math.max(1, Math.min(p, pages)));
+  }
+
+  const emptyTitle = searchTerm.trim()
+    ? 'No se encontraron profesionales que coincidan con la búsqueda'
+    : 'No se encontraron resultados para los filtros seleccionados';
+
+  const emptyDescription = searchTerm.trim()
+    ? `Sin resultados para “${searchTerm.trim()}” dentro del resumen filtrado`
+    : hasTopFilters
+      ? 'Prueba otro rango de fechas o profesional, o limpia los filtros superiores'
+      : 'No hay citas por profesional en el periodo';
+
+  return (
+    <TableShell
+      title="Citas por profesional"
+      toolbar={
+        <div className="ui-toolbar" style={{ marginBottom: 12 }}>
+          <div style={{ position: 'relative', flex: 1, minWidth: 0 }}>
+            <Search
+              size={16}
+              style={{
+                position: 'absolute',
+                left: 14,
+                top: '50%',
+                transform: 'translateY(-50%)',
+                color: 'var(--color-purple-light)',
+                pointerEvents: 'none',
+              }}
+            />
+            <Input
+              type="text"
+              placeholder="Buscar por nombre del profesional…"
+              value={searchTerm}
+              onChange={(e) => handleSearchChange(e.target.value)}
+              style={{ paddingLeft: 40 }}
+              aria-label="Buscar profesional"
+            />
+          </div>
+          {searchTerm && (
+            <Button variant="ghost" size="sm" onClick={() => handleSearchChange('')}>
+              <X size={16} />
+              Limpiar
+            </Button>
+          )}
+          <Select
+            value={itemsPerPage}
+            onChange={(e) => handlePageSizeChange(e.target.value)}
+            aria-label="Filas por página"
+            style={{ maxWidth: 140, flex: '0 0 auto' }}
+          >
+            {PAGE_SIZE_OPTIONS.map((n) => (
+              <option key={n} value={n}>
+                {n} por página
+              </option>
+            ))}
+          </Select>
+          {(searchTerm || hasTopFilters) && (
+            <span className="ui-toolbar__meta">
+              {total} resultado{total !== 1 ? 's' : ''}
+            </span>
+          )}
+        </div>
+      }
+      footer={
+        total > 0 ? (
+          <div className="ui-pagination">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => goToPage(page - 1)}
+              disabled={page <= 1}
+            >
+              Anterior
+            </Button>
+            <span className="ui-pagination__label">
+              Mostrando {fromRecord} a {toRecord} de {total} resultados
+              {pages > 1 ? ` — Página ${page} de ${pages}` : ''}
+            </span>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => goToPage(page + 1)}
+              disabled={page >= pages}
+            >
+              Siguiente
+            </Button>
+          </div>
+        ) : null
+      }
+    >
+      {total === 0 ? (
+        <div style={{ padding: '8px 16px 16px' }}>
+          <EmptyState
+            icon={<Stethoscope size={24} />}
+            title={emptyTitle}
+            description={emptyDescription}
+          />
+        </div>
+      ) : (
+        <table className="ui-table">
+          <thead>
+            <tr>
+              {['Profesional', 'Citas'].map((h) => (
+                <th key={h} style={{ textAlign: h === 'Profesional' ? 'left' : 'right' }}>
+                  {h}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {pageRows.map((p) => (
+              <tr key={p.id ?? p.nombre}>
+                <td>{p.nombre}</td>
+                <td className="ui-num" style={{ textAlign: 'right' }}>
+                  {p.citas}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </TableShell>
+  );
+}
+
+
