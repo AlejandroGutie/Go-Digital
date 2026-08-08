@@ -1,5 +1,16 @@
-import { useEffect, useState, useRef } from 'react';
-import { AlertTriangle, Banknote, Calendar, CalendarClock, MessageCircle, PawPrint, Stethoscope, Trash2 } from 'lucide-react';
+import { useEffect, useMemo, useState, useRef } from 'react';
+import {
+  AlertTriangle,
+  Banknote,
+  Calendar,
+  CalendarClock,
+  MessageCircle,
+  PawPrint,
+  Search,
+  Stethoscope,
+  Trash2,
+  X,
+} from 'lucide-react';
 import { listProfesionales } from '../api/profesionalesApi';
 import {
   getAgendaDeProfesional,
@@ -28,7 +39,9 @@ import Button from '../components/ui/Button';
 import Skeleton from '../components/ui/Skeleton';
 import Sheet from '../components/ui/Sheet';
 import ConfirmSheet from '../components/ui/ConfirmSheet';
+import TablePagination, { PageSizeSelect } from '../components/ui/TablePagination';
 import CobroFormSheet from '../components/cobros/CobroFormSheet';
+import { useClientTablePagination } from '../hooks/useClientTablePagination';
 import '../index.css';
 
 const LIST_LIMIT = 500;
@@ -119,6 +132,7 @@ export default function AgendasPage() {
   const [listaAbierta, setListaAbierta] = useState(false);
   const [busquedaMascota, setBusquedaMascota] = useState('');
   const [listaMascotasAbierta, setListaMascotasAbierta] = useState(false);
+  const [filtroTabla, setFiltroTabla] = useState('');
   const [editCita, setEditCita] = useState(null);
   const [editForm, setEditForm] = useState({
     id_mascota: '',
@@ -330,6 +344,7 @@ export default function AgendasPage() {
     setListaAbierta(false);
     setCitas([]);
     setTarifas([]);
+    setFiltroTabla('');
     limpiarMascotaSeleccion();
     setFecha('');
     setHoraInicio('');
@@ -360,6 +375,7 @@ export default function AgendasPage() {
     setBusquedaProf('');
     setCitas([]);
     setTarifas([]);
+    setFiltroTabla('');
     limpiarMascotaSeleccion();
     setFecha('');
     setHoraInicio('');
@@ -759,6 +775,41 @@ export default function AgendasPage() {
         )
     : [];
 
+  const citasFiltradas = useMemo(() => {
+    const q = filtroTabla.trim().toLowerCase();
+    if (!q) return citas;
+    return citas.filter((c) => {
+      const haystack = [
+        c.id,
+        c.mascota_nombre,
+        c.especie,
+        c.raza,
+        c.tamano,
+        formatFecha(c.fecha),
+        formatHora(c.hora_inicio),
+        formatHora(c.hora_fin),
+        formatTarifaLabel(c),
+      ]
+        .filter(Boolean)
+        .join(' ')
+        .toLowerCase();
+      return haystack.includes(q);
+    });
+  }, [citas, filtroTabla]);
+
+  const {
+    pageRows: citasPageRows,
+    page: citasPage,
+    pages: citasPages,
+    total: citasTotal,
+    itemsPerPage: citasPerPage,
+    handlePageSizeChange: handleCitasPageSize,
+    goToPage: goToCitasPage,
+  } = useClientTablePagination(
+    citasFiltradas,
+    `${profSel?.id || ''}|${filtroTabla.trim()}`
+  );
+
   const editCitasDelDia = editForm.fecha
     ? citas
         .filter(
@@ -1131,91 +1182,163 @@ export default function AgendasPage() {
                     description="Usa el formulario de arriba para agendar la primera cita de este profesional"
                   />
                 ) : (
-                  <div className="ui-table-wrap table-scroll">
-                    <table className="ui-table">
-                      <thead>
-                        <tr>
-                          {['ID', 'Mascota', 'Especie', 'Raza', 'Fecha', 'Inicio', 'Fin', 'Tarifa', ''].map((h) => (
-                            <th key={h || 'acciones'}>{h}</th>
-                          ))}
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {citas.map((c) => (
-                          <tr key={c.id}>
-                            <td className="ui-num">{c.id}</td>
-                            <td>{c.mascota_nombre}</td>
-                            <td>{c.especie || '—'}</td>
-                            <td>{c.raza}</td>
-                            <td style={{ color: 'var(--color-purple-light)' }}>{formatFecha(c.fecha)}</td>
-                            <td>{formatHora(c.hora_inicio)}</td>
-                            <td>{formatHora(c.hora_fin)}</td>
-                            <td>{formatTarifaLabel(c)}</td>
-                            <td>
-                              <div className="ui-table__actions">
-                                <Button
-                                  size="sm"
-                                  variant="ghost"
-                                  onClick={() => handleConfirmarWhatsApp(c)}
-                                  disabled={loading || whatsappBusy != null}
-                                  aria-label="Confirmar por WhatsApp"
-                                  style={{ color: '#128C7E' }}
-                                >
-                                  <MessageCircle size={14} />
-                                  {whatsappBusy?.id === c.id && whatsappBusy?.kind === 'confirm'
-                                    ? 'Abriendo…'
-                                    : 'Confirmar'}
-                                </Button>
-                                <Button
-                                  size="sm"
-                                  variant="ghost"
-                                  onClick={() => handleMascotaListaWhatsApp(c)}
-                                  disabled={loading || whatsappBusy != null}
-                                  aria-label="Notificar mascota lista por WhatsApp"
-                                  style={{ color: '#128C7E' }}
-                                >
-                                  <PawPrint size={14} />
-                                  {whatsappBusy?.id === c.id && whatsappBusy?.kind === 'lista'
-                                    ? 'Abriendo…'
-                                    : 'Mascota lista'}
-                                </Button>
-                                <Button
-                                  size="sm"
-                                  variant="ghost"
-                                  onClick={() => abrirCobrar(c)}
-                                  disabled={loading || whatsappBusy != null || cobroModalOpen}
-                                  aria-label="Registrar cobro"
-                                >
-                                  <Banknote size={14} />
-                                  Cobrar
-                                </Button>
-                                <Button
-                                  size="sm"
-                                  variant="ghost"
-                                  onClick={() => abrirReprogramar(c)}
-                                  disabled={loading || whatsappBusy != null}
-                                  aria-label="Reprogramar"
-                                >
-                                  <CalendarClock size={14} />
-                                  Reprogramar
-                                </Button>
-                                <Button
-                                  size="sm"
-                                  variant="ghost"
-                                  onClick={() => setDeleteModalId(c.id)}
-                                  disabled={loading || whatsappBusy != null}
-                                  aria-label="Quitar"
-                                >
-                                  <Trash2 size={14} />
-                                  Quitar
-                                </Button>
-                              </div>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
+                  <>
+                    <div className="ui-toolbar">
+                      <div style={{ position: 'relative', flex: 1, minWidth: 0 }}>
+                        <Search
+                          size={16}
+                          style={{
+                            position: 'absolute',
+                            left: 14,
+                            top: '50%',
+                            transform: 'translateY(-50%)',
+                            color: 'var(--color-purple-light)',
+                            pointerEvents: 'none',
+                          }}
+                        />
+                        <Input
+                          type="text"
+                          placeholder="Buscar cita por mascota, fecha, horario o tarifa…"
+                          value={filtroTabla}
+                          onChange={(e) => setFiltroTabla(e.target.value)}
+                          style={{ paddingLeft: 40 }}
+                          aria-label="Buscar en la agenda"
+                        />
+                      </div>
+                      {filtroTabla && (
+                        <Button variant="ghost" size="sm" onClick={() => setFiltroTabla('')}>
+                          <X size={16} />
+                          Limpiar
+                        </Button>
+                      )}
+                      <PageSizeSelect
+                        value={citasPerPage}
+                        onChange={handleCitasPageSize}
+                        disabled={loading}
+                      />
+                      {filtroTabla.trim() && (
+                        <span className="ui-toolbar__meta">
+                          {citasTotal} resultado{citasTotal !== 1 ? 's' : ''}
+                        </span>
+                      )}
+                    </div>
+
+                    {citasTotal === 0 ? (
+                      <EmptyState
+                        icon={<Calendar size={24} />}
+                        title={`Sin resultados para "${filtroTabla.trim()}"`}
+                        description="La búsqueda aplica a todas las citas de este profesional, no solo a la página actual"
+                      />
+                    ) : (
+                      <>
+                        <div className="ui-table-wrap table-scroll">
+                          <table className="ui-table">
+                            <thead>
+                              <tr>
+                                {[
+                                  'ID',
+                                  'Mascota',
+                                  'Especie',
+                                  'Raza',
+                                  'Fecha',
+                                  'Inicio',
+                                  'Fin',
+                                  'Tarifa',
+                                  '',
+                                ].map((h) => (
+                                  <th key={h || 'acciones'}>{h}</th>
+                                ))}
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {citasPageRows.map((c) => (
+                                <tr key={c.id}>
+                                  <td className="ui-num">{c.id}</td>
+                                  <td>{c.mascota_nombre}</td>
+                                  <td>{c.especie || '—'}</td>
+                                  <td>{c.raza}</td>
+                                  <td style={{ color: 'var(--color-purple-light)' }}>
+                                    {formatFecha(c.fecha)}
+                                  </td>
+                                  <td>{formatHora(c.hora_inicio)}</td>
+                                  <td>{formatHora(c.hora_fin)}</td>
+                                  <td>{formatTarifaLabel(c)}</td>
+                                  <td>
+                                    <div className="ui-table__actions">
+                                      <Button
+                                        size="sm"
+                                        variant="ghost"
+                                        onClick={() => handleConfirmarWhatsApp(c)}
+                                        disabled={loading || whatsappBusy != null}
+                                        aria-label="Confirmar por WhatsApp"
+                                        style={{ color: '#128C7E' }}
+                                      >
+                                        <MessageCircle size={14} />
+                                        {whatsappBusy?.id === c.id && whatsappBusy?.kind === 'confirm'
+                                          ? 'Abriendo…'
+                                          : 'Confirmar'}
+                                      </Button>
+                                      <Button
+                                        size="sm"
+                                        variant="ghost"
+                                        onClick={() => handleMascotaListaWhatsApp(c)}
+                                        disabled={loading || whatsappBusy != null}
+                                        aria-label="Notificar mascota lista por WhatsApp"
+                                        style={{ color: '#128C7E' }}
+                                      >
+                                        <PawPrint size={14} />
+                                        {whatsappBusy?.id === c.id && whatsappBusy?.kind === 'lista'
+                                          ? 'Abriendo…'
+                                          : 'Mascota lista'}
+                                      </Button>
+                                      <Button
+                                        size="sm"
+                                        variant="ghost"
+                                        onClick={() => abrirCobrar(c)}
+                                        disabled={loading || whatsappBusy != null || cobroModalOpen}
+                                        aria-label="Registrar cobro"
+                                      >
+                                        <Banknote size={14} />
+                                        Cobrar
+                                      </Button>
+                                      <Button
+                                        size="sm"
+                                        variant="ghost"
+                                        onClick={() => abrirReprogramar(c)}
+                                        disabled={loading || whatsappBusy != null}
+                                        aria-label="Reprogramar"
+                                      >
+                                        <CalendarClock size={14} />
+                                        Reprogramar
+                                      </Button>
+                                      <Button
+                                        size="sm"
+                                        variant="ghost"
+                                        onClick={() => setDeleteModalId(c.id)}
+                                        disabled={loading || whatsappBusy != null}
+                                        aria-label="Quitar"
+                                      >
+                                        <Trash2 size={14} />
+                                        Quitar
+                                      </Button>
+                                    </div>
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                        <TablePagination
+                          page={citasPage}
+                          pages={citasPages}
+                          total={citasTotal}
+                          itemsPerPage={citasPerPage}
+                          onPageChange={goToCitasPage}
+                          disabled={loading}
+                        />
+                      </>
+                    )}
+                  </>
                 )}
               </>
             )}

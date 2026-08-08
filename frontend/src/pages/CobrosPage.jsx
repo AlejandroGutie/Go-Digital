@@ -15,18 +15,21 @@ import Field, { DateInput, Input, Select } from '../components/ui/Field';
 import Button from '../components/ui/Button';
 import Skeleton from '../components/ui/Skeleton';
 import ConfirmSheet from '../components/ui/ConfirmSheet';
+import TablePagination, {
+  DEFAULT_PAGE_SIZE,
+  PageSizeSelect,
+} from '../components/ui/TablePagination';
 import CobroFormSheet from '../components/cobros/CobroFormSheet';
 import '../index.css';
 
 const EMPTY_FILTROS = { estado: '', id_profesional: '', fecha_desde: '', fecha_hasta: '' };
-const PAGE_SIZE = 20;
 
 function filtrosActivos(f) {
   return !!(f.estado || f.id_profesional || f.fecha_desde || f.fecha_hasta);
 }
 
-function buildCobrosParams(p, f, search = '') {
-  const params = { page: p, limit: PAGE_SIZE };
+function buildCobrosParams(p, f, search = '', limit = DEFAULT_PAGE_SIZE) {
+  const params = { page: p, limit };
   if (f.estado) params.estado = f.estado;
   if (f.id_profesional) params.id_profesional = f.id_profesional;
   if (f.fecha_desde) params.fecha_desde = f.fecha_desde;
@@ -41,6 +44,7 @@ export default function CobrosPage() {
   const [profesionales, setProfesionales] = useState([]);
   const [meta, setMeta] = useState(null);
   const [page, setPage] = useState(1);
+  const [itemsPerPage, setItemsPerPage] = useState(DEFAULT_PAGE_SIZE);
   const [filtros, setFiltros] = useState(EMPTY_FILTROS);
   const [filtro, setFiltro] = useState('');
   const [listLoading, setListLoading] = useState(true);
@@ -68,6 +72,7 @@ export default function CobrosPage() {
   const [confirmAction, setConfirmAction] = useState(null); // { type: 'anular'|'eliminar', id }
 
   const pageRef = useRef(page);
+  const itemsPerPageRef = useRef(itemsPerPage);
   const skipPageEffect = useRef(false);
   const fetchIdRef = useRef(0);
   const cobroProfReq = useRef(0);
@@ -77,16 +82,20 @@ export default function CobrosPage() {
     pageRef.current = page;
   }, [page]);
 
-  async function refresh(p = page, f = filtros, search = filtro) {
+  useEffect(() => {
+    itemsPerPageRef.current = itemsPerPage;
+  }, [itemsPerPage]);
+
+  async function refresh(p = page, f = filtros, search = filtro, limit = itemsPerPageRef.current) {
     const fetchId = ++fetchIdRef.current;
     setListLoading(true);
     setLoadError(null);
     try {
-      const res = await listCobros(buildCobrosParams(p, f, search));
+      const res = await listCobros(buildCobrosParams(p, f, search, limit));
       if (fetchId !== fetchIdRef.current) return;
       if (res?.status === 'error') throw new Error(res.message || 'Error al cargar cobros');
       setCobros(normalizeListPayload(res));
-      setMeta(normalizeMeta(res, p, PAGE_SIZE));
+      setMeta(normalizeMeta(res, p, limit));
     } catch (e) {
       if (fetchId !== fetchIdRef.current) return;
       const msg = e?.message || 'No se pudo cargar la lista (revisa la sesión o la conexión con el servidor).';
@@ -166,6 +175,16 @@ export default function CobrosPage() {
 
   function goToPage(p) {
     setPage(p);
+  }
+
+  function handlePageSizeChange(size) {
+    setItemsPerPage(size);
+    itemsPerPageRef.current = size;
+    if (pageRef.current !== 1) {
+      skipPageEffect.current = true;
+    }
+    setPage(1);
+    refresh(1, filtros, filtro, size);
   }
 
   function limpiarFiltros() {
@@ -562,6 +581,11 @@ export default function CobrosPage() {
                 Limpiar
               </Button>
             )}
+            <PageSizeSelect
+              value={itemsPerPage}
+              onChange={handlePageSizeChange}
+              disabled={listLoading || loading}
+            />
             {filtro && meta != null && (
               <span className="ui-toolbar__meta">
                 {meta.total} resultado{meta.total !== 1 ? 's' : ''}
@@ -652,23 +676,15 @@ export default function CobrosPage() {
                 </table>
               </div>
 
-              {meta && meta.pages > 1 && (
-                <div className="ui-pagination">
-                  <Button variant="ghost" size="sm" onClick={() => goToPage(page - 1)} disabled={page === 1 || loading}>
-                    Anterior
-                  </Button>
-                  <span className="ui-pagination__label">
-                    Página {meta.page} de {meta.pages} — {meta.total} registros
-                  </span>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => goToPage(page + 1)}
-                    disabled={page >= meta.pages || loading}
-                  >
-                    Siguiente
-                  </Button>
-                </div>
+              {meta && (
+                <TablePagination
+                  page={meta.page}
+                  pages={meta.pages}
+                  total={meta.total}
+                  itemsPerPage={itemsPerPage}
+                  onPageChange={goToPage}
+                  disabled={loading || listLoading}
+                />
               )}
             </>
           )}

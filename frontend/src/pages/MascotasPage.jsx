@@ -16,6 +16,10 @@ import Field, { DateInput, Input } from '../components/ui/Field';
 import Button from '../components/ui/Button';
 import Skeleton from '../components/ui/Skeleton';
 import ConfirmSheet from '../components/ui/ConfirmSheet';
+import TablePagination, {
+  DEFAULT_PAGE_SIZE,
+  PageSizeSelect,
+} from '../components/ui/TablePagination';
 import { formatFecha, hoyLocalISO, toDateOnly } from '../utils/format';
 import '../index.css';
 
@@ -26,7 +30,6 @@ const EMPTY_FORM = {
   tamano: '',
   fecha_nacimiento: '',
 };
-const PAGE_SIZE = 20;
 
 const SUGGESTED_ESPECIES = ['Perro', 'Gato'];
 
@@ -79,6 +82,7 @@ export default function MascotasPage() {
   const [mascotas, setMascotas] = useState([]);
   const [meta, setMeta] = useState(null);
   const [page, setPage] = useState(1);
+  const [itemsPerPage, setItemsPerPage] = useState(DEFAULT_PAGE_SIZE);
   const [filtro, setFiltro] = useState('');
   const { toasts, addToast, removeToast } = useToast();
   const { tryLock, unlock } = useMutationLock();
@@ -91,6 +95,7 @@ export default function MascotasPage() {
   const [formOpen, setFormOpen] = useState(true);
 
   const pageRef = useRef(page);
+  const itemsPerPageRef = useRef(itemsPerPage);
   const skipPageEffect = useRef(false);
   const fetchIdRef = useRef(0);
 
@@ -98,15 +103,19 @@ export default function MascotasPage() {
     pageRef.current = page;
   }, [page]);
 
-  async function refresh(p = page, search = filtro) {
+  useEffect(() => {
+    itemsPerPageRef.current = itemsPerPage;
+  }, [itemsPerPage]);
+
+  async function refresh(p = page, search = filtro, limit = itemsPerPageRef.current) {
     const fetchId = ++fetchIdRef.current;
     setListLoading(true);
     setLoadError(null);
     try {
-      const res = await listMascotas(p, PAGE_SIZE, search);
+      const res = await listMascotas(p, limit, search);
       if (fetchId !== fetchIdRef.current) return;
       setMascotas(normalizeListPayload(res));
-      setMeta(normalizeMeta(res, p, PAGE_SIZE));
+      setMeta(normalizeMeta(res, p, limit));
     } catch (e) {
       if (fetchId !== fetchIdRef.current) return;
       const msg =
@@ -141,6 +150,16 @@ export default function MascotasPage() {
     }
     refresh(page, filtro);
   }, [page]);
+
+  function handlePageSizeChange(size) {
+    setItemsPerPage(size);
+    itemsPerPageRef.current = size;
+    if (pageRef.current !== 1) {
+      skipPageEffect.current = true;
+    }
+    setPage(1);
+    refresh(1, filtro, size);
+  }
 
   async function onSubmit(e) {
     e.preventDefault();
@@ -396,6 +415,11 @@ export default function MascotasPage() {
                 Limpiar
               </Button>
             )}
+            <PageSizeSelect
+              value={itemsPerPage}
+              onChange={handlePageSizeChange}
+              disabled={listLoading || loading}
+            />
             {filtro && meta != null && (
               <span className="ui-toolbar__meta">
                 {meta.total} resultado{meta.total !== 1 ? 's' : ''}
@@ -550,28 +574,15 @@ export default function MascotasPage() {
                 </table>
               </div>
 
-              {meta && meta.pages > 1 && (
-                <div className="ui-pagination">
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => goToPage(page - 1)}
-                    disabled={page === 1 || loading}
-                  >
-                    Anterior
-                  </Button>
-                  <span className="ui-pagination__label">
-                    Página {meta.page} de {meta.pages} — {meta.total} registros
-                  </span>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => goToPage(page + 1)}
-                    disabled={page >= meta.pages || loading}
-                  >
-                    Siguiente
-                  </Button>
-                </div>
+              {meta && (
+                <TablePagination
+                  page={meta.page}
+                  pages={meta.pages}
+                  total={meta.total}
+                  itemsPerPage={itemsPerPage}
+                  onPageChange={goToPage}
+                  disabled={loading || listLoading}
+                />
               )}
             </>
           )}

@@ -1,10 +1,11 @@
-import { useEffect, useState, useRef } from 'react';
-import { AlertTriangle, PawPrint, User, UserX } from 'lucide-react';
+import { useEffect, useMemo, useState, useRef } from 'react';
+import { AlertTriangle, PawPrint, Search, User, UserX, X } from 'lucide-react';
 import { listCuidadores, getMascotasDeCuidador, asignarMascota, desasignarMascota } from '../api/cuidadoresApi';
 import { listMascotas } from '../api/mascotasApi';
 import { normalizeListPayload } from '../api/normalize';
 import { useToast } from '../hooks/useToast';
 import { useMutationLock } from '../hooks/useMutationLock';
+import { useClientTablePagination } from '../hooks/useClientTablePagination';
 import { Toast } from '../components/Toast';
 import { formatFecha } from '../utils/format';
 import EmptyState from '../components/EmptyState';
@@ -13,6 +14,7 @@ import Field, { Input } from '../components/ui/Field';
 import Button from '../components/ui/Button';
 import Skeleton from '../components/ui/Skeleton';
 import ConfirmSheet from '../components/ui/ConfirmSheet';
+import TablePagination, { PageSizeSelect } from '../components/ui/TablePagination';
 import '../index.css';
 
 const LIST_LIMIT = 500;
@@ -30,6 +32,7 @@ export default function AsignacionPage() {
   const [listaAbierta, setListaAbierta] = useState(false);
   const [busquedaMascota, setBusquedaMascota] = useState('');
   const [listaMascotasAbierta, setListaMascotasAbierta] = useState(false);
+  const [filtroTabla, setFiltroTabla] = useState('');
   const [desasignarModalId, setDesasignarModalId] = useState(null);
   const { toasts, addToast, removeToast } = useToast();
   const { tryLock, unlock } = useMutationLock();
@@ -126,6 +129,7 @@ export default function AsignacionPage() {
     setCuidadorSel(c);
     setBusquedaCuidador(c.nombre || '');
     setListaAbierta(false);
+    setFiltroTabla('');
     limpiarMascotaAsignar();
     try {
       const [resAsignadas] = await Promise.all([
@@ -142,6 +146,7 @@ export default function AsignacionPage() {
     setCuidadorSel(null);
     setBusquedaCuidador('');
     setMascotasSel([]);
+    setFiltroTabla('');
     limpiarMascotaAsignar();
     setListaAbierta(false);
   }
@@ -157,6 +162,39 @@ export default function AsignacionPage() {
   );
 
   const mascotasFiltradas = mascotasNoAsignadas;
+
+  const mascotasSelFiltradas = useMemo(() => {
+    const q = filtroTabla.trim().toLowerCase();
+    if (!q) return mascotasSel;
+    return mascotasSel.filter((m) => {
+      const haystack = [
+        m.id,
+        m.nombre,
+        m.especie,
+        m.raza,
+        m.tamano,
+        formatFecha(m.fecha_inicio),
+        m.activo ? 'activo' : 'inactivo',
+      ]
+        .filter(Boolean)
+        .join(' ')
+        .toLowerCase();
+      return haystack.includes(q);
+    });
+  }, [mascotasSel, filtroTabla]);
+
+  const {
+    pageRows: asignadasPageRows,
+    page: asignadasPage,
+    pages: asignadasPages,
+    total: asignadasTotal,
+    itemsPerPage: asignadasPerPage,
+    handlePageSizeChange: handleAsignadasPageSize,
+    goToPage: goToAsignadasPage,
+  } = useClientTablePagination(
+    mascotasSelFiltradas,
+    `${cuidadorSel?.id || ''}|${filtroTabla.trim()}`
+  );
 
   async function handleAsignar() {
     if (!mascotaIdAsignar) return;
@@ -445,51 +483,117 @@ export default function AsignacionPage() {
                     description="Usa el selector de arriba para asignar una mascota a este cuidador"
                   />
                 ) : (
-                  <div className="ui-table-wrap table-scroll">
-                    <table className="ui-table">
-                      <thead>
-                        <tr>
-                          {['ID', 'Nombre', 'Especie', 'Raza', 'Tamaño', 'Desde', 'Activo', ''].map((h) => (
-                            <th key={h || 'acciones'}>{h}</th>
-                          ))}
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {mascotasSel.map((m) => (
-                          <tr key={m.id}>
-                            <td className="ui-num">{m.id}</td>
-                            <td>{m.nombre}</td>
-                            <td>{m.especie || '—'}</td>
-                            <td>{m.raza}</td>
-                            <td>{m.tamano}</td>
-                            <td style={{ color: 'var(--color-purple-light)' }}>{formatFecha(m.fecha_inicio)}</td>
-                            <td>
-                              <span
-                                className="ui-badge"
-                                style={{
-                                  background: m.activo ? 'var(--color-entorno)' : 'var(--color-purple-light)',
-                                  color: 'var(--color-white)',
-                                }}
-                              >
-                                {m.activo ? 'Activo' : 'Inactivo'}
-                              </span>
-                            </td>
-                            <td>
-                              <Button
-                                size="sm"
-                                variant="ghost"
-                                onClick={() => setDesasignarModalId(m.id)}
-                                disabled={loading}
-                              >
-                                <UserX size={14} />
-                                Quitar
-                              </Button>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
+                  <>
+                    <div className="ui-toolbar">
+                      <div style={{ position: 'relative', flex: 1, minWidth: 0 }}>
+                        <Search
+                          size={16}
+                          style={{
+                            position: 'absolute',
+                            left: 14,
+                            top: '50%',
+                            transform: 'translateY(-50%)',
+                            color: 'var(--color-purple-light)',
+                            pointerEvents: 'none',
+                          }}
+                        />
+                        <Input
+                          type="text"
+                          placeholder="Buscar mascota asignada por nombre, especie, raza…"
+                          value={filtroTabla}
+                          onChange={(e) => setFiltroTabla(e.target.value)}
+                          style={{ paddingLeft: 40 }}
+                          aria-label="Buscar en mascotas asignadas"
+                        />
+                      </div>
+                      {filtroTabla && (
+                        <Button variant="ghost" size="sm" onClick={() => setFiltroTabla('')}>
+                          <X size={16} />
+                          Limpiar
+                        </Button>
+                      )}
+                      <PageSizeSelect
+                        value={asignadasPerPage}
+                        onChange={handleAsignadasPageSize}
+                        disabled={loading}
+                      />
+                      {filtroTabla.trim() && (
+                        <span className="ui-toolbar__meta">
+                          {asignadasTotal} resultado{asignadasTotal !== 1 ? 's' : ''}
+                        </span>
+                      )}
+                    </div>
+
+                    {asignadasTotal === 0 ? (
+                      <EmptyState
+                        icon={<PawPrint size={24} />}
+                        title={`Sin resultados para "${filtroTabla.trim()}"`}
+                        description="La búsqueda aplica a todas las mascotas asignadas a este cuidador"
+                      />
+                    ) : (
+                      <>
+                        <div className="ui-table-wrap table-scroll">
+                          <table className="ui-table">
+                            <thead>
+                              <tr>
+                                {['ID', 'Nombre', 'Especie', 'Raza', 'Tamaño', 'Desde', 'Activo', ''].map(
+                                  (h) => (
+                                    <th key={h || 'acciones'}>{h}</th>
+                                  )
+                                )}
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {asignadasPageRows.map((m) => (
+                                <tr key={m.id}>
+                                  <td className="ui-num">{m.id}</td>
+                                  <td>{m.nombre}</td>
+                                  <td>{m.especie || '—'}</td>
+                                  <td>{m.raza}</td>
+                                  <td>{m.tamano}</td>
+                                  <td style={{ color: 'var(--color-purple-light)' }}>
+                                    {formatFecha(m.fecha_inicio)}
+                                  </td>
+                                  <td>
+                                    <span
+                                      className="ui-badge"
+                                      style={{
+                                        background: m.activo
+                                          ? 'var(--color-entorno)'
+                                          : 'var(--color-purple-light)',
+                                        color: 'var(--color-white)',
+                                      }}
+                                    >
+                                      {m.activo ? 'Activo' : 'Inactivo'}
+                                    </span>
+                                  </td>
+                                  <td>
+                                    <Button
+                                      size="sm"
+                                      variant="ghost"
+                                      onClick={() => setDesasignarModalId(m.id)}
+                                      disabled={loading}
+                                    >
+                                      <UserX size={14} />
+                                      Quitar
+                                    </Button>
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                        <TablePagination
+                          page={asignadasPage}
+                          pages={asignadasPages}
+                          total={asignadasTotal}
+                          itemsPerPage={asignadasPerPage}
+                          onPageChange={goToAsignadasPage}
+                          disabled={loading}
+                        />
+                      </>
+                    )}
+                  </>
                 )}
               </>
             )}

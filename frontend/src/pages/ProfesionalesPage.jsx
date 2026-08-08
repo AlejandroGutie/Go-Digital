@@ -28,17 +28,21 @@ import Button from '../components/ui/Button';
 import Skeleton from '../components/ui/Skeleton';
 import ConfirmSheet from '../components/ui/ConfirmSheet';
 import Sheet from '../components/ui/Sheet';
+import TablePagination, {
+  DEFAULT_PAGE_SIZE,
+  PageSizeSelect,
+} from '../components/ui/TablePagination';
 import { formatFecha, formatHora, formatMoneda } from '../utils/format';
 import '../index.css';
 
 const EMPTY_FORM = { nombre: '', telefono: '' };
-const PAGE_SIZE = 20;
 
 export default function ProfesionalesPage() {
   const [form, setForm] = useState(EMPTY_FORM);
   const [profesionales, setProfesionales] = useState([]);
   const [meta, setMeta] = useState(null);
   const [page, setPage] = useState(1);
+  const [itemsPerPage, setItemsPerPage] = useState(DEFAULT_PAGE_SIZE);
   const [filtro, setFiltro] = useState('');
   const [listLoading, setListLoading] = useState(true);
   const [loadError, setLoadError] = useState(null);
@@ -57,6 +61,7 @@ export default function ProfesionalesPage() {
   const [formOpen, setFormOpen] = useState(true);
 
   const pageRef = useRef(page);
+  const itemsPerPageRef = useRef(itemsPerPage);
   const skipPageEffect = useRef(false);
   const fetchIdRef = useRef(0);
 
@@ -64,15 +69,19 @@ export default function ProfesionalesPage() {
     pageRef.current = page;
   }, [page]);
 
-  async function refresh(p = page, search = filtro) {
+  useEffect(() => {
+    itemsPerPageRef.current = itemsPerPage;
+  }, [itemsPerPage]);
+
+  async function refresh(p = page, search = filtro, limit = itemsPerPageRef.current) {
     const fetchId = ++fetchIdRef.current;
     setListLoading(true);
     setLoadError(null);
     try {
-      const res = await listProfesionales(p, PAGE_SIZE, search);
+      const res = await listProfesionales(p, limit, search);
       if (fetchId !== fetchIdRef.current) return;
       setProfesionales(normalizeListPayload(res));
-      setMeta(normalizeMeta(res, p, PAGE_SIZE));
+      setMeta(normalizeMeta(res, p, limit));
     } catch (e) {
       if (fetchId !== fetchIdRef.current) return;
       const msg = e?.message || 'No se pudo cargar la lista (revisa la sesión o la conexión con el servidor).';
@@ -107,6 +116,16 @@ export default function ProfesionalesPage() {
     }
     refresh(page, filtro);
   }, [page]);
+
+  function handlePageSizeChange(size) {
+    setItemsPerPage(size);
+    itemsPerPageRef.current = size;
+    if (pageRef.current !== 1) {
+      skipPageEffect.current = true;
+    }
+    setPage(1);
+    refresh(1, filtro, size);
+  }
 
   // --- Lógica de Tarifas (NUEVO) ---
   async function abrirTarifas(p) {
@@ -403,6 +422,11 @@ export default function ProfesionalesPage() {
                 Limpiar
               </Button>
             )}
+            <PageSizeSelect
+              value={itemsPerPage}
+              onChange={handlePageSizeChange}
+              disabled={listLoading || loading}
+            />
             {filtro && meta != null && (
               <span className="ui-toolbar__meta">
                 {meta.total} resultado{meta.total !== 1 ? 's' : ''}
@@ -535,28 +559,15 @@ export default function ProfesionalesPage() {
                 </table>
               </div>
 
-              {meta && meta.pages > 1 && (
-                <div className="ui-pagination">
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => goToPage(page - 1)}
-                    disabled={page === 1 || loading}
-                  >
-                    Anterior
-                  </Button>
-                  <span className="ui-pagination__label">
-                    Página {meta.page} de {meta.pages} — {meta.total} registros
-                  </span>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => goToPage(page + 1)}
-                    disabled={page >= meta.pages || loading}
-                  >
-                    Siguiente
-                  </Button>
-                </div>
+              {meta && (
+                <TablePagination
+                  page={meta.page}
+                  pages={meta.pages}
+                  total={meta.total}
+                  itemsPerPage={itemsPerPage}
+                  onPageChange={goToPage}
+                  disabled={loading || listLoading}
+                />
               )}
             </>
           )}
