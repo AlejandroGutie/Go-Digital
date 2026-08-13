@@ -7,7 +7,7 @@ ALTER TABLE public.agenda
   ADD COLUMN IF NOT EXISTS cobrada boolean NOT NULL DEFAULT false;
 
 COMMENT ON COLUMN public.agenda.cobrada IS
-  'true cuando ya se registró un cobro vigente; se oculta del listado activo sin borrar la fila';
+  'true cuando hay cobro vigente; la cita sigue en la agenda activa hasta atendida';
 
 CREATE INDEX IF NOT EXISTS idx_agenda_cobrada ON public.agenda (cobrada);
 CREATE INDEX IF NOT EXISTS idx_agenda_profesional_fecha_cobrada

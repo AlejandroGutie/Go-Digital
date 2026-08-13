@@ -1,5 +1,15 @@
 import { useEffect, useState, useRef } from 'react';
-import { Users, Pencil, Trash2, PawPrint, Search, X, Plus } from 'lucide-react';
+import {
+  Users,
+  Pencil,
+  Trash2,
+  PawPrint,
+  Search,
+  X,
+  Plus,
+  CalendarDays,
+  Banknote,
+} from 'lucide-react';
 import {
   listCuidadores,
   createCuidador,
@@ -9,6 +19,7 @@ import {
   asignarMascota,
 } from '../api/cuidadoresApi';
 import { createMascota, listMascotasConCuidadores } from '../api/mascotasApi';
+import { getIdsMascotasConCitaActiva } from '../api/agendasApi';
 import { normalizeListPayload, normalizeMeta } from '../api/normalize';
 import { useToast } from '../hooks/useToast';
 import { useMutationLock } from '../hooks/useMutationLock';
@@ -24,6 +35,8 @@ import TablePagination, {
   DEFAULT_PAGE_SIZE,
   PageSizeSelect,
 } from '../components/ui/TablePagination';
+import AgendarMascotaSheet from '../components/agendas/AgendarMascotaSheet';
+import CitasMascotaAccionesSheet from '../components/agendas/CitasMascotaAccionesSheet';
 import { formatFecha, hoyLocalISO, toDateOnly } from '../utils/format';
 import '../index.css';
 
@@ -70,6 +83,9 @@ export default function CuidadoresPage() {
   const [listaMascotasAbierta, setListaMascotasAbierta] = useState(false);
   const [mascotaIdAsignar, setMascotaIdAsignar] = useState('');
   const [buscandoMascotas, setBuscandoMascotas] = useState(false);
+  const [agendarMascota, setAgendarMascota] = useState(null);
+  const [citasMascota, setCitasMascota] = useState(null);
+  const [idsConCitaActiva, setIdsConCitaActiva] = useState(() => new Set());
   const buscadorMascotaRef = useRef(null);
   const mascotaSearchReq = useRef(0);
 
@@ -158,13 +174,24 @@ export default function CuidadoresPage() {
     }
   }
 
+  async function cargarFlagsCitasActivas(mascotas) {
+    try {
+      const res = await getIdsMascotasConCitaActiva((mascotas || []).map((m) => m.id));
+      setIdsConCitaActiva(new Set((res?.data || []).map(Number)));
+    } catch {
+      setIdsConCitaActiva(new Set());
+    }
+  }
+
   async function refreshModalMascotas(cuidadorId) {
     setModalLoading(true);
     try {
       const res = await getMascotasDeCuidador(cuidadorId);
+      const mascotas = normalizeListPayload(res);
       setMascotasModal((prev) =>
-        prev ? { ...prev, mascotas: normalizeListPayload(res) } : null
+        prev ? { ...prev, mascotas } : null
       );
+      await cargarFlagsCitasActivas(mascotas);
     } catch (e) {
       addToast('No se pudo actualizar la lista de mascotas del cuidador', 'error');
     } finally {
@@ -181,7 +208,11 @@ export default function CuidadoresPage() {
     setMascotaForm(EMPTY_MASCOTA_FORM);
   }
 
-  function cerrarMascotasModal() {
+  function cerrarMascotasModal({ force = false } = {}) {
+    if (!force && (agendarMascota || citasMascota)) return;
+    setAgendarMascota(null);
+    setCitasMascota(null);
+    setIdsConCitaActiva(new Set());
     setMascotasModal(null);
     resetAsignacionModal();
   }
@@ -363,11 +394,13 @@ export default function CuidadoresPage() {
         getMascotasDeCuidador(c.id),
         cargarMascotasDisponibles(''),
       ]);
+      const mascotas = normalizeListPayload(resAsignadas);
       setMascotasModal({
         id: c.id,
         nombre: c.nombre,
-        mascotas: normalizeListPayload(resAsignadas),
+        mascotas,
       });
+      await cargarFlagsCitasActivas(mascotas);
     } catch (e) {
       addToast(e?.message || 'Error al cargar mascotas', 'error');
     }
@@ -773,8 +806,13 @@ export default function CuidadoresPage() {
         onClose={cerrarMascotasModal}
         title={mascotasModal ? `Mascotas de ${mascotasModal.nombre}` : ''}
         size="lg"
+        dismissible={!agendarMascota && !citasMascota}
         footer={
-          <Button variant="ghost" onClick={cerrarMascotasModal}>
+          <Button
+            variant="ghost"
+            onClick={() => cerrarMascotasModal({ force: true })}
+            disabled={!!agendarMascota || !!citasMascota}
+          >
             Cerrar
           </Button>
         }
@@ -792,9 +830,9 @@ export default function CuidadoresPage() {
             <table className="ui-table">
               <thead>
                 <tr>
-                  {['ID', 'Nombre', 'Especie', 'Raza', 'Tamaño', 'Fecha de Nacimiento'].map(
+                  {['ID', 'Nombre', 'Especie', 'Raza', 'Tamaño', 'Fecha de Nacimiento', ''].map(
                     (th) => (
-                      <th key={th}>{th}</th>
+                      <th key={th || 'acciones'}>{th}</th>
                     )
                   )}
                 </tr>
@@ -808,6 +846,35 @@ export default function CuidadoresPage() {
                     <td>{m.raza}</td>
                     <td>{m.tamano}</td>
                     <td>{formatFecha(m.fecha_nacimiento)}</td>
+                    <td>
+                      <div className="ui-table__actions">
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => setAgendarMascota(m)}
+                          disabled={modalLoading}
+                          aria-label={`Agendar ${m.nombre}`}
+                        >
+                          <CalendarDays size={14} />
+                          Agendar
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => setCitasMascota(m)}
+                          disabled={modalLoading || !idsConCitaActiva.has(Number(m.id))}
+                          title={
+                            idsConCitaActiva.has(Number(m.id))
+                              ? 'Gestionar citas activas (confirmar, cobrar, mascota lista)'
+                              : 'Sin citas activas para esta mascota'
+                          }
+                          aria-label={`Gestionar citas de ${m.nombre}`}
+                        >
+                          <Banknote size={14} />
+                          Gestionar citas
+                        </Button>
+                      </div>
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -1047,6 +1114,40 @@ export default function CuidadoresPage() {
           <option key={opcion} value={opcion} />
         ))}
       </datalist>
+
+      <AgendarMascotaSheet
+        open={!!agendarMascota}
+        mascota={agendarMascota}
+        onClose={() => {
+          setAgendarMascota(null);
+          if (mascotasModal?.mascotas) {
+            void cargarFlagsCitasActivas(mascotasModal.mascotas);
+          }
+        }}
+        onAgendado={() => {
+          if (mascotasModal?.mascotas) {
+            void cargarFlagsCitasActivas(mascotasModal.mascotas);
+          }
+        }}
+        addToast={addToast}
+      />
+
+      <CitasMascotaAccionesSheet
+        open={!!citasMascota}
+        mascota={citasMascota}
+        onClose={() => {
+          setCitasMascota(null);
+          if (mascotasModal?.mascotas) {
+            void cargarFlagsCitasActivas(mascotasModal.mascotas);
+          }
+        }}
+        onCitasChanged={() => {
+          if (mascotasModal?.mascotas) {
+            void cargarFlagsCitasActivas(mascotasModal.mascotas);
+          }
+        }}
+        addToast={addToast}
+      />
 
       <Toast toasts={toasts} removeToast={removeToast} />
     </div>

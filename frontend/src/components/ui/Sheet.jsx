@@ -2,6 +2,36 @@ import { useEffect } from 'react';
 import { X } from 'lucide-react';
 import Button from './Button';
 
+let sheetScrollLocks = 0;
+let prevHtmlOverflow = '';
+let prevBodyOverflow = '';
+let prevBodyOverscroll = '';
+
+function lockPageScroll() {
+  if (sheetScrollLocks === 0) {
+    prevHtmlOverflow = document.documentElement.style.overflow;
+    prevBodyOverflow = document.body.style.overflow;
+    prevBodyOverscroll = document.body.style.overscrollBehavior;
+    document.documentElement.style.overflow = 'hidden';
+    document.body.style.overflow = 'hidden';
+    document.body.style.overscrollBehavior = 'none';
+  }
+  sheetScrollLocks += 1;
+}
+
+function unlockPageScroll() {
+  sheetScrollLocks = Math.max(0, sheetScrollLocks - 1);
+  if (sheetScrollLocks === 0) {
+    document.documentElement.style.overflow = prevHtmlOverflow;
+    document.body.style.overflow = prevBodyOverflow;
+    document.body.style.overscrollBehavior = prevBodyOverscroll;
+  }
+}
+
+function isInsideSheetScroll(target) {
+  return !!target?.closest?.('.ui-sheet-body, .ui-combo__list, .table-scroll');
+}
+
 /**
  * Bottom sheet on mobile, centered dialog on desktop.
  * Preserves children content; only presentation layer.
@@ -15,25 +45,44 @@ export default function Sheet({
   footer,
   size = 'md',
   dismissible = true,
+  stackLevel = 0,
 }) {
   useEffect(() => {
     if (!open) return undefined;
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
+    lockPageScroll();
+
     const onKey = (e) => {
       if (e.key === 'Escape' && dismissible) onClose?.();
     };
+
+    const onWheel = (e) => {
+      if (!isInsideSheetScroll(e.target)) e.preventDefault();
+    };
+
+    const onTouchMove = (e) => {
+      if (!isInsideSheetScroll(e.target)) e.preventDefault();
+    };
+
     window.addEventListener('keydown', onKey);
+    window.addEventListener('wheel', onWheel, { passive: false });
+    window.addEventListener('touchmove', onTouchMove, { passive: false });
     return () => {
-      document.body.style.overflow = prev;
+      unlockPageScroll();
       window.removeEventListener('keydown', onKey);
+      window.removeEventListener('wheel', onWheel);
+      window.removeEventListener('touchmove', onTouchMove);
     };
   }, [open, dismissible, onClose]);
 
   if (!open) return null;
 
   return (
-    <div className="ui-sheet-root" role="dialog" aria-modal="true" aria-label={title}>
+    <div
+      className={`ui-sheet-root${stackLevel > 0 ? ` ui-sheet-root--stack-${stackLevel}` : ''}`}
+      role="dialog"
+      aria-modal="true"
+      aria-label={title}
+    >
       <div
         className="ui-sheet-backdrop"
         onClick={() => dismissible && onClose?.()}

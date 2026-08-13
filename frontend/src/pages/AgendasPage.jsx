@@ -15,8 +15,10 @@ import { listProfesionales } from '../api/profesionalesApi';
 import {
   getAgendaDeProfesional,
   crearCitaAgenda,
+  crearCitaYCobrar,
   actualizarCitaAgenda,
   eliminarCitaAgenda,
+  marcarAgendaAtendida,
 } from '../api/agendasApi';
 import { getCuidadoresDeMascota, getMascotaById, listMascotas } from '../api/mascotasApi';
 import { listTarifas } from '../api/tarifasApi';
@@ -34,7 +36,7 @@ import {
 } from '../utils/whatsapp';
 import EmptyState from '../components/EmptyState';
 import PageHeader from '../components/ui/PageHeader';
-import Field, { DateInput, Input, Select } from '../components/ui/Field';
+import Field, { DateInput, Input, Select, Textarea } from '../components/ui/Field';
 import Button from '../components/ui/Button';
 import Skeleton from '../components/ui/Skeleton';
 import Sheet from '../components/ui/Sheet';
@@ -123,6 +125,8 @@ export default function AgendasPage() {
   const [horaInicio, setHoraInicio] = useState('');
   const [horaFin, setHoraFin] = useState('');
   const [idTarifa, setIdTarifa] = useState('');
+  const [cobroMetodoPago, setCobroMetodoPago] = useState('');
+  const [cobroObservacion, setCobroObservacion] = useState('');
   const [tarifas, setTarifas] = useState([]);
   const [loading, setLoading] = useState(false);
   const [whatsappBusy, setWhatsappBusy] = useState(null); // { id, kind: 'confirm'|'lista' }
@@ -201,6 +205,33 @@ export default function AgendasPage() {
       whatsappCancelRef.current?.cancel?.();
     };
   }, []);
+
+  // Refresco al volver a la pestaña (sin Realtime): evita UI desfasada vs Cobros/Cuidadores
+  useEffect(() => {
+    if (!profSel?.id) return undefined;
+
+    async function refrescarSiVisible() {
+      if (document.visibilityState !== 'visible') return;
+      const reqId = ++profesionalAgendaReq.current;
+      try {
+        const [resAgenda, resTarifas] = await Promise.all([
+          getAgendaDeProfesional(profSel.id),
+          listTarifas(profSel.id),
+        ]);
+        if (reqId !== profesionalAgendaReq.current) return;
+        setCitas(normalizeListPayload(resAgenda));
+        setTarifas(normalizeListPayload(resTarifas));
+      } catch {
+        /* silencioso: el usuario puede forzar con re-selección */
+      }
+    }
+
+    function onVisibility() {
+      void refrescarSiVisible();
+    }
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => document.removeEventListener('visibilitychange', onVisibility);
+  }, [profSel?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Actualiza profesionales al buscar (incluye recién creados)
   useEffect(() => {
@@ -289,6 +320,13 @@ export default function AgendasPage() {
   }
 
   async function abrirReprogramar(c) {
+    if (c?.cobrada === true) {
+      addToast(
+        'No se puede reprogramar una cita cobrada. Anula el cobro en Cobros si necesitas corregirla.',
+        'error'
+      );
+      return;
+    }
     setEditCita(c);
     setEditForm({
       id_mascota: String(c.id_mascota || ''),
@@ -350,6 +388,8 @@ export default function AgendasPage() {
     setHoraInicio('');
     setHoraFin('');
     setIdTarifa('');
+    setCobroMetodoPago('');
+    setCobroObservacion('');
     cerrarReprogramar();
     setLoading(true);
     try {
@@ -381,8 +421,20 @@ export default function AgendasPage() {
     setHoraInicio('');
     setHoraFin('');
     setIdTarifa('');
+    setCobroMetodoPago('');
+    setCobroObservacion('');
     setListaAbierta(false);
     cerrarReprogramar();
+  }
+
+  function limpiarFormularioAgenda() {
+    limpiarMascotaSeleccion();
+    setFecha('');
+    setHoraInicio('');
+    setHoraFin('');
+    setIdTarifa('');
+    setCobroMetodoPago('');
+    setCobroObservacion('');
   }
 
   async function handleAgendar() {
@@ -415,11 +467,7 @@ export default function AgendasPage() {
         hora_fin: horaFin,
       });
       addToast('Cita agendada correctamente', 'success');
-      limpiarMascotaSeleccion();
-      setFecha('');
-      setHoraInicio('');
-      setHoraFin('');
-      setIdTarifa('');
+      limpiarFormularioAgenda();
       const res = await getAgendaDeProfesional(profSel.id);
       setCitas(normalizeListPayload(res));
     } catch (e) {
@@ -430,8 +478,75 @@ export default function AgendasPage() {
     }
   }
 
+  async function handleAgendarYCobrar() {
+    if (!mascotaId || !fecha || !horaInicio || !horaFin || !idTarifa || !profSel?.id) return;
+    const fechaGuardar = toDateOnly(fecha);
+    if (!fechaGuardar) {
+      addToast('Fecha inválida', 'error');
+      return;
+    }
+    if (horaAMinutos(horaFin) <= horaAMinutos(horaInicio)) {
+      addToast('La hora final debe ser posterior a la hora de inicio', 'error');
+      return;
+    }
+    const conflicto = encontrarCitaConflicto(citas, fechaGuardar, horaInicio, horaFin);
+    if (conflicto) {
+      addToast(
+        `Cita ocupada: ${formatFecha(conflicto.fecha)} · ${formatHora(conflicto.hora_inicio)} – ${formatHora(conflicto.hora_fin)} (${conflicto.mascota_nombre || 'otra mascota'})`,
+        'error'
+      );
+      return;
+    }
+    const tarifa = tarifas.find((t) => String(t.id) === String(idTarifa));
+    const valor = tarifa?.valor;
+    if (valor == null || valor === '' || Number.isNaN(parseFloat(valor))) {
+      addToast('La tarifa seleccionada no tiene un valor válido', 'error');
+      return;
+    }
+    if (!cobroMetodoPago?.trim()) {
+      addToast('Selecciona un método de pago', 'error');
+      return;
+    }
+    if (!tryLock()) return;
+    setLoading(true);
+    try {
+      await crearCitaYCobrar(
+        Number(profSel.id),
+        {
+          id_mascota: Number(mascotaId),
+          id_tarifa: Number(idTarifa),
+          fecha: fechaGuardar,
+          hora_inicio: horaInicio,
+          hora_fin: horaFin,
+        },
+        {
+          valor,
+          metodo_pago: cobroMetodoPago,
+          observacion: cobroObservacion,
+          fecha_cobro: fechaGuardar,
+        }
+      );
+      addToast('Cita agendada y cobrada correctamente', 'success');
+      limpiarFormularioAgenda();
+      const res = await getAgendaDeProfesional(profSel.id);
+      setCitas(normalizeListPayload(res));
+    } catch (e) {
+      addToast(e?.message || 'Error al agendar y cobrar', 'error');
+    } finally {
+      setLoading(false);
+      unlock();
+    }
+  }
+
   async function handleReprogramar() {
     if (!editCita || !profSel) return;
+    if (editCita.cobrada === true) {
+      addToast(
+        'No se puede reprogramar una cita cobrada. Anula el cobro en Cobros si necesitas corregirla.',
+        'error'
+      );
+      return;
+    }
     const { id_mascota, id_tarifa, fecha: fechaEdit, hora_inicio, hora_fin } = editForm;
     if (!id_mascota || !id_tarifa || !fechaEdit || !hora_inicio || !hora_fin) {
       addToast('Mascota, tarifa, fecha, hora de inicio y hora final son requeridas', 'error');
@@ -590,27 +705,47 @@ export default function AgendasPage() {
   }
 
   async function handleMascotaListaWhatsApp(cita) {
+    if (cita?.cobrada !== true) {
+      addToast('Registra el cobro antes de marcar Mascota lista.', 'error');
+      return;
+    }
     if (!tryLock()) return;
     setWhatsappBusy({ id: cita.id, kind: 'lista' });
     try {
       whatsappCancelRef.current?.cancel?.();
-      const { cuidador, phone, mascotaData } = await resolverCuidadorParaWhatsApp(cita);
-      const mascotaNombre = mascotaData?.nombre || cita.mascota_nombre || '';
-      const { tarifaDescripcion } = resolverTarifaCita(cita);
 
-      const message = buildWhatsAppMascotaListaMessage({
-        cuidadorNombre: cuidador.nombre,
-        mascotaNombre,
-        profesionalNombre: profSel?.nombre || '',
-        fechaLabel: formatFecha(cita.fecha),
-        horaFinLabel: formatHora(cita.hora_fin),
-        tarifaDescripcion,
-      });
+      // Archivar siempre (no depende de cuidador/WhatsApp)
+      await marcarAgendaAtendida(cita.id, profSel?.id ?? null);
+      setCitas((prev) => prev.filter((c) => String(c.id) !== String(cita.id)));
+      if (editCita != null && String(editCita.id) === String(cita.id)) cerrarReprogramar();
 
-      whatsappCancelRef.current = openWhatsAppChat(phone, message);
-      addToast('Se abrió WhatsApp con el aviso de mascota lista.', 'success');
+      let whatsappOk = false;
+      try {
+        const { cuidador, phone, mascotaData } = await resolverCuidadorParaWhatsApp(cita);
+        const mascotaNombre = mascotaData?.nombre || cita.mascota_nombre || '';
+        const { tarifaDescripcion } = resolverTarifaCita(cita);
+        const message = buildWhatsAppMascotaListaMessage({
+          cuidadorNombre: cuidador.nombre,
+          mascotaNombre,
+          profesionalNombre: profSel?.nombre || '',
+          fechaLabel: formatFecha(cita.fecha),
+          horaFinLabel: formatHora(cita.hora_fin),
+          tarifaDescripcion,
+        });
+        whatsappCancelRef.current = openWhatsAppChat(phone, message);
+        whatsappOk = true;
+      } catch (waErr) {
+        addToast(
+          `Cita marcada como atendida. No se abrió WhatsApp: ${waErr?.message || 'sin cuidador/teléfono válido'}`,
+          'success'
+        );
+      }
+
+      if (whatsappOk) {
+        addToast('Cita marcada como atendida y WhatsApp abierto.', 'success');
+      }
     } catch (e) {
-      addToast(e?.message || 'No se pudo notificar por WhatsApp', 'error');
+      addToast(e?.message || 'No se pudo marcar la mascota como lista', 'error');
     } finally {
       setWhatsappBusy(null);
       unlock();
@@ -694,6 +829,10 @@ export default function AgendasPage() {
       addToast('Selecciona una tarifa', 'error');
       return;
     }
+    if (!cobroForm.metodo_pago?.trim()) {
+      addToast('Selecciona un método de pago', 'error');
+      return;
+    }
     const valorNum = parseFloat(cobroForm.valor);
     if (Number.isNaN(valorNum) || valorNum < 0) {
       addToast('Ingresa un valor válido (0 o mayor)', 'error');
@@ -708,10 +847,10 @@ export default function AgendasPage() {
     setLoading(true);
     try {
       const res = await createCobro({
-        id_profesional: cobroForm.id_profesional,
-        id_agenda: cobroForm.id_agenda,
-        id_mascota: cobroForm.id_mascota,
-        id_tarifa: cobroForm.id_tarifa,
+        id_profesional: Number(cobroForm.id_profesional),
+        id_agenda: Number(cobroForm.id_agenda),
+        id_mascota: Number(cobroForm.id_mascota),
+        id_tarifa: Number(cobroForm.id_tarifa),
         valor: cobroForm.valor,
         metodo_pago: cobroForm.metodo_pago,
         observacion: cobroForm.observacion,
@@ -719,9 +858,12 @@ export default function AgendasPage() {
       });
       if (res?.status === 'ok') {
         const agendaId = String(cobroForm.id_agenda);
-        addToast('Cobro registrado. La agenda quedó marcada como cobrada.', 'success');
-        setCitas((prev) => prev.filter((c) => String(c.id) !== agendaId));
-        if (editCita != null && String(editCita.id) === agendaId) cerrarReprogramar();
+        addToast('Cobro registrado. La cita sigue visible hasta Mascota lista.', 'success');
+        setCitas((prev) =>
+          prev.map((c) =>
+            String(c.id) === agendaId ? { ...c, cobrada: true } : c
+          )
+        );
         cerrarCobroModal({ force: true });
       } else {
         addToast(res?.message || 'Error al crear cobro', 'error');
@@ -789,6 +931,7 @@ export default function AgendasPage() {
         formatHora(c.hora_inicio),
         formatHora(c.hora_fin),
         formatTarifaLabel(c),
+        c.cobrada ? 'cobrada pagada' : 'pendiente cobro',
       ]
         .filter(Boolean)
         .join(' ')
@@ -1123,7 +1266,7 @@ export default function AgendasPage() {
                             style={franjaOcupada || horaFinInvalida ? inputErrorStyle : undefined}
                           />
                         </Field>
-                        <div className="agenda-form__action">
+                        <div className="agenda-form__action agenda-form__action--stack">
                           <Button
                             variant="primary"
                             onClick={handleAgendar}
@@ -1131,7 +1274,40 @@ export default function AgendasPage() {
                           >
                             {loading ? '…' : franjaOcupada ? 'Cita ocupada' : 'Agendar'}
                           </Button>
+                          <Button
+                            variant="ghost"
+                            onClick={handleAgendarYCobrar}
+                            disabled={loading || !puedeAgendar || !cobroMetodoPago.trim()}
+                            title="Crea la cita y registra el cobro en un solo paso"
+                          >
+                            <Banknote size={14} />
+                            Agendar y Cobrar
+                          </Button>
                         </div>
+                      </div>
+                      <div className="agenda-form__row">
+                        <Field label="Método de pago" required>
+                          <Select
+                            value={cobroMetodoPago}
+                            onChange={(e) => setCobroMetodoPago(e.target.value)}
+                            disabled={loading}
+                            required
+                          >
+                            <option value="">Seleccionar método de pago</option>
+                            <option value="Efectivo">Efectivo</option>
+                            <option value="Transferencia">Transferencia</option>
+                            <option value="Tarjeta">Tarjeta</option>
+                          </Select>
+                        </Field>
+                        <Field label="Observación del cobro">
+                          <Textarea
+                            value={cobroObservacion}
+                            onChange={(e) => setCobroObservacion(e.target.value)}
+                            placeholder="Solo se usa en Agendar y Cobrar"
+                            disabled={loading}
+                            rows={2}
+                          />
+                        </Field>
                       </div>
                     </div>
 
@@ -1244,6 +1420,7 @@ export default function AgendasPage() {
                                   'Inicio',
                                   'Fin',
                                   'Tarifa',
+                                  'Estado',
                                   '',
                                 ].map((h) => (
                                   <th key={h || 'acciones'}>{h}</th>
@@ -1264,6 +1441,33 @@ export default function AgendasPage() {
                                   <td>{formatHora(c.hora_fin)}</td>
                                   <td>{formatTarifaLabel(c)}</td>
                                   <td>
+                                    {c.cobrada ? (
+                                      <span
+                                        className="ui-badge"
+                                        title="Cobro registrado; pendiente de Mascota lista"
+                                        style={{
+                                          background: 'color-mix(in srgb, #0d9488 18%, var(--color-white))',
+                                          color: '#0f766e',
+                                          border: '1px solid color-mix(in srgb, #0d9488 35%, transparent)',
+                                          fontWeight: 600,
+                                        }}
+                                      >
+                                        Cobrada
+                                      </span>
+                                    ) : (
+                                      <span
+                                        className="ui-badge"
+                                        style={{
+                                          background: 'var(--bg-selected)',
+                                          color: 'var(--color-entorno)',
+                                          fontWeight: 600,
+                                        }}
+                                      >
+                                        Pendiente cobro
+                                      </span>
+                                    )}
+                                  </td>
+                                  <td>
                                     <div className="ui-table__actions">
                                       <Button
                                         size="sm"
@@ -1282,21 +1486,40 @@ export default function AgendasPage() {
                                         size="sm"
                                         variant="ghost"
                                         onClick={() => handleMascotaListaWhatsApp(c)}
-                                        disabled={loading || whatsappBusy != null}
-                                        aria-label="Notificar mascota lista por WhatsApp"
+                                        disabled={
+                                          loading ||
+                                          whatsappBusy != null ||
+                                          c.cobrada !== true
+                                        }
+                                        aria-label="Marcar mascota lista y notificar"
+                                        title={
+                                          c.cobrada !== true
+                                            ? 'Registra el cobro antes de marcar Mascota lista'
+                                            : 'Marcar atención completada y notificar'
+                                        }
                                         style={{ color: '#128C7E' }}
                                       >
                                         <PawPrint size={14} />
                                         {whatsappBusy?.id === c.id && whatsappBusy?.kind === 'lista'
-                                          ? 'Abriendo…'
+                                          ? 'Procesando…'
                                           : 'Mascota lista'}
                                       </Button>
                                       <Button
                                         size="sm"
                                         variant="ghost"
                                         onClick={() => abrirCobrar(c)}
-                                        disabled={loading || whatsappBusy != null || cobroModalOpen}
+                                        disabled={
+                                          loading ||
+                                          whatsappBusy != null ||
+                                          cobroModalOpen ||
+                                          c.cobrada === true
+                                        }
                                         aria-label="Registrar cobro"
+                                        title={
+                                          c.cobrada
+                                            ? 'Esta cita ya está cobrada'
+                                            : 'Registrar cobro'
+                                        }
                                       >
                                         <Banknote size={14} />
                                         Cobrar
@@ -1305,8 +1528,17 @@ export default function AgendasPage() {
                                         size="sm"
                                         variant="ghost"
                                         onClick={() => abrirReprogramar(c)}
-                                        disabled={loading || whatsappBusy != null}
+                                        disabled={
+                                          loading ||
+                                          whatsappBusy != null ||
+                                          c.cobrada === true
+                                        }
                                         aria-label="Reprogramar"
+                                        title={
+                                          c.cobrada
+                                            ? 'No se puede reprogramar una cita cobrada. Anula el cobro en Cobros si necesitas corregirla.'
+                                            : 'Reprogramar cita'
+                                        }
                                       >
                                         <CalendarClock size={14} />
                                         Reprogramar
@@ -1315,8 +1547,17 @@ export default function AgendasPage() {
                                         size="sm"
                                         variant="ghost"
                                         onClick={() => setDeleteModalId(c.id)}
-                                        disabled={loading || whatsappBusy != null}
+                                        disabled={
+                                          loading ||
+                                          whatsappBusy != null ||
+                                          c.cobrada === true
+                                        }
                                         aria-label="Quitar"
+                                        title={
+                                          c.cobrada
+                                            ? 'No se puede quitar una cita cobrada. Anula el cobro en Cobros primero.'
+                                            : 'Quitar cita'
+                                        }
                                       >
                                         <Trash2 size={14} />
                                         Quitar
@@ -1567,7 +1808,7 @@ export default function AgendasPage() {
         loading={loading}
         danger
       >
-        ¿Quitar la cita <b>#{deleteModalId}</b> de la agenda? Esta acción no se puede deshacer.
+        ¿Quitar la cita <b>#{deleteModalId}</b> de la agenda? Solo aplica a citas sin cobro. Esta acción no se puede deshacer.
       </ConfirmSheet>
 
       <Toast toasts={toasts} removeToast={removeToast} />

@@ -11,6 +11,13 @@ import { hoyLocalISO, toDateOnly } from '../utils/format';
 
 export const ESTADOS_COBRO = ['pendiente', 'pagado', 'anulado'];
 
+/** Transiciones permitidas (máquina de estados). */
+const TRANSICIONES_COBRO = {
+  pendiente: new Set(['pagado', 'anulado']),
+  pagado: new Set(['anulado']),
+  anulado: new Set(),
+};
+
 function flattenCobroRow(row) {
   return {
     ...row,
@@ -25,6 +32,30 @@ function assertEstadoCobro(estado) {
   if (!ESTADOS_COBRO.includes(estado)) {
     throw new Error('Estado de cobro inválido');
   }
+}
+
+function assertTransicionEstado(desde, hacia) {
+  assertEstadoCobro(hacia);
+  if (desde === hacia) return;
+  const permitidas = TRANSICIONES_COBRO[desde];
+  if (!permitidas || !permitidas.has(hacia)) {
+    throw new Error(
+      `No se puede cambiar un cobro de «${desde}» a «${hacia}».`
+    );
+  }
+}
+
+function isMissingRpcError(error) {
+  return (
+    error?.code === 'PGRST202' ||
+    /could not find the function|schema cache/i.test(error?.message || '')
+  );
+}
+
+function throwMissingRpc(nombreRpc) {
+  throw new Error(
+    `Falta la función ${nombreRpc} en Supabase. Ejecuta la migración 20260813_000001_audit_remediation_ciclo_cita.sql (y las anteriores del historial).`
+  );
 }
 
 async function idsPorNombreIlike(table, termEscaped, limit = 200) {
@@ -52,7 +83,9 @@ export async function listCobros(params = {}) {
     query = query.eq('estado', params.estado);
   }
   if (params.id_profesional) {
-    query = query.eq('id_profesional', params.id_profesional);
+    const idProf = Number(params.id_profesional);
+    if (!idProf) throw new Error('Profesional inválido');
+    query = query.eq('id_profesional', idProf);
   }
   if (params.fecha_desde) query = query.gte('fecha_cobro', params.fecha_desde);
   if (params.fecha_hasta) query = query.lte('fecha_cobro', params.fecha_hasta);
@@ -97,83 +130,9 @@ export async function listCobros(params = {}) {
 }
 
 /**
- * Fallback si el RPC create_cobro_atomico aún no está desplegado.
- * Valida agenda, inserta cobro y marca cobrada; compensa si el update falla.
+ * Crea cobro vía RPC atómico (marca agenda.cobrada y deja estado=pagado).
+ * Fail-closed si el RPC no está desplegado.
  */
-async function createCobroClientFallback(payload) {
-  const id_agenda = Number(payload.id_agenda);
-  const id_profesional = Number(payload.id_profesional);
-  const id_mascota = Number(payload.id_mascota);
-  const id_tarifa = payload.id_tarifa ? Number(payload.id_tarifa) : null;
-  const valor = parseFloat(payload.valor);
-  const metodo_pago = payload.metodo_pago?.trim() || null;
-  const observacion = payload.observacion?.trim() || null;
-  const fecha_cobro = toDateOnly(payload.fecha_cobro) || hoyLocalISO();
-
-  if (!id_agenda || !id_profesional || !id_mascota || Number.isNaN(valor) || valor < 0) {
-    throw new Error('Campos requeridos inválidos');
-  }
-  if (!id_tarifa) {
-    throw new Error('La tarifa es requerida');
-  }
-
-  const { data: agenda, error: agendaReadErr } = await supabase
-    .from('agenda')
-    .select('id, id_profesional, id_mascota, id_tarifa, cobrada')
-    .eq('id', id_agenda)
-    .maybeSingle();
-  throwIfError(agendaReadErr, 'Error al validar la agenda');
-  if (!agenda) throw new Error('Agenda no encontrada');
-  if (agenda.cobrada === true) throw new Error('La agenda ya fue cobrada');
-  if (Number(agenda.id_profesional) !== id_profesional) {
-    throw new Error('El profesional no coincide con la agenda');
-  }
-  if (Number(agenda.id_mascota) !== id_mascota) {
-    throw new Error('La mascota no coincide con la agenda');
-  }
-
-  const { data: vigente, error: vigenteErr } = await supabase
-    .from('cobro')
-    .select('id')
-    .eq('id_agenda', id_agenda)
-    .neq('estado', 'anulado')
-    .limit(1)
-    .maybeSingle();
-  throwIfError(vigenteErr, 'Error al verificar cobros existentes');
-  if (vigente) throw new Error('Ya existe un cobro vigente para esta agenda');
-
-  const { data, error } = await supabase
-    .from('cobro')
-    .insert({
-      id_agenda,
-      id_profesional,
-      id_mascota,
-      id_tarifa,
-      valor,
-      metodo_pago,
-      observacion,
-      fecha_cobro,
-    })
-    .select()
-    .single();
-  throwIfError(error, 'Error al crear cobro');
-
-  const { error: agendaError } = await supabase
-    .from('agenda')
-    .update({ cobrada: true })
-    .eq('id', id_agenda);
-
-  if (agendaError) {
-    // Compensación: anular el cobro recién creado para no dejar estado inconsistente
-    await supabase.from('cobro').update({ estado: 'anulado' }).eq('id', data.id);
-    throw new Error(
-      'No se pudo marcar la agenda como cobrada. Revisa la columna agenda.cobrada en Supabase (ejecuta la migración).'
-    );
-  }
-
-  return data;
-}
-
 export async function createCobro(payload) {
   const id_agenda = Number(payload.id_agenda);
   const id_profesional = Number(payload.id_profesional);
@@ -189,6 +148,9 @@ export async function createCobro(payload) {
   }
   if (!id_tarifa) {
     throw new Error('La tarifa es requerida');
+  }
+  if (!metodo_pago) {
+    throw new Error('El método de pago es requerido');
   }
 
   const { data: rpcData, error: rpcError } = await supabase.rpc('create_cobro_atomico', {
@@ -206,61 +168,43 @@ export async function createCobro(payload) {
     return successOk(rpcData);
   }
 
-  // RPC ausente u otro error recuperable → fallback validado
-  const missingRpc =
-    rpcError?.code === 'PGRST202' ||
-    /could not find the function|schema cache/i.test(rpcError?.message || '');
-
-  if (!missingRpc && rpcError) {
-    throwIfError(rpcError, rpcError.message || 'Error al crear cobro');
+  if (isMissingRpcError(rpcError)) {
+    throwMissingRpc('create_cobro_atomico');
   }
-
-  const data = await createCobroClientFallback({
-    id_agenda,
-    id_profesional,
-    id_mascota,
-    id_tarifa,
-    valor,
-    metodo_pago,
-    observacion,
-    fecha_cobro,
-  });
-  return successOk(data);
-}
-
-async function liberarAgendaSiSinCobroVigente(idAgenda) {
-  if (!idAgenda) return;
-  const { data: vigente, error } = await supabase
-    .from('cobro')
-    .select('id')
-    .eq('id_agenda', idAgenda)
-    .neq('estado', 'anulado')
-    .limit(1)
-    .maybeSingle();
-  throwIfError(error, 'Error al verificar cobros de la agenda');
-  if (!vigente) {
-    const { error: upErr } = await supabase
-      .from('agenda')
-      .update({ cobrada: false })
-      .eq('id', idAgenda);
-    throwIfError(upErr, 'Error al liberar la agenda tras anular el cobro');
-  }
+  throwIfError(rpcError, rpcError?.message || 'Error al crear cobro');
+  throw new Error('Error al crear cobro');
 }
 
 export async function updateCobro(id, payload) {
+  const idCobro = Number(id);
+  if (!idCobro) throw new Error('Cobro inválido');
+
+  const { data: existing, error: readErr } = await supabase
+    .from('cobro')
+    .select('id, id_agenda, estado')
+    .eq('id', idCobro)
+    .single();
+  throwIfError(readErr, 'Cobro no encontrado');
+
   const patch = {};
 
   if (payload.estado !== undefined) {
-    assertEstadoCobro(payload.estado);
+    assertTransicionEstado(existing.estado, payload.estado);
     patch.estado = payload.estado;
   }
   if (payload.metodo_pago !== undefined) {
+    if (existing.estado !== 'pendiente') {
+      throw new Error('Solo se puede editar el método de pago en cobros pendientes');
+    }
     patch.metodo_pago = payload.metodo_pago?.trim() || null;
   }
   if (payload.observacion !== undefined) {
     patch.observacion = payload.observacion?.trim() || null;
   }
   if (payload.valor !== undefined) {
+    if (existing.estado !== 'pendiente') {
+      throw new Error('No se puede cambiar el valor de un cobro pagado o anulado');
+    }
     const valor = parseFloat(payload.valor);
     if (Number.isNaN(valor) || valor < 0) {
       throw new Error('Valor inválido');
@@ -271,40 +215,31 @@ export async function updateCobro(id, payload) {
     throw new Error('No hay campos para actualizar');
   }
 
-  // Anulación preferente vía RPC atómico
-  if (patch.estado === 'anulado' && Object.keys(patch).length === 1) {
+  // Anulación solo vía RPC atómico
+  if (patch.estado === 'anulado') {
+    if (Object.keys(patch).length !== 1) {
+      throw new Error('Para anular un cobro usa solo el cambio de estado.');
+    }
     const { data: rpcData, error: rpcError } = await supabase.rpc('anular_cobro_atomico', {
-      p_id_cobro: Number(id),
+      p_id_cobro: idCobro,
     });
     if (!rpcError && rpcData) {
       return successOk(rpcData);
     }
-    const missingRpc =
-      rpcError?.code === 'PGRST202' ||
-      /could not find the function|schema cache/i.test(rpcError?.message || '');
-    if (!missingRpc && rpcError) {
-      throwIfError(rpcError, rpcError.message || 'Error al anular cobro');
+    if (isMissingRpcError(rpcError)) {
+      throwMissingRpc('anular_cobro_atomico');
     }
+    throwIfError(rpcError, rpcError?.message || 'Error al anular cobro');
+    throw new Error('Error al anular cobro');
   }
-
-  const { data: existing, error: readErr } = await supabase
-    .from('cobro')
-    .select('id, id_agenda, estado')
-    .eq('id', id)
-    .single();
-  throwIfError(readErr, 'Cobro no encontrado');
 
   const { data, error } = await supabase
     .from('cobro')
     .update(patch)
-    .eq('id', id)
+    .eq('id', idCobro)
     .select()
     .single();
   throwIfError(error, 'Error al actualizar cobro');
-
-  if (patch.estado === 'anulado' && existing.estado !== 'anulado') {
-    await liberarAgendaSiSinCobroVigente(existing.id_agenda);
-  }
 
   return successOk(data);
 }

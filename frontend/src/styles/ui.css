@@ -125,6 +125,7 @@
   display: flex;
   flex-direction: column;
   gap: 16px;
+  overscroll-behavior: contain;
 }
 
 .ui-form-grid {
@@ -729,6 +730,17 @@
   justify-content: center;
   padding: 0;
   padding-bottom: var(--safe-bottom);
+  overflow: hidden;
+  overscroll-behavior: none;
+  touch-action: none;
+}
+
+.ui-sheet-root--stack-1 {
+  z-index: 1200;
+}
+
+.ui-sheet-root--stack-2 {
+  z-index: 1300;
 }
 
 .ui-sheet-backdrop {
@@ -737,6 +749,8 @@
   background: rgba(15, 23, 42, 0.45);
   backdrop-filter: blur(2px);
   animation: ui-fade-in 0.2s ease;
+  touch-action: none;
+  overscroll-behavior: none;
 }
 
 .ui-sheet-panel {
@@ -744,7 +758,10 @@
   z-index: 1;
   width: 100%;
   max-height: min(92vh, 900px);
+  height: auto;
   overflow: hidden;
+  overscroll-behavior: none;
+  touch-action: auto;
   display: flex;
   flex-direction: column;
   background: var(--color-white);
@@ -787,9 +804,13 @@
 
 .ui-sheet-body {
   padding: 16px 20px;
+  flex: 0 1 auto;
+  min-height: 0;
+  overflow-x: hidden;
   overflow-y: auto;
+  overscroll-behavior: contain;
   -webkit-overflow-scrolling: touch;
-  flex: 1 1 auto;
+  touch-action: pan-y;
 }
 
 .ui-sheet-footer {
@@ -856,10 +877,14 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
+  gap: 10px;
   padding-bottom: 10px;
   margin-bottom: 10px;
   border-bottom: 1px solid var(--border-subtle);
+}
+
+.ui-nav__session .ui-user-badge {
+  flex: 1;
 }
 
 .ui-nav__email {
@@ -869,6 +894,121 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   min-width: 0;
+}
+
+/* Session brand badge (Pelu Eli + Go-Digital + email) */
+.ui-user-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  max-width: min(100%, 420px);
+  height: 34px;
+  padding: 0 10px 0 8px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--color-white) 78%, transparent);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border: 1px solid rgba(229, 231, 235, 0.9);
+  box-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.04),
+    0 4px 14px rgba(183, 65, 146, 0.07);
+}
+
+.ui-user-badge__logo {
+  display: block;
+  height: 20px;
+  width: auto;
+  max-width: 72px;
+  object-fit: contain;
+  flex-shrink: 0;
+}
+
+.ui-user-badge__logo--client {
+  mix-blend-mode: multiply;
+  max-width: 78px;
+}
+
+.ui-user-badge__logo--provider {
+  height: 18px;
+  max-width: 22px;
+}
+
+.ui-user-badge__divider {
+  width: 1px;
+  height: 14px;
+  flex-shrink: 0;
+  background: #e5e7eb;
+  border-radius: 1px;
+}
+
+.ui-user-badge__identity {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+}
+
+.ui-user-badge__icon {
+  flex-shrink: 0;
+  color: #9ca3af;
+}
+
+.ui-user-badge__email {
+  font-size: 0.75rem;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  color: #6b7280;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+@media (max-width: 768px) {
+  .ui-user-badge {
+    max-width: none;
+    height: 36px;
+    gap: 7px;
+    padding: 0 10px 0 8px;
+  }
+
+  .ui-user-badge__logo--client {
+    height: 20px;
+    max-width: 68px;
+  }
+
+  .ui-user-badge__logo--provider {
+    height: 18px;
+    max-width: 20px;
+  }
+
+  .ui-user-badge__email {
+    font-size: 0.6875rem;
+  }
+}
+
+@media (max-width: 360px) {
+  .ui-user-badge {
+    gap: 6px;
+    padding: 0 8px 0 6px;
+  }
+
+  .ui-user-badge__logo--client {
+    height: 18px;
+    max-width: 58px;
+  }
+
+  .ui-user-badge__icon {
+    display: none;
+  }
+}
+
+@media (min-width: 769px) {
+  .ui-user-badge {
+    max-width: 380px;
+    flex: 0 1 auto;
+  }
 }
 
 .ui-nav__links {

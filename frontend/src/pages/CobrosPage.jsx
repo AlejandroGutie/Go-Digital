@@ -113,7 +113,7 @@ export default function CobrosPage() {
   useEffect(() => {
     async function loadProfesionales() {
       try {
-        const res = await listProfesionales(1, 100);
+        const res = await listProfesionales(1, 500);
         setProfesionales(normalizeListPayload(res));
       } catch (e) {
         addToast(e?.message || 'Error al cargar profesionales', 'error');
@@ -247,7 +247,10 @@ export default function CobrosPage() {
           listTarifas(id_profesional),
         ]);
         if (reqId !== cobroProfReq.current) return;
-        setAgendas(normalizeListPayload(resAg));
+        // Solo agendas activas pendientes de cobro (no cobradas)
+        setAgendas(
+          normalizeListPayload(resAg).filter((a) => a.cobrada !== true)
+        );
         setTarifas(normalizeListPayload(resT));
       } catch (e) {
         if (reqId !== cobroProfReq.current) return;
@@ -264,10 +267,25 @@ export default function CobrosPage() {
   const handleAgendaChange = (id_agenda) => {
     const agenda = agendas.find((a) => String(a.id) === String(id_agenda));
     if (agenda) {
+      const idTarifa =
+        agenda.id_tarifa != null && agenda.id_tarifa !== ''
+          ? String(agenda.id_tarifa)
+          : '';
+      const tarifa = idTarifa
+        ? tarifas.find((t) => String(t.id) === String(idTarifa))
+        : null;
+      const valor =
+        agenda.tarifa_valor != null && agenda.tarifa_valor !== ''
+          ? String(agenda.tarifa_valor)
+          : tarifa
+            ? String(tarifa.valor)
+            : '';
       setNuevoCobro((prev) => ({
         ...prev,
         id_agenda,
         id_mascota: agenda.id_mascota,
+        id_tarifa: idTarifa,
+        valor: valor || prev.valor,
       }));
       setNombreMascotaVisible(agenda.mascota_nombre);
     }
@@ -299,6 +317,10 @@ export default function CobrosPage() {
       addToast('Selecciona una tarifa', 'error');
       return;
     }
+    if (!nuevoCobro.metodo_pago?.trim()) {
+      addToast('Selecciona un método de pago', 'error');
+      return;
+    }
     const valorNum = parseFloat(nuevoCobro.valor);
     if (Number.isNaN(valorNum) || valorNum < 0) {
       addToast('Ingresa un valor válido (0 o mayor)', 'error');
@@ -312,7 +334,16 @@ export default function CobrosPage() {
     if (!tryLock()) return;
     setLoading(true);
     try {
-      const res = await createCobro(nuevoCobro);
+      const res = await createCobro({
+        id_profesional: Number(nuevoCobro.id_profesional),
+        id_agenda: Number(nuevoCobro.id_agenda),
+        id_mascota: Number(nuevoCobro.id_mascota),
+        id_tarifa: Number(nuevoCobro.id_tarifa),
+        valor: nuevoCobro.valor,
+        metodo_pago: nuevoCobro.metodo_pago,
+        observacion: nuevoCobro.observacion,
+        fecha_cobro: nuevoCobro.fecha_cobro,
+      });
       if (res?.status === 'ok') {
         addToast('Cobro creado exitosamente', 'success');
         setModalOpen(false);
@@ -639,24 +670,35 @@ export default function CobrosPage() {
                         <td>
                           <div className="ui-table__actions">
                             {c.estado === 'pendiente' && (
-                              <>
-                                <Button
-                                  size="sm"
-                                  variant="ghost"
-                                  onClick={() => cambiarEstado(c.id, 'pagado')}
-                                  disabled={loading}
-                                >
-                                  Pagar
-                                </Button>
-                                <Button
-                                  size="sm"
-                                  variant="ghost"
-                                  onClick={() => setConfirmAction({ type: 'anular', id: c.id })}
-                                  disabled={loading}
-                                >
-                                  Anular
-                                </Button>
-                              </>
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={() => cambiarEstado(c.id, 'pagado')}
+                                disabled={loading}
+                              >
+                                Pagar
+                              </Button>
+                            )}
+                            {(c.estado === 'pendiente' || c.estado === 'pagado') && (
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={() =>
+                                  setConfirmAction({
+                                    type: 'anular',
+                                    id: c.id,
+                                    estado: c.estado,
+                                  })
+                                }
+                                disabled={loading}
+                                title={
+                                  c.estado === 'pagado'
+                                    ? 'Anular cobro pagado y liberar la cita en agenda'
+                                    : 'Anular cobro pendiente'
+                                }
+                              >
+                                Anular
+                              </Button>
                             )}
                             {c.estado === 'anulado' && (
                               <Button
@@ -719,7 +761,15 @@ export default function CobrosPage() {
       >
         {confirmAction?.type === 'eliminar'
           ? <>¿Eliminar el cobro <b>#{confirmAction?.id}</b>? Esta acción no se puede deshacer.</>
-          : <>¿Anular el cobro <b>#{confirmAction?.id}</b>?</>}
+          : confirmAction?.estado === 'pagado'
+            ? (
+              <>
+                ¿Anular el cobro pagado <b>#{confirmAction?.id}</b>? Se liberará el cobro de la
+                cita. Si el horario ya se reutilizó con otra cita, la original permanece
+                archivada (Mascota lista) y no vuelve a ocupar el cupo.
+              </>
+            )
+            : <>¿Anular el cobro <b>#{confirmAction?.id}</b>? La cita quedará disponible para un nuevo cobro (si el cupo no está ocupado).</>}
       </ConfirmSheet>
 
       <Toast toasts={toasts} removeToast={removeToast} />

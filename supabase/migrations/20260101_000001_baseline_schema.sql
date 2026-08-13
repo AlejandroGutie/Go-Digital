@@ -78,6 +78,7 @@ CREATE TABLE IF NOT EXISTS public.agenda (
   created_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
   id_tarifa      BIGINT NULL REFERENCES public.tarifa(id) ON DELETE SET NULL,
   cobrada        BOOLEAN NOT NULL DEFAULT false,
+  atendida       BOOLEAN NOT NULL DEFAULT false,
   CHECK (hora_fin > hora_inicio)
 );
 
@@ -104,6 +105,7 @@ CREATE INDEX IF NOT EXISTS idx_profesional_user ON public.profesional (user_id);
 CREATE INDEX IF NOT EXISTS idx_tarifa_profesional ON public.tarifa (id_profesional);
 CREATE INDEX IF NOT EXISTS idx_agenda_prof_fecha ON public.agenda (id_profesional, fecha);
 CREATE INDEX IF NOT EXISTS idx_agenda_cobrada ON public.agenda (cobrada);
+CREATE INDEX IF NOT EXISTS idx_agenda_atendida ON public.agenda (atendida);
 CREATE INDEX IF NOT EXISTS idx_agenda_id_tarifa ON public.agenda (id_tarifa);
 CREATE INDEX IF NOT EXISTS idx_cobro_estado ON public.cobro (estado);
 CREATE INDEX IF NOT EXISTS idx_cobro_fecha ON public.cobro (fecha_cobro);
@@ -111,4 +113,7 @@ CREATE INDEX IF NOT EXISTS idx_cobro_id_agenda ON public.cobro (id_agenda);
 CREATE INDEX IF NOT EXISTS idx_cobro_profesional_fecha ON public.cobro (id_profesional, fecha_cobro);
 
 COMMENT ON COLUMN public.agenda.cobrada IS
-  'true cuando hay cobro vigente; oculta del listado activo sin borrar el histórico';
+  'true cuando hay cobro vigente; no oculta la cita de la agenda activa';
+
+COMMENT ON COLUMN public.agenda.atendida IS
+  'true cuando se accionó Mascota lista; oculta la cita de la agenda activa';

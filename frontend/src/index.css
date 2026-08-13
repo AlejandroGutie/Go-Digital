@@ -41,6 +41,10 @@
   box-sizing: border-box;
 }
 
+html {
+  overscroll-behavior-y: none;
+}
+
 body {
   font-family: var(--font-brand-body), var(--font-fallback);
   font-weight: 400;
@@ -49,6 +53,7 @@ body {
   margin: 0;
   background: var(--bg-main);
   color: var(--text-main);
+  overscroll-behavior-y: none;
 }
 
 /* ==========================================================================
@@ -138,6 +143,12 @@ body {
   align-self: flex-end;
 }
 
+.agenda-form__action--stack {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+}
+
 .agenda-form__action > .ui-btn {
   box-sizing: border-box;
   min-height: var(--touch-min, 44px);
@@ -145,6 +156,11 @@ body {
   padding-top: 0;
   padding-bottom: 0;
   white-space: nowrap;
+}
+
+.agenda-form__action--stack > .ui-btn {
+  height: auto;
+  min-height: var(--touch-min, 44px);
 }
 
 .table-scroll {

@@ -20,6 +20,7 @@ import {
 import { AuthProvider, useAuth } from './context/AuthContext';
 import ProtectedRoute from './components/ProtectedRoute';
 import Button from './components/ui/Button';
+import UserBrandBadge from './components/ui/UserBrandBadge';
 import LoginPage from './pages/LoginPage';
 import MascotasPage from './pages/MascotasPage';
 import CuidadoresPage from './pages/CuidadoresPage';
@@ -41,7 +42,7 @@ const NAV_ITEMS = [
 
 function Nav() {
   const { pathname } = useLocation();
-  const { user, logout } = useAuth();
+  const { logout } = useAuth();
 
   const handleLogout = async () => {
     try {
@@ -54,9 +55,7 @@ function Nav() {
   return (
     <nav className="ui-nav pt-safe">
       <div className="ui-nav__session">
-        <span className="ui-nav__email" title={user?.email || ''}>
-          {user?.email || ''}
-        </span>
+        <UserBrandBadge />
         <Button variant="primary" size="sm" onClick={handleLogout} aria-label="Cerrar sesión">
           <LogOut size={16} strokeWidth={2.25} />
           <span>Salir</span>

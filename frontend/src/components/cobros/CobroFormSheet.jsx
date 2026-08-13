@@ -23,6 +23,7 @@ export default function CobroFormSheet({
   onTarifaChange,
   onFieldChange,
   lockAgendaContext = false,
+  stackLevel = 0,
 }) {
   function setField(key, value) {
     onFieldChange?.({ ...values, [key]: value });
@@ -34,6 +35,7 @@ export default function CobroFormSheet({
       onClose={onClose}
       title={title}
       dismissible={!loading}
+      stackLevel={stackLevel}
       footer={
         <div className="ui-btn-row" style={{ justifyContent: 'flex-end' }}>
           <Button variant="ghost" onClick={onClose} disabled={loading}>
@@ -86,7 +88,11 @@ export default function CobroFormSheet({
               disabled={loading || !values.id_profesional}
               required
             >
-              <option value="">Seleccionar agenda</option>
+              <option value="">
+                {agendas.length === 0
+                  ? 'Sin citas pendientes de cobro'
+                  : 'Seleccionar agenda'}
+              </option>
               {agendas.map((a) => (
                 <option key={a.id} value={a.id}>
                   {`${formatFecha(a.fecha)} — ${a.mascota_nombre}`}
@@ -135,13 +141,14 @@ export default function CobroFormSheet({
           />
         </Field>
 
-        <Field label="Método de pago">
+        <Field label="Método de pago" required>
           <Select
             value={values.metodo_pago}
             onChange={(e) => setField('metodo_pago', e.target.value)}
             disabled={loading}
+            required
           >
-            <option value="">Método de pago</option>
+            <option value="">Seleccionar método de pago</option>
             <option value="Efectivo">Efectivo</option>
             <option value="Transferencia">Transferencia</option>
             <option value="Tarjeta">Tarjeta</option>
