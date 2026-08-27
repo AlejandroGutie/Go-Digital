@@ -447,8 +447,9 @@ export async function getHorariosLibres(params = {}) {
     fetchAllRows(() => {
       let q = supabase
         .from('agenda')
-        .select('id, id_profesional, fecha, hora_inicio, hora_fin, atendida')
+        .select('id, id_profesional, fecha, hora_inicio, hora_fin, atendida, cancelada')
         .eq('atendida', false)
+        .eq('cancelada', false)
         .order('fecha', { ascending: true })
         .order('hora_inicio', { ascending: true });
       if (params.fecha_desde) q = q.gte('fecha', params.fecha_desde);

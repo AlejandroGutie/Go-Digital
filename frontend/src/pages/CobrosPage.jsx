@@ -1,6 +1,13 @@
 import { useState, useEffect, useRef } from 'react';
-import { AlertTriangle, Banknote, Plus, Search, X } from 'lucide-react';
-import { listCobros, createCobro, updateCobro, deleteCobro } from '../api/cobrosApi';
+import { AlertTriangle, Banknote, Pencil, Plus, RotateCcw, Search, Undo2, X } from 'lucide-react';
+import {
+  listCobros,
+  createCobro,
+  updateCobro,
+  updateCobroPendiente,
+  restaurarCobro,
+  devolverPagoCobro,
+} from '../api/cobrosApi';
 import { listProfesionales } from '../api/profesionalesApi';
 import { listTarifas } from '../api/tarifasApi';
 import { getAgendaDeProfesional } from '../api/agendasApi';
@@ -8,7 +15,7 @@ import { normalizeListPayload, normalizeMeta } from '../api/normalize';
 import { useToast } from '../hooks/useToast';
 import { useMutationLock } from '../hooks/useMutationLock';
 import { Toast } from '../components/Toast';
-import { formatFecha, hoyLocalISO, formatMoneda, rangoFechasInvalido } from '../utils/format';
+import { formatFecha, hoyLocalISO, formatMoneda, rangoFechasInvalido, toDateOnly } from '../utils/format';
 import EmptyState from '../components/EmptyState';
 import PageHeader from '../components/ui/PageHeader';
 import Field, { DateInput, Input, Select } from '../components/ui/Field';
@@ -20,6 +27,7 @@ import TablePagination, {
   PageSizeSelect,
 } from '../components/ui/TablePagination';
 import CobroFormSheet from '../components/cobros/CobroFormSheet';
+import { totalTarifasSeleccionadas } from '../components/ui/TarifaMultiSelect';
 import '../index.css';
 import { TABLE_STICKY_COLS_2 } from '../lib/tableSticky';
 
@@ -71,7 +79,12 @@ export default function CobrosPage() {
   const [nombreMascotaVisible, setNombreMascotaVisible] = useState('');
   const [busquedaProfFiltro, setBusquedaProfFiltro] = useState('');
   const [listaProfFiltroAbierta, setListaProfFiltroAbierta] = useState(false);
-  const [confirmAction, setConfirmAction] = useState(null); // { type: 'anular'|'eliminar', id }
+  const [confirmAction, setConfirmAction] = useState(null); // { type: 'anular'|'restaurar'|'devolver', id }
+  const [submittingEstado, setSubmittingEstado] = useState(null);
+  const [editOpen, setEditOpen] = useState(false);
+  const [editForm, setEditForm] = useState(null);
+  const [editTarifas, setEditTarifas] = useState([]);
+  const [editMascotaNombre, setEditMascotaNombre] = useState('');
 
   const pageRef = useRef(page);
   const itemsPerPageRef = useRef(itemsPerPage);
@@ -270,19 +283,15 @@ export default function CobrosPage() {
   const handleAgendaChange = (id_agenda) => {
     const agenda = agendas.find((a) => String(a.id) === String(id_agenda));
     if (agenda) {
-      const ids =
+      const idsRaw =
         Array.isArray(agenda.id_tarifas) && agenda.id_tarifas.length
           ? agenda.id_tarifas.map(String)
           : agenda.id_tarifa != null && agenda.id_tarifa !== ''
             ? [String(agenda.id_tarifa)]
             : [];
-      const total =
-        agenda.tarifa_valor != null && agenda.tarifa_valor !== ''
-          ? Number(agenda.tarifa_valor)
-          : ids.reduce((acc, id) => {
-              const t = tarifas.find((x) => String(x.id) === String(id));
-              return acc + (Number(t?.valor) || 0);
-            }, 0);
+      const tarifasParaSuma =
+        Array.isArray(agenda.tarifas) && agenda.tarifas.length ? agenda.tarifas : tarifas;
+      const { ids, total } = totalTarifasSeleccionadas(tarifasParaSuma, idsRaw);
       setNuevoCobro((prev) => ({
         ...prev,
         id_agenda,
@@ -296,11 +305,7 @@ export default function CobrosPage() {
   };
 
   const handleTarifasChange = (id_tarifas) => {
-    const ids = (id_tarifas || []).map(String);
-    const total = ids.reduce((acc, id) => {
-      const tarifa = tarifas.find((t) => String(t.id) === String(id));
-      return acc + (Number(tarifa?.valor) || 0);
-    }, 0);
+    const { ids, total } = totalTarifasSeleccionadas(tarifas, id_tarifas);
     setNuevoCobro((prev) => ({
       ...prev,
       id_tarifas: ids,
@@ -309,7 +314,8 @@ export default function CobrosPage() {
     }));
   };
 
-  const guardarCobro = async () => {
+  const guardarCobro = async (estado = 'pagado') => {
+    const estadoFinal = estado === 'pendiente' ? 'pendiente' : 'pagado';
     if (!nuevoCobro.id_profesional) {
       addToast('Selecciona un profesional', 'error');
       return;
@@ -341,6 +347,7 @@ export default function CobrosPage() {
     }
 
     if (!tryLock()) return;
+    setSubmittingEstado(estadoFinal);
     setLoading(true);
     try {
       const res = await createCobro({
@@ -352,9 +359,15 @@ export default function CobrosPage() {
         metodo_pago: nuevoCobro.metodo_pago,
         observacion: nuevoCobro.observacion,
         fecha_cobro: nuevoCobro.fecha_cobro,
+        estado: estadoFinal,
       });
       if (res?.status === 'ok') {
-        addToast('Cobro creado exitosamente', 'success');
+        addToast(
+          estadoFinal === 'pagado'
+            ? 'Cobro registrado como pagado'
+            : 'Cobro registrado como pendiente de pago',
+          'success'
+        );
         setModalOpen(false);
         setNuevoCobro({
           id_profesional: '',
@@ -378,6 +391,7 @@ export default function CobrosPage() {
       addToast(e?.message || 'Error al crear cobro', 'error');
     } finally {
       setLoading(false);
+      setSubmittingEstado(null);
       unlock();
     }
   };
@@ -402,20 +416,40 @@ export default function CobrosPage() {
     }
   };
 
-  const eliminarCobro = async (id) => {
+  const restaurarCobroAnulado = async (id) => {
     if (!tryLock()) return;
     setLoading(true);
     try {
-      const res = await deleteCobro(id);
+      const res = await restaurarCobro(id);
       if (res?.status === 'ok') {
-        addToast('Cobro eliminado', 'success');
+        addToast('Cobro restaurado como pendiente', 'success');
         setConfirmAction(null);
-        await recargarTrasMutacion();
+        await refresh(page, filtros, filtro);
       } else {
-        addToast(res?.message || 'Error al eliminar', 'error');
+        addToast(res?.message || 'Error al restaurar', 'error');
       }
     } catch (e) {
-      addToast(e?.message || 'Error al eliminar cobro', 'error');
+      addToast(e?.message || 'Error al restaurar cobro', 'error');
+    } finally {
+      setLoading(false);
+      unlock();
+    }
+  };
+
+  const devolverPago = async (id) => {
+    if (!tryLock()) return;
+    setLoading(true);
+    try {
+      const res = await devolverPagoCobro(id);
+      if (res?.status === 'ok') {
+        addToast('Pago devuelto: el cobro quedó pendiente', 'success');
+        setConfirmAction(null);
+        await refresh(page, filtros, filtro);
+      } else {
+        addToast(res?.message || 'Error al devolver el pago', 'error');
+      }
+    } catch (e) {
+      addToast(e?.message || 'Error al devolver el pago', 'error');
     } finally {
       setLoading(false);
       unlock();
@@ -428,10 +462,14 @@ export default function CobrosPage() {
       await cambiarEstado(confirmAction.id, 'anulado');
       return;
     }
-    if (confirmAction.type === 'eliminar') {
-      await eliminarCobro(confirmAction.id);
+    if (confirmAction.type === 'restaurar') {
+      await restaurarCobroAnulado(confirmAction.id);
+      return;
     }
-  };
+    if (confirmAction.type === 'devolver') {
+      await devolverPago(confirmAction.id);
+    }
+  }
 
   const getBadgeStyle = (estado) => {
     if (estado === 'pagado') return { backgroundColor: 'var(--color-entorno)', color: 'var(--color-white)' };
@@ -444,6 +482,116 @@ export default function CobrosPage() {
 
   function closeModal() {
     if (!loading) setModalOpen(false);
+  }
+
+  function closeEditModal({ force = false } = {}) {
+    if (loading && !force) return;
+    setEditOpen(false);
+    setEditForm(null);
+    setEditTarifas([]);
+    setEditMascotaNombre('');
+  }
+
+  async function abrirEditar(cobro) {
+    if (!cobro?.id || cobro.estado !== 'pendiente') return;
+    if (!tryLock()) return;
+    setLoading(true);
+    try {
+      const resT = await listTarifas(cobro.id_profesional);
+      const tarifasProf = normalizeListPayload(resT);
+      const ids =
+        Array.isArray(cobro.id_tarifas) && cobro.id_tarifas.length
+          ? cobro.id_tarifas.map(String)
+          : cobro.id_tarifa != null
+            ? [String(cobro.id_tarifa)]
+            : [];
+      const { ids: idsOk, total } = totalTarifasSeleccionadas(tarifasProf, ids);
+
+      setEditTarifas(tarifasProf);
+      setEditMascotaNombre(cobro.mascota_nombre || '');
+      setEditForm({
+        id: cobro.id,
+        id_profesional: String(cobro.id_profesional || ''),
+        id_agenda: String(cobro.id_agenda || ''),
+        id_mascota: String(cobro.id_mascota || ''),
+        id_tarifas: idsOk.length ? idsOk : ids,
+        id_tarifa: (idsOk[0] || ids[0] || '') + '',
+        valor:
+          cobro.valor != null && cobro.valor !== ''
+            ? String(cobro.valor)
+            : String(total || 0),
+        metodo_pago: cobro.metodo_pago || '',
+        observacion: cobro.observacion || '',
+        fecha_cobro: toDateOnly(cobro.fecha_cobro) || hoyLocalISO(),
+        profesional_nombre: cobro.profesional_nombre || '',
+        agenda_label: `Agenda #${cobro.id_agenda} — ${cobro.mascota_nombre || 'Mascota'}`,
+      });
+      setEditOpen(true);
+    } catch (e) {
+      addToast(e?.message || 'No se pudieron cargar las tarifas del cobro', 'error');
+    } finally {
+      setLoading(false);
+      unlock();
+    }
+  }
+
+  function handleEditTarifasChange(id_tarifas) {
+    const { ids, total } = totalTarifasSeleccionadas(editTarifas, id_tarifas);
+    setEditForm((prev) =>
+      prev
+        ? {
+            ...prev,
+            id_tarifas: ids,
+            id_tarifa: ids[0] || '',
+            valor: String(total),
+          }
+        : prev
+    );
+  }
+
+  async function guardarEdicion() {
+    if (!editForm?.id) return;
+    if (!editForm.id_tarifas?.length) {
+      addToast('Selecciona al menos una tarifa', 'error');
+      return;
+    }
+    if (!editForm.metodo_pago?.trim()) {
+      addToast('Selecciona un método de pago', 'error');
+      return;
+    }
+    const valorNum = parseFloat(editForm.valor);
+    if (Number.isNaN(valorNum) || valorNum < 0) {
+      addToast('Ingresa un valor válido (0 o mayor)', 'error');
+      return;
+    }
+    if (!editForm.fecha_cobro) {
+      addToast('La fecha de cobro es requerida', 'error');
+      return;
+    }
+
+    if (!tryLock()) return;
+    setLoading(true);
+    try {
+      const res = await updateCobroPendiente(editForm.id, {
+        valor: editForm.valor,
+        metodo_pago: editForm.metodo_pago,
+        observacion: editForm.observacion,
+        fecha_cobro: editForm.fecha_cobro,
+        id_tarifas: (editForm.id_tarifas || []).map(Number),
+      });
+      if (res?.status === 'ok') {
+        addToast('Cobro actualizado', 'success');
+        closeEditModal({ force: true });
+        await refresh(page, filtros, filtro);
+      } else {
+        addToast(res?.message || 'Error al actualizar cobro', 'error');
+      }
+    } catch (e) {
+      addToast(e?.message || 'Error al actualizar cobro', 'error');
+    } finally {
+      setLoading(false);
+      unlock();
+    }
   }
 
   return (
@@ -468,7 +616,8 @@ export default function CobrosPage() {
 
       {!listLoading && !loadError && (
         <>
-          <div className="ui-card" style={{ marginBottom: 16 }}>
+          <div className="ui-card ui-card--filters">
+            <div className="ui-card__section-title">Filtros de cobros</div>
             <div className="fields-row fields-row--end">
               <Field label="Estado">
                 <Select
@@ -680,13 +829,39 @@ export default function CobrosPage() {
                         <td>
                           <div className="ui-table__actions">
                             {c.estado === 'pendiente' && (
+                              <>
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  onClick={() => abrirEditar(c)}
+                                  disabled={loading || editOpen}
+                                  title="Editar cobro pendiente"
+                                >
+                                  <Pencil size={14} />
+                                  Editar
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  onClick={() => cambiarEstado(c.id, 'pagado')}
+                                  disabled={loading}
+                                >
+                                  Pagar
+                                </Button>
+                              </>
+                            )}
+                            {c.estado === 'pagado' && (
                               <Button
                                 size="sm"
                                 variant="ghost"
-                                onClick={() => cambiarEstado(c.id, 'pagado')}
+                                onClick={() =>
+                                  setConfirmAction({ type: 'devolver', id: c.id })
+                                }
                                 disabled={loading}
+                                title="Devolver pago y dejar el cobro pendiente"
                               >
-                                Pagar
+                                <Undo2 size={14} />
+                                Devolver pago
                               </Button>
                             )}
                             {(c.estado === 'pendiente' || c.estado === 'pagado') && (
@@ -714,10 +889,14 @@ export default function CobrosPage() {
                               <Button
                                 size="sm"
                                 variant="ghost"
-                                onClick={() => setConfirmAction({ type: 'eliminar', id: c.id })}
+                                onClick={() =>
+                                  setConfirmAction({ type: 'restaurar', id: c.id })
+                                }
                                 disabled={loading}
+                                title="Restaurar cobro anulado a pendiente"
                               >
-                                Eliminar
+                                <RotateCcw size={14} />
+                                Restaurar
                               </Button>
                             )}
                           </div>
@@ -748,6 +927,8 @@ export default function CobrosPage() {
         onClose={closeModal}
         onSubmit={guardarCobro}
         loading={loading}
+        submittingEstado={submittingEstado}
+        creationEstadoActions
         title="Nuevo cobro"
         values={nuevoCobro}
         nombreMascotaVisible={nombreMascotaVisible}
@@ -760,26 +941,74 @@ export default function CobrosPage() {
         onFieldChange={setNuevoCobro}
       />
 
+      <CobroFormSheet
+        open={editOpen && !!editForm}
+        onClose={closeEditModal}
+        onSubmit={guardarEdicion}
+        loading={loading}
+        editMode
+        title={editForm?.id ? `Editar cobro #${editForm.id}` : 'Editar cobro'}
+        values={
+          editForm || {
+            id_profesional: '',
+            id_agenda: '',
+            id_mascota: '',
+            id_tarifas: [],
+            valor: '',
+            metodo_pago: '',
+            observacion: '',
+            fecha_cobro: hoyLocalISO(),
+          }
+        }
+        nombreMascotaVisible={editMascotaNombre}
+        tarifas={editTarifas}
+        onTarifasChange={handleEditTarifasChange}
+        onFieldChange={setEditForm}
+      />
+
       <ConfirmSheet
         open={!!confirmAction}
         onClose={() => setConfirmAction(null)}
         onConfirm={confirmarAccionCobro}
-        title={confirmAction?.type === 'eliminar' ? 'Confirmar eliminación' : 'Confirmar anulación'}
-        confirmLabel={confirmAction?.type === 'eliminar' ? 'Eliminar' : 'Anular'}
+        title={
+          confirmAction?.type === 'restaurar'
+            ? 'Confirmar restauración'
+            : confirmAction?.type === 'devolver'
+              ? 'Confirmar devolución de pago'
+              : 'Confirmar anulación'
+        }
+        confirmLabel={
+          confirmAction?.type === 'restaurar'
+            ? 'Restaurar'
+            : confirmAction?.type === 'devolver'
+              ? 'Devolver pago'
+              : 'Anular'
+        }
         loading={loading}
-        danger
+        danger={confirmAction?.type === 'anular'}
       >
-        {confirmAction?.type === 'eliminar'
-          ? <>¿Eliminar el cobro <b>#{confirmAction?.id}</b>? Esta acción no se puede deshacer.</>
-          : confirmAction?.estado === 'pagado'
-            ? (
-              <>
-                ¿Anular el cobro pagado <b>#{confirmAction?.id}</b>? Se liberará el cobro de la
-                cita. Si el horario ya se reutilizó con otra cita, la original permanece
-                archivada (Mascota lista) y no vuelve a ocupar el cupo.
-              </>
-            )
-            : <>¿Anular el cobro <b>#{confirmAction?.id}</b>? La cita quedará disponible para un nuevo cobro (si el cupo no está ocupado).</>}
+        {confirmAction?.type === 'restaurar' ? (
+          <>
+            ¿Restaurar el cobro <b>#{confirmAction?.id}</b> a estado pendiente? La cita
+            volverá a quedar marcada como cobrada.
+          </>
+        ) : confirmAction?.type === 'devolver' ? (
+          <>
+            ¿Devolver el pago del cobro <b>#{confirmAction?.id}</b>? Pasará a pendiente y
+            podrás volver a marcarlo como pagado. La cita seguirá asociada a este cobro.
+          </>
+        ) : confirmAction?.estado === 'pagado' ? (
+          <>
+            ¿Anular el cobro pagado <b>#{confirmAction?.id}</b>? Se liberará el cobro de la
+            cita. Si el horario ya se reutilizó con otra cita, la original permanece
+            archivada (Mascota lista) y no vuelve a ocupar el cupo.
+          </>
+        ) : (
+          <>
+            ¿Anular el cobro <b>#{confirmAction?.id}</b>? La cita quedará disponible para un
+            nuevo cobro (si el cupo no está ocupado).
+          </>
+        )}
       </ConfirmSheet>
 
       <Toast toasts={toasts} removeToast={removeToast} />

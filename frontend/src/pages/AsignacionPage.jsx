@@ -262,6 +262,8 @@ export default function AsignacionPage() {
         subtitle="Busca y selecciona un cuidador para ver y gestionar sus mascotas asignadas."
       />
 
+      <hr className="ui-divider" />
+
       {initLoading ? (
         <Skeleton rows={5} />
       ) : initError ? (
@@ -271,75 +273,78 @@ export default function AsignacionPage() {
           description={initError}
         />
       ) : (
-        <div className="ui-split">
-          <div className="ui-card">
-            <Field id="buscador-cuidador" label="Cuidador">
-              <div ref={buscadorRef} className="ui-combo">
-                <div className="ui-btn-row">
-                  <Input
-                    id="buscador-cuidador"
-                    type="text"
-                    role="combobox"
-                    aria-expanded={listaAbierta}
-                    aria-controls="lista-cuidadores"
-                    aria-autocomplete="list"
-                    placeholder="Buscar por nombre, teléfono o email…"
-                    value={busquedaCuidador}
-                    disabled={loading}
-                    onChange={(e) => {
-                      setBusquedaCuidador(e.target.value);
-                      setListaAbierta(true);
-                      if (cuidadorSel && e.target.value !== cuidadorSel.nombre) {
-                        setCuidadorSel(null);
-                        setMascotasSel([]);
-                        limpiarMascotaAsignar();
-                      }
-                    }}
-                    onFocus={() => {
-                      void abrirListaCuidadores();
-                    }}
-                  />
-                  {(cuidadorSel || busquedaCuidador) && (
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      onClick={limpiarSeleccion}
+        <>
+          <div className="ui-card ui-card--filters">
+            <div className="ui-card__section-title">Filtros de asignación</div>
+            <div className="fields-row">
+              <Field id="buscador-cuidador" label="Cuidador">
+                <div ref={buscadorRef} className="ui-combo">
+                  <div className="ui-btn-row">
+                    <Input
+                      id="buscador-cuidador"
+                      type="text"
+                      role="combobox"
+                      aria-expanded={listaAbierta}
+                      aria-controls="lista-cuidadores"
+                      aria-autocomplete="list"
+                      placeholder="Buscar por nombre, teléfono o email…"
+                      value={busquedaCuidador}
                       disabled={loading}
-                    >
-                      Limpiar
-                    </Button>
+                      onChange={(e) => {
+                        setBusquedaCuidador(e.target.value);
+                        setListaAbierta(true);
+                        if (cuidadorSel && e.target.value !== cuidadorSel.nombre) {
+                          setCuidadorSel(null);
+                          setMascotasSel([]);
+                          limpiarMascotaAsignar();
+                        }
+                      }}
+                      onFocus={() => {
+                        void abrirListaCuidadores();
+                      }}
+                    />
+                    {(cuidadorSel || busquedaCuidador) && (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        onClick={limpiarSeleccion}
+                        disabled={loading}
+                      >
+                        Limpiar
+                      </Button>
+                    )}
+                  </div>
+
+                  {listaAbierta && (
+                    <ul id="lista-cuidadores" role="listbox" className="ui-combo__list">
+                      {cuidadoresFiltrados.length === 0 ? (
+                        <li className="ui-combo__item" style={{ cursor: 'default', color: 'var(--color-purple-light)' }}>
+                          {busquedaCuidador.trim()
+                            ? `Sin resultados para “${busquedaCuidador.trim()}”`
+                            : 'No hay cuidadores registrados'}
+                        </li>
+                      ) : (
+                        cuidadoresFiltrados.map((c) => (
+                          <li key={c.id} role="option" aria-selected={cuidadorSel?.id === c.id}>
+                            <button
+                              type="button"
+                              className={`ui-combo__item${cuidadorSel?.id === c.id ? ' ui-combo__item--active' : ''}`}
+                              onClick={() => seleccionarCuidador(c)}
+                            >
+                              <div>{c.nombre}</div>
+                              <div style={{ fontSize: '0.75rem', color: 'var(--color-purple-light)', fontWeight: 400 }}>
+                                {[c.telefono, c.email].filter(Boolean).join(' · ') || 'Sin contacto'}
+                              </div>
+                            </button>
+                          </li>
+                        ))
+                      )}
+                    </ul>
                   )}
                 </div>
-
-                {listaAbierta && (
-                  <ul id="lista-cuidadores" role="listbox" className="ui-combo__list">
-                    {cuidadoresFiltrados.length === 0 ? (
-                      <li className="ui-combo__item" style={{ cursor: 'default', color: 'var(--color-purple-light)' }}>
-                        {busquedaCuidador.trim()
-                          ? `Sin resultados para “${busquedaCuidador.trim()}”`
-                          : 'No hay cuidadores registrados'}
-                      </li>
-                    ) : (
-                      cuidadoresFiltrados.map((c) => (
-                        <li key={c.id} role="option" aria-selected={cuidadorSel?.id === c.id}>
-                          <button
-                            type="button"
-                            className={`ui-combo__item${cuidadorSel?.id === c.id ? ' ui-combo__item--active' : ''}`}
-                            onClick={() => seleccionarCuidador(c)}
-                          >
-                            <div>{c.nombre}</div>
-                            <div style={{ fontSize: '0.75rem', color: 'var(--color-purple-light)', fontWeight: 400 }}>
-                              {[c.telefono, c.email].filter(Boolean).join(' · ') || 'Sin contacto'}
-                            </div>
-                          </button>
-                        </li>
-                      ))
-                    )}
-                  </ul>
-                )}
-              </div>
-            </Field>
+              </Field>
+            </div>
           </div>
 
           <div className="ui-card">
@@ -351,20 +356,10 @@ export default function AsignacionPage() {
               />
             ) : (
               <>
-                <div
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    marginBottom: 16,
-                    gap: 12,
-                  }}
-                >
+                <div className="ui-selection-header">
                   <div>
-                    <div style={{ fontSize: '1rem', fontWeight: 600 }}>{cuidadorSel.nombre}</div>
-                    <div style={{ fontSize: '0.8125rem', color: 'var(--color-purple-light)' }}>
-                      {cuidadorSel.telefono}
-                    </div>
+                    <div className="ui-selection-header__name">{cuidadorSel.nombre}</div>
+                    <div className="ui-selection-header__detail">{cuidadorSel.telefono}</div>
                   </div>
                   <span className="ui-badge" style={{ background: 'var(--color-entorno)', color: 'var(--color-black)' }}>
                     {mascotasSel.length} mascota{mascotasSel.length !== 1 ? 's' : ''}
@@ -599,7 +594,7 @@ export default function AsignacionPage() {
               </>
             )}
           </div>
-        </div>
+        </>
       )}
 
       <ConfirmSheet

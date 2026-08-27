@@ -8,8 +8,8 @@ import {
   PawPrint,
   Search,
   Stethoscope,
-  Trash2,
   X,
+  XCircle,
 } from 'lucide-react';
 import { listProfesionales } from '../api/profesionalesApi';
 import {
@@ -17,7 +17,7 @@ import {
   crearCitaAgenda,
   crearCitaYCobrar,
   actualizarCitaAgenda,
-  eliminarCitaAgenda,
+  cancelarAgenda,
   marcarAgendaAtendida,
 } from '../api/agendasApi';
 import { getCuidadoresDeMascota, getMascotaById } from '../api/mascotasApi';
@@ -41,12 +41,12 @@ import Field, { DateInput, Input, Select, Textarea } from '../components/ui/Fiel
 import Button from '../components/ui/Button';
 import Skeleton from '../components/ui/Skeleton';
 import Sheet from '../components/ui/Sheet';
-import ConfirmSheet from '../components/ui/ConfirmSheet';
 import TablePagination, { PageSizeSelect } from '../components/ui/TablePagination';
 import CobroFormSheet from '../components/cobros/CobroFormSheet';
 import TarifaMultiSelect, {
   formatTarifasLabel,
   sumTarifasValor,
+  totalTarifasSeleccionadas,
 } from '../components/ui/TarifaMultiSelect';
 import HorarioSlotSelect from '../components/ui/HorarioSlotSelect';
 import { useClientTablePagination } from '../hooks/useClientTablePagination';
@@ -100,11 +100,12 @@ function toTimeInputValue(hora) {
   return toTimeHHMM(hora);
 }
 
-/** True si el instante `slot` cae dentro de [inicio, fin) de alguna cita del día. */
+/** True si el instante `slot` cae dentro de [inicio, fin) de alguna cita activa del día. */
 function slotOcupadoPorCitas(slot, citasDelDia, excludeId = null) {
   const m = horaAMinutos(slot);
   if (m == null) return false;
   return (citasDelDia || []).some((c) => {
+    if (c.cancelada === true || c.atendida === true) return false;
     if (excludeId != null && String(c.id) === String(excludeId)) return false;
     const a = horaAMinutos(c.hora_inicio);
     const b = horaAMinutos(c.hora_fin);
@@ -126,13 +127,15 @@ function franjasSeSolapan(inicioA, finA, inicioB, finB) {
   return a0 < b1 && b0 < a1;
 }
 
-/** Busca conflicto de franja; `excludeId` ignora la cita que se está reprogramando. */
+/** Busca conflicto de franja; ignora canceladas/atendidas. `excludeId` para reprogramar. */
 function encontrarCitaConflicto(citas, fecha, horaInicio, horaFin, excludeId = null) {
   if (!fecha || !horaInicio || !horaFin) return null;
   const fechaNorm = toDateOnly(fecha);
   return (
     citas.find(
       (c) =>
+        c.cancelada !== true &&
+        c.atendida !== true &&
         (excludeId == null || String(c.id) !== String(excludeId)) &&
         toDateOnly(c.fecha) === fechaNorm &&
         franjasSeSolapan(horaInicio, horaFin, c.hora_inicio, c.hora_fin)
@@ -181,6 +184,7 @@ export default function AgendasPage() {
   const [busquedaMascota, setBusquedaMascota] = useState('');
   const [listaMascotasAbierta, setListaMascotasAbierta] = useState(false);
   const [filtroTabla, setFiltroTabla] = useState('');
+  const [mostrarCanceladas, setMostrarCanceladas] = useState(false);
   const [editCita, setEditCita] = useState(null);
   const [editForm, setEditForm] = useState({
     id_mascota: '',
@@ -197,6 +201,7 @@ export default function AgendasPage() {
   const [editListaMascotasAbierta, setEditListaMascotasAbierta] = useState(false);
   const [editMascotas, setEditMascotas] = useState([]);
   const [deleteModalId, setDeleteModalId] = useState(null);
+  const [observacionCancelacion, setObservacionCancelacion] = useState('');
   const [cobroModalOpen, setCobroModalOpen] = useState(false);
   const [cobroForm, setCobroForm] = useState(() => emptyCobroForm());
   const [cobroMascotaNombre, setCobroMascotaNombre] = useState('');
@@ -825,23 +830,46 @@ export default function AgendasPage() {
     }
   }
 
-  async function confirmEliminar() {
+  async function confirmCancelarAgenda() {
     if (deleteModalId == null || !profSel?.id) return;
     if (!tryLock()) return;
     const idAgenda = deleteModalId;
     setLoading(true);
     try {
-      await eliminarCitaAgenda(profSel.id, idAgenda);
-      addToast('Cita eliminada correctamente', 'success');
-      setCitas((prev) => prev.filter((c) => c.id !== idAgenda));
+      const res = await cancelarAgenda(profSel.id, idAgenda, observacionCancelacion);
+      const updated = res?.data || {
+        cancelada: true,
+        observacion_cancelacion: observacionCancelacion.trim() || null,
+      };
+      addToast('Cita cancelada. La franja quedó libre.', 'success');
+      setCitas((prev) =>
+        prev.map((c) =>
+          String(c.id) === String(idAgenda)
+            ? {
+                ...c,
+                cancelada: true,
+                observacion_cancelacion:
+                  updated.observacion_cancelacion ??
+                  (observacionCancelacion.trim() || null),
+              }
+            : c
+        )
+      );
       if (editCita?.id === idAgenda) cerrarReprogramar();
       setDeleteModalId(null);
+      setObservacionCancelacion('');
     } catch (e) {
-      addToast(e?.message || 'Error al eliminar la cita', 'error');
+      addToast(e?.message || 'Error al cancelar la cita', 'error');
     } finally {
       setLoading(false);
       unlock();
     }
+  }
+
+  function cerrarModalCancelar() {
+    if (loading) return;
+    setDeleteModalId(null);
+    setObservacionCancelacion('');
   }
 
   async function resolverCuidadorParaWhatsApp(cita) {
@@ -880,10 +908,11 @@ export default function AgendasPage() {
 
   function resolverTarifaCita(cita) {
     if (Array.isArray(cita.tarifas) && cita.tarifas.length) {
+      const idTarifas = cita.tarifas.map((t) => String(t.id));
       return {
         tarifaDescripcion: formatTarifasLabel(cita.tarifas),
-        tarifaValor: cita.tarifa_valor,
-        idTarifas: cita.tarifas.map((t) => String(t.id)),
+        tarifaValor: sumTarifasValor(cita.tarifas, idTarifas),
+        idTarifas,
       };
     }
     const ids =
@@ -1007,7 +1036,7 @@ export default function AgendasPage() {
 
   async function abrirCobrar(cita) {
     if (!profSel?.id || !cita?.id) return;
-    const { tarifaDescripcion, tarifaValor, idTarifas: ids } = resolverTarifaCita(cita);
+    const { tarifaDescripcion, idTarifas: idsRaw } = resolverTarifaCita(cita);
     let tarifasProf = tarifas;
     if (!tarifasProf.length) {
       try {
@@ -1020,10 +1049,7 @@ export default function AgendasPage() {
       }
     }
 
-    const valor =
-      tarifaValor != null && tarifaValor !== ''
-        ? String(tarifaValor)
-        : String(sumTarifasValor(tarifasProf, ids));
+    const { ids, total } = totalTarifasSeleccionadas(tarifasProf, idsRaw);
 
     setCobroTarifas(tarifasProf);
     setCobroMascotaNombre(cita.mascota_nombre || '');
@@ -1033,7 +1059,7 @@ export default function AgendasPage() {
       id_mascota: String(cita.id_mascota || ''),
       id_tarifas: ids,
       id_tarifa: ids[0] || '',
-      valor,
+      valor: String(total),
       metodo_pago: '',
       observacion: tarifaDescripcion
         ? `Cobro agenda #${cita.id} · ${tarifaDescripcion}`
@@ -1046,8 +1072,7 @@ export default function AgendasPage() {
   }
 
   function handleCobroTarifasChange(id_tarifas) {
-    const ids = (id_tarifas || []).map(String);
-    const total = sumTarifasValor(cobroTarifas, ids);
+    const { ids, total } = totalTarifasSeleccionadas(cobroTarifas, id_tarifas);
     setCobroForm((prev) => ({
       ...prev,
       id_tarifas: ids,
@@ -1154,7 +1179,12 @@ export default function AgendasPage() {
 
   const citasDelDia = fecha
     ? citas
-        .filter((c) => toDateOnly(c.fecha) === toDateOnly(fecha))
+        .filter(
+          (c) =>
+            toDateOnly(c.fecha) === toDateOnly(fecha) &&
+            c.cancelada !== true &&
+            c.atendida !== true
+        )
         .sort(
           (a, b) =>
             (horaAMinutos(a.hora_inicio) ?? 0) - (horaAMinutos(b.hora_inicio) ?? 0)
@@ -1260,9 +1290,12 @@ export default function AgendasPage() {
   }
 
   const citasFiltradas = useMemo(() => {
+    const base = mostrarCanceladas
+      ? citas
+      : citas.filter((c) => c.cancelada !== true);
     const q = filtroTabla.trim().toLowerCase();
-    if (!q) return citas;
-    return citas.filter((c) => {
+    if (!q) return base;
+    return base.filter((c) => {
       const haystack = [
         c.id,
         c.mascota_nombre,
@@ -1273,14 +1306,19 @@ export default function AgendasPage() {
         formatHora(c.hora_inicio),
         formatHora(c.hora_fin),
         formatTarifaLabel(c),
-        c.cobrada ? 'cobrada pagada' : 'pendiente cobro',
+        c.cancelada
+          ? 'cancelada'
+          : c.cobrada
+            ? 'cobrada pagada'
+            : 'pendiente cobro',
+        c.observacion_cancelacion,
       ]
         .filter(Boolean)
         .join(' ')
         .toLowerCase();
       return haystack.includes(q);
     });
-  }, [citas, filtroTabla]);
+  }, [citas, filtroTabla, mostrarCanceladas]);
 
   const {
     pageRows: citasPageRows,
@@ -1292,7 +1330,7 @@ export default function AgendasPage() {
     goToPage: goToCitasPage,
   } = useClientTablePagination(
     citasFiltradas,
-    `${profSel?.id || ''}|${filtroTabla.trim()}`
+    `${profSel?.id || ''}|${filtroTabla.trim()}|${mostrarCanceladas ? '1' : '0'}`
   );
 
   const editCitasDelDia = editForm.fecha
@@ -1350,6 +1388,8 @@ export default function AgendasPage() {
         subtitle="Busca y selecciona un profesional para ver su agenda y asignar mascotas con fecha y franja horaria."
       />
 
+      <hr className="ui-divider" />
+
       {initLoading ? (
         <Skeleton rows={5} />
       ) : initError ? (
@@ -1365,82 +1405,85 @@ export default function AgendasPage() {
           description="Agrega un profesional desde el módulo de Profesionales"
         />
       ) : (
-        <div className="ui-split">
-          <div className="ui-card">
-            <Field id="buscador-profesional" label="Profesional">
-              <div ref={buscadorRef} className="ui-combo">
-                <div className="ui-btn-row">
-                  <Input
-                    id="buscador-profesional"
-                    type="text"
-                    role="combobox"
-                    aria-expanded={listaAbierta}
-                    aria-controls="lista-profesionales"
-                    aria-autocomplete="list"
-                    placeholder="Buscar por nombre o teléfono…"
-                    value={busquedaProf}
-                    disabled={loading}
-                    onChange={(e) => {
-                      setBusquedaProf(e.target.value);
-                      setListaAbierta(true);
-                      if (profSel && e.target.value !== profSel.nombre) {
-                        setProfSel(null);
-                        setCitas([]);
-                        setTarifas([]);
-                        limpiarCuidadorSeleccion();
-                        setFecha('');
-                        setHoraInicio('');
-                        setHoraFin('');
-                        setIdTarifas([]);
-                        setObservacionIngreso('');
-                        cerrarReprogramar();
-                      }
-                    }}
-                    onFocus={() => {
-                      void abrirListaProfesionales();
-                    }}
-                  />
-                  {(profSel || busquedaProf) && (
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      onClick={limpiarSeleccion}
+        <>
+          <div className="ui-card ui-card--filters">
+            <div className="ui-card__section-title">Filtros de agenda</div>
+            <div className="fields-row">
+              <Field id="buscador-profesional" label="Profesional">
+                <div ref={buscadorRef} className="ui-combo">
+                  <div className="ui-btn-row">
+                    <Input
+                      id="buscador-profesional"
+                      type="text"
+                      role="combobox"
+                      aria-expanded={listaAbierta}
+                      aria-controls="lista-profesionales"
+                      aria-autocomplete="list"
+                      placeholder="Buscar por nombre o teléfono…"
+                      value={busquedaProf}
                       disabled={loading}
-                    >
-                      Limpiar
-                    </Button>
+                      onChange={(e) => {
+                        setBusquedaProf(e.target.value);
+                        setListaAbierta(true);
+                        if (profSel && e.target.value !== profSel.nombre) {
+                          setProfSel(null);
+                          setCitas([]);
+                          setTarifas([]);
+                          limpiarCuidadorSeleccion();
+                          setFecha('');
+                          setHoraInicio('');
+                          setHoraFin('');
+                          setIdTarifas([]);
+                          setObservacionIngreso('');
+                          cerrarReprogramar();
+                        }
+                      }}
+                      onFocus={() => {
+                        void abrirListaProfesionales();
+                      }}
+                    />
+                    {(profSel || busquedaProf) && (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        onClick={limpiarSeleccion}
+                        disabled={loading}
+                      >
+                        Limpiar
+                      </Button>
+                    )}
+                  </div>
+
+                  {listaAbierta && (
+                    <ul id="lista-profesionales" role="listbox" className="ui-combo__list">
+                      {profesionalesFiltrados.length === 0 ? (
+                        <li className="ui-combo__item" style={{ cursor: 'default', color: 'var(--color-purple-light)' }}>
+                          Sin resultados para “{busquedaProf.trim()}”
+                        </li>
+                      ) : (
+                        profesionalesFiltrados.map((p) => (
+                          <li key={p.id} role="option" aria-selected={profSel?.id === p.id}>
+                            <button
+                              type="button"
+                              className={`ui-combo__item${profSel?.id === p.id ? ' ui-combo__item--active' : ''}`}
+                              onClick={() => seleccionarProfesional(p)}
+                            >
+                              <div>{p.nombre}</div>
+                              {p.telefono ? (
+                                <div style={{ fontSize: '0.75rem', color: 'var(--color-purple-light)', fontWeight: 400 }}>
+                                  {p.telefono}
+                                </div>
+                              ) : null}
+                            </button>
+                          </li>
+                        ))
+                      )}
+                    </ul>
                   )}
                 </div>
-
-                {listaAbierta && (
-                  <ul id="lista-profesionales" role="listbox" className="ui-combo__list">
-                    {profesionalesFiltrados.length === 0 ? (
-                      <li className="ui-combo__item" style={{ cursor: 'default', color: 'var(--color-purple-light)' }}>
-                        Sin resultados para “{busquedaProf.trim()}”
-                      </li>
-                    ) : (
-                      profesionalesFiltrados.map((p) => (
-                        <li key={p.id} role="option" aria-selected={profSel?.id === p.id}>
-                          <button
-                            type="button"
-                            className={`ui-combo__item${profSel?.id === p.id ? ' ui-combo__item--active' : ''}`}
-                            onClick={() => seleccionarProfesional(p)}
-                          >
-                            <div>{p.nombre}</div>
-                            {p.telefono ? (
-                              <div style={{ fontSize: '0.75rem', color: 'var(--color-purple-light)', fontWeight: 400 }}>
-                                {p.telefono}
-                              </div>
-                            ) : null}
-                          </button>
-                        </li>
-                      ))
-                    )}
-                  </ul>
-                )}
-              </div>
-            </Field>
+              </Field>
+            </div>
           </div>
 
           <div className="ui-card">
@@ -1452,21 +1495,11 @@ export default function AgendasPage() {
               />
             ) : (
               <>
-                <div
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    marginBottom: 16,
-                    gap: 12,
-                  }}
-                >
+                <div className="ui-selection-header">
                   <div>
-                    <div style={{ fontSize: '1rem', fontWeight: 600 }}>{profSel.nombre}</div>
+                    <div className="ui-selection-header__name">{profSel.nombre}</div>
                     {profSel.telefono ? (
-                      <div style={{ fontSize: '0.8125rem', color: 'var(--color-purple-light)' }}>
-                        {profSel.telefono}
-                      </div>
+                      <div className="ui-selection-header__detail">{profSel.telefono}</div>
                     ) : null}
                   </div>
                   <span className="ui-badge" style={{ background: 'var(--color-entorno)', color: 'var(--color-black)' }}>
@@ -1707,22 +1740,13 @@ export default function AgendasPage() {
                             onChange={(v) => setHoraFin(toTimeHHMM(v))}
                           />
                         </Field>
-                        <div className="agenda-form__action agenda-form__action--stack">
+                        <div className="agenda-form__action">
                           <Button
                             variant="primary"
                             onClick={handleAgendar}
                             disabled={loading || !puedeAgendar}
                           >
                             {loading ? '…' : franjaOcupada ? 'Cita ocupada' : 'Agendar'}
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            onClick={handleAgendarYCobrar}
-                            disabled={loading || !puedeAgendar || !cobroMetodoPago.trim()}
-                            title="Crea la cita y registra el cobro en un solo paso"
-                          >
-                            <Banknote size={14} />
-                            Agendar y Cobrar
                           </Button>
                         </div>
                       </div>
@@ -1762,6 +1786,19 @@ export default function AgendasPage() {
                             rows={2}
                           />
                         </Field>
+                      </div>
+                      <div className="agenda-form__row" style={{ justifyContent: 'flex-end' }}>
+                        <div className="agenda-form__action">
+                          <Button
+                            variant="ghost"
+                            onClick={handleAgendarYCobrar}
+                            disabled={loading || !puedeAgendar || !cobroMetodoPago.trim()}
+                            title="Crea la cita y registra el cobro en un solo paso"
+                          >
+                            <Banknote size={14} />
+                            Agendar y Cobrar
+                          </Button>
+                        </div>
                       </div>
                     </div>
 
@@ -1836,23 +1873,58 @@ export default function AgendasPage() {
                           Limpiar
                         </Button>
                       )}
+                      <label
+                        htmlFor="mostrar-canceladas-agenda"
+                        style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: 8,
+                          flexShrink: 0,
+                          fontSize: '0.8125rem',
+                          color: 'var(--color-purple-light)',
+                          cursor: 'pointer',
+                          userSelect: 'none',
+                          whiteSpace: 'nowrap',
+                        }}
+                      >
+                        <input
+                          id="mostrar-canceladas-agenda"
+                          type="checkbox"
+                          checked={mostrarCanceladas}
+                          onChange={(e) => setMostrarCanceladas(e.target.checked)}
+                          disabled={loading}
+                          style={{ width: 16, height: 16, accentColor: 'var(--color-entorno)' }}
+                        />
+                        Mostrar canceladas
+                      </label>
                       <PageSizeSelect
                         value={citasPerPage}
                         onChange={handleCitasPageSize}
                         disabled={loading}
                       />
-                      {filtroTabla.trim() && (
-                        <span className="ui-toolbar__meta">
-                          {citasTotal} resultado{citasTotal !== 1 ? 's' : ''}
-                        </span>
-                      )}
+                      <span className="ui-toolbar__meta">
+                        {citasTotal} cita{citasTotal !== 1 ? 's' : ''}
+                        {!mostrarCanceladas && citas.some((c) => c.cancelada) ? ' (ocultas canceladas)' : ''}
+                      </span>
                     </div>
 
                     {citasTotal === 0 ? (
                       <EmptyState
                         icon={<Calendar size={24} />}
-                        title={`Sin resultados para "${filtroTabla.trim()}"`}
-                        description="La búsqueda aplica a todas las citas de este profesional, no solo a la página actual"
+                        title={
+                          filtroTabla.trim()
+                            ? `Sin resultados para "${filtroTabla.trim()}"`
+                            : mostrarCanceladas
+                              ? 'Sin citas para mostrar'
+                              : 'Sin citas activas'
+                        }
+                        description={
+                          filtroTabla.trim()
+                            ? 'La búsqueda aplica a las citas visibles de este profesional'
+                            : mostrarCanceladas
+                              ? 'Este profesional aún no tiene citas registradas'
+                              : 'Activa “Mostrar canceladas” si quieres ver el historial de cancelaciones'
+                        }
                       />
                     ) : (
                       <>
@@ -1890,7 +1962,26 @@ export default function AgendasPage() {
                                   <td>{formatHora(c.hora_fin)}</td>
                                   <td>{formatTarifaLabel(c)}</td>
                                   <td>
-                                    {c.cobrada ? (
+                                    {c.cancelada ? (
+                                      <span
+                                        className="ui-badge"
+                                        title={
+                                          c.observacion_cancelacion
+                                            ? `Cancelada: ${c.observacion_cancelacion}`
+                                            : 'Cita cancelada'
+                                        }
+                                        style={{
+                                          background:
+                                            'color-mix(in srgb, #b91c1c 14%, var(--color-white))',
+                                          color: '#991b1b',
+                                          border:
+                                            '1px solid color-mix(in srgb, #b91c1c 30%, transparent)',
+                                          fontWeight: 600,
+                                        }}
+                                      >
+                                        Cancelada
+                                      </span>
+                                    ) : c.cobrada ? (
                                       <span
                                         className="ui-badge"
                                         title="Cobro registrado; pendiente de Mascota lista"
@@ -1915,9 +2006,23 @@ export default function AgendasPage() {
                                         Pendiente cobro
                                       </span>
                                     )}
+                                    {c.cancelada && c.observacion_cancelacion ? (
+                                      <div
+                                        style={{
+                                          marginTop: 4,
+                                          fontSize: '0.75rem',
+                                          color: 'var(--color-purple-light)',
+                                          maxWidth: 220,
+                                        }}
+                                      >
+                                        {c.observacion_cancelacion}
+                                      </div>
+                                    ) : null}
                                   </td>
                                   <td>
                                     <div className="ui-table__actions">
+                                      {!c.cancelada && (
+                                      <>
                                       <Button
                                         size="sm"
                                         variant="ghost"
@@ -1995,22 +2100,27 @@ export default function AgendasPage() {
                                       <Button
                                         size="sm"
                                         variant="ghost"
-                                        onClick={() => setDeleteModalId(c.id)}
+                                        onClick={() => {
+                                          setObservacionCancelacion('');
+                                          setDeleteModalId(c.id);
+                                        }}
                                         disabled={
                                           loading ||
                                           whatsappBusy != null ||
                                           c.cobrada === true
                                         }
-                                        aria-label="Quitar"
+                                        aria-label="Cancelar agenda"
                                         title={
                                           c.cobrada
-                                            ? 'No se puede quitar una cita cobrada. Anula el cobro en Cobros primero.'
-                                            : 'Quitar cita'
+                                            ? 'No se puede cancelar una cita cobrada. Anula el cobro en Cobros primero.'
+                                            : 'Cancelar agenda y liberar horario'
                                         }
                                       >
-                                        <Trash2 size={14} />
-                                        Quitar
+                                        <XCircle size={14} />
+                                        Cancelar
                                       </Button>
+                                      </>
+                                      )}
                                     </div>
                                   </td>
                                 </tr>
@@ -2033,7 +2143,7 @@ export default function AgendasPage() {
               </>
             )}
           </div>
-        </div>
+        </>
       )}
 
       <Sheet
@@ -2343,17 +2453,44 @@ export default function AgendasPage() {
         lockAgendaContext
       />
 
-      <ConfirmSheet
+      <Sheet
         open={deleteModalId != null}
-        onClose={() => setDeleteModalId(null)}
-        onConfirm={confirmEliminar}
-        title="Confirmar eliminación"
-        confirmLabel="Quitar"
-        loading={loading}
-        danger
+        onClose={cerrarModalCancelar}
+        title="Cancelar agenda"
+        dismissible={!loading}
+        footer={
+          <div
+            className="ui-btn-row ui-btn-row--mobile-stack"
+            style={{ width: '100%', justifyContent: 'flex-end' }}
+          >
+            <Button variant="ghost" onClick={cerrarModalCancelar} disabled={loading}>
+              Volver
+            </Button>
+            <Button
+              variant="danger"
+              onClick={confirmCancelarAgenda}
+              disabled={loading}
+            >
+              {loading ? 'Cancelando…' : 'Cancelar agenda'}
+            </Button>
+          </div>
+        }
       >
-        ¿Quitar la cita <b>#{deleteModalId}</b> de la agenda? Solo aplica a citas sin cobro. Esta acción no se puede deshacer.
-      </ConfirmSheet>
+        <p style={{ margin: '0 0 14px', fontSize: '0.875rem', color: 'var(--color-purple-light)', lineHeight: 1.5 }}>
+          ¿Cancelar la cita <b>#{deleteModalId}</b>? El registro se conserva en historial y la
+          franja horaria quedará libre. Solo aplica a citas sin cobro vigente.
+        </p>
+        <Field id="observacion-cancelacion" label="Observación de cancelación">
+          <Textarea
+            id="observacion-cancelacion"
+            value={observacionCancelacion}
+            onChange={(e) => setObservacionCancelacion(e.target.value)}
+            placeholder="Motivo de la cancelación (opcional)"
+            disabled={loading}
+            rows={3}
+          />
+        </Field>
+      </Sheet>
 
       <Toast toasts={toasts} removeToast={removeToast} />
     </div>

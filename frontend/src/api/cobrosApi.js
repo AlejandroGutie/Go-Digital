@@ -14,8 +14,8 @@ export const ESTADOS_COBRO = ['pendiente', 'pagado', 'anulado'];
 /** Transiciones permitidas (máquina de estados). */
 const TRANSICIONES_COBRO = {
   pendiente: new Set(['pagado', 'anulado']),
-  pagado: new Set(['anulado']),
-  anulado: new Set(),
+  pagado: new Set(['anulado', 'pendiente']),
+  anulado: new Set(['pendiente']),
 };
 
 function flattenCobroRow(row) {
@@ -90,7 +90,7 @@ function isMissingRpcError(error) {
 
 function throwMissingRpc(nombreRpc) {
   throw new Error(
-    `Falta la función ${nombreRpc} en Supabase. Ejecuta las migraciones hasta 20260826_000001_multi_tarifas_agenda_cobro.sql.`
+    `Falta la función ${nombreRpc} en Supabase. Ejecuta las migraciones pendientes (incluye 20260827_000005_actualizar_cobro_pendiente.sql).`
   );
 }
 
@@ -189,6 +189,12 @@ export async function createCobro(payload) {
     throw new Error('El método de pago es requerido');
   }
 
+  const estadoRaw = payload.estado === 'pendiente' ? 'pendiente' : 'pagado';
+  assertEstadoCobro(estadoRaw);
+  if (estadoRaw === 'anulado') {
+    throw new Error('No se puede crear un cobro directamente como anulado');
+  }
+
   const { data: rpcData, error: rpcError } = await supabase.rpc('create_cobro_atomico', {
     p_id_agenda: id_agenda,
     p_id_profesional: id_profesional,
@@ -198,6 +204,7 @@ export async function createCobro(payload) {
     p_metodo_pago: metodo_pago,
     p_observacion: observacion,
     p_fecha_cobro: fecha_cobro,
+    p_estado: estadoRaw,
   });
 
   if (!rpcError && rpcData) {
@@ -273,6 +280,22 @@ export async function updateCobro(id, payload) {
     throw new Error('Error al anular cobro');
   }
 
+  // Restaurar anulado → pendiente vía RPC atómico
+  if (patch.estado === 'pendiente' && existing.estado === 'anulado') {
+    if (Object.keys(patch).length !== 1) {
+      throw new Error('Para restaurar un cobro usa solo el cambio de estado.');
+    }
+    return restaurarCobro(idCobro);
+  }
+
+  // Devolver pago: pagado → pendiente
+  if (patch.estado === 'pendiente' && existing.estado === 'pagado') {
+    if (Object.keys(patch).length !== 1) {
+      throw new Error('Para devolver un pago usa solo el cambio de estado.');
+    }
+    return devolverPagoCobro(idCobro);
+  }
+
   const { data, error } = await supabase
     .from('cobro')
     .update(patch)
@@ -284,24 +307,96 @@ export async function updateCobro(id, payload) {
   return successOk(data);
 }
 
-export async function deleteCobro(id) {
+/**
+ * Edita un cobro pendiente: valor, método, observación, fecha y (opcional) tarifas.
+ */
+export async function updateCobroPendiente(id, payload = {}) {
+  const idCobro = Number(id);
+  if (!idCobro) throw new Error('Cobro inválido');
+
   const { data: existing, error: readErr } = await supabase
     .from('cobro')
-    .select('estado, id_agenda')
-    .eq('id', id)
+    .select('id, estado')
+    .eq('id', idCobro)
     .single();
   throwIfError(readErr, 'Cobro no encontrado');
 
-  if (existing.estado !== 'anulado') {
-    throw new Error('Solo se pueden eliminar cobros anulados');
+  if (existing.estado !== 'pendiente') {
+    throw new Error('Solo se pueden editar cobros pendientes');
   }
 
-  const { data, error } = await supabase
-    .from('cobro')
-    .delete()
-    .eq('id', id)
-    .select()
-    .single();
-  throwIfError(error, 'Error al eliminar cobro');
-  return successOk(data);
+  const valor = parseFloat(payload.valor);
+  if (Number.isNaN(valor) || valor < 0) {
+    throw new Error('Valor inválido');
+  }
+  const metodo_pago = payload.metodo_pago?.trim() || '';
+  if (!metodo_pago) {
+    throw new Error('El método de pago es requerido');
+  }
+
+  const hasTarifas =
+    payload.id_tarifas !== undefined ||
+    payload.tarifasIds !== undefined ||
+    payload.id_tarifa !== undefined;
+
+  const rpcArgs = {
+    p_id_cobro: idCobro,
+    p_valor: valor,
+    p_metodo_pago: metodo_pago,
+    p_observacion: payload.observacion?.trim() || null,
+    p_fecha_cobro: toDateOnly(payload.fecha_cobro) || hoyLocalISO(),
+    p_id_tarifas: hasTarifas ? normalizeIdTarifasPayload(payload) : null,
+  };
+
+  const { data: rpcData, error: rpcError } = await supabase.rpc(
+    'actualizar_cobro_pendiente',
+    rpcArgs
+  );
+
+  if (!rpcError && rpcData) {
+    return successOk(rpcData);
+  }
+  if (isMissingRpcError(rpcError)) {
+    throwMissingRpc('actualizar_cobro_pendiente');
+  }
+  throwIfError(rpcError, rpcError?.message || 'Error al editar cobro');
+  throw new Error('Error al editar cobro');
+}
+
+/** Restaura un cobro anulado a pendiente (sin borrado físico). */
+export async function restaurarCobro(id) {
+  const idCobro = Number(id);
+  if (!idCobro) throw new Error('Cobro inválido');
+
+  const { data: rpcData, error: rpcError } = await supabase.rpc('restaurar_cobro_atomico', {
+    p_id_cobro: idCobro,
+  });
+
+  if (!rpcError && rpcData) {
+    return successOk(rpcData);
+  }
+  if (isMissingRpcError(rpcError)) {
+    throwMissingRpc('restaurar_cobro_atomico');
+  }
+  throwIfError(rpcError, rpcError?.message || 'Error al restaurar cobro');
+  throw new Error('Error al restaurar cobro');
+}
+
+/** Devuelve un cobro pagado a pendiente (editable / re-pagable). */
+export async function devolverPagoCobro(id) {
+  const idCobro = Number(id);
+  if (!idCobro) throw new Error('Cobro inválido');
+
+  const { data: rpcData, error: rpcError } = await supabase.rpc('devolver_pago_cobro', {
+    p_id_cobro: idCobro,
+  });
+
+  if (!rpcError && rpcData) {
+    return successOk(rpcData);
+  }
+  if (isMissingRpcError(rpcError)) {
+    throwMissingRpc('devolver_pago_cobro');
+  }
+  throwIfError(rpcError, rpcError?.message || 'Error al devolver el pago');
+  throw new Error('Error al devolver el pago');
 }

@@ -85,10 +85,8 @@ export default function InformesFiltros({
   }
 
   return (
-    <div className="ui-card" style={{ marginBottom: 20 }}>
-      <div style={{ fontWeight: 600, marginBottom: 12, fontSize: '0.9375rem', color: 'var(--color-black)' }}>
-        {title}
-      </div>
+    <div className="ui-card ui-card--filters">
+      <div className="ui-card__section-title">{title}</div>
 
       <div className="ui-chips">
         {PRESETS_INFORMES.filter((p) => p.id !== 'personalizado').map((p) => {

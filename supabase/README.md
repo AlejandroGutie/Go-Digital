@@ -37,19 +37,30 @@ Ejecutar en **Supabase → SQL Editor** en este orden (idempotente; se puede re-
 13. `migrations/20260826_000002_grant_multi_tarifas.sql` — GRANTs a `authenticated` (evita error 42501 en formularios)  
 14. `migrations/20260826_000003_agenda_informe_cuidadores.sql` — `get_agenda_informe` incluye `cuidador_nombre`  
 15. `migrations/20260826_000004_agenda_observacion_ingreso.sql` — `agenda.observacion_ingreso` + RPC crear+cobrar  
-16. `migrations/20260826_000005_profesional_jornada.sql` — `hora_inicio_jornada` / `hora_fin_jornada` (default 08:00–18:00)
+16. `migrations/20260826_000005_profesional_jornada.sql` — `hora_inicio_jornada` / `hora_fin_jornada` (default 08:00–18:00)  
+17. `migrations/20260827_000001_create_cobro_estado.sql` — `create_cobro_atomico` con `p_estado` (pagado|pendiente)  
+18. `migrations/20260827_000002_fix_create_cobro_estado_cast.sql` — fix cast a enum `cobro_estado`  
+19. `migrations/20260827_000003_restaurar_cobro_atomico.sql` — RPC restaurar cobro anulado → pendiente  
+20. `migrations/20260827_000004_devolver_pago_cobro.sql` — RPC devolver pago + ajuste trigger protección  
+21. `migrations/20260827_000005_actualizar_cobro_pendiente.sql` — RPC editar cobro pendiente  
+22. `migrations/20260827_000006_agenda_cancelacion.sql` — cancelar agenda (sin DELETE) + libera cupo
 
 ### BD nueva
 
-Aplica **1 → 16** en orden.
+Aplica **1 → 22** en orden.
 
 ### BD de producción (ya aplicada)
 
-Si ya tienes hasta `20260813`, ejecuta **12 → 16**.  
+Si ya tienes hasta `20260813`, ejecuta **12 → 20**.  
 Si ya corriste `20260826_000001` y ves “No tienes permiso…”, ejecuta el paso **13**.  
 Para ver cuidadores en el informe de agendas vía RPC, ejecuta el paso **14**.  
 Para observaciones de ingreso en citas, ejecuta el paso **15**.  
-Para jornada del profesional y slots de 30 min en agendas, ejecuta el paso **16**.
+Para jornada del profesional y slots de 30 min en agendas, ejecuta el paso **16**.  
+Para crear cobros como pagado/pendiente desde el modal, ejecuta **17–18**.  
+Para restaurar cobros anulados (sin borrado físico), ejecuta el paso **19**.  
+Para devolver pagos (pagado → pendiente), ejecuta el paso **20** (`20260827_000004_devolver_pago_cobro.sql`).  
+Para editar cobros pendientes (tarifas/valor/método), ejecuta el paso **21** (`20260827_000005_actualizar_cobro_pendiente.sql`).  
+Para cancelar agendas (sin borrado físico), ejecuta el paso **22** (`20260827_000006_agenda_cancelacion.sql`).
 
 ## Comportamiento importante
 

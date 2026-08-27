@@ -101,6 +101,55 @@
   color: var(--color-black);
 }
 
+.ui-card__section-title {
+  font-weight: 600;
+  margin-bottom: 12px;
+  font-size: 0.9375rem;
+  color: var(--color-black);
+}
+
+.ui-card--filters {
+  margin-bottom: 16px;
+}
+
+.ui-card--filters .fields-row > .ui-field:only-child {
+  flex: 1 1 100%;
+  width: 100%;
+  min-width: 0;
+}
+
+.ui-card--filters .ui-combo {
+  width: 100%;
+}
+
+.ui-card--filters .ui-btn-row {
+  width: 100%;
+}
+
+.ui-card--filters .ui-btn-row .ui-input {
+  flex: 1;
+  min-width: 0;
+  width: 100%;
+}
+
+.ui-selection-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
+  gap: 12px;
+}
+
+.ui-selection-header__name {
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.ui-selection-header__detail {
+  font-size: 0.8125rem;
+  color: var(--color-purple-light);
+}
+
 .ui-bento {
   display: grid;
   gap: 12px;
@@ -1321,22 +1370,6 @@
   .ui-main {
     padding-left: 24px;
     padding-right: 24px;
-  }
-}
-
-/* Two-column workflow (asignación / agendas) */
-.ui-split {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-}
-
-@media (min-width: 900px) {
-  .ui-split {
-    display: grid;
-    grid-template-columns: minmax(240px, 280px) 1fr;
-    gap: 20px;
-    align-items: start;
   }
 }
 

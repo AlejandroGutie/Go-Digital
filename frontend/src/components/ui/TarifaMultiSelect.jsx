@@ -8,7 +8,30 @@ export function sumTarifasValor(tarifas = [], selectedIds = []) {
   const set = new Set((selectedIds || []).map(String));
   return (tarifas || [])
     .filter((t) => set.has(String(t.id)))
-    .reduce((acc, t) => acc + (Number(t.valor) || 0), 0);
+    .reduce((acc, t) => acc + (Number(t.valor ?? t.tarifa_valor) || 0), 0);
+}
+
+/** Tarifas visibles en el selector (activas). */
+export function tarifasActivas(tarifas = []) {
+  return (tarifas || []).filter((t) => t.activo !== false);
+}
+
+/** IDs seleccionados que existen en la lista de tarifas (p. ej. solo activas). */
+export function idsTarifasEnLista(tarifas = [], selectedIds = []) {
+  const list = tarifas || [];
+  const allowed = new Set(list.map((t) => String(t.id)));
+  return (selectedIds || []).map(String).filter((id) => allowed.has(id));
+}
+
+/** Suma coherente: solo tarifas activas y IDs presentes en esa lista. */
+export function totalTarifasSeleccionadas(tarifas = [], selectedIds = []) {
+  const activas = tarifasActivas(tarifas);
+  const ids = idsTarifasEnLista(activas, selectedIds);
+  return {
+    ids,
+    total: sumTarifasValor(activas, ids),
+    tarifas: activas,
+  };
 }
 
 export function formatTarifasLabel(tarifas = []) {

@@ -1,12 +1,18 @@
 import Field, { DateInput, Input, Select, Textarea } from '../ui/Field';
 import Button from '../ui/Button';
 import Sheet from '../ui/Sheet';
-import TarifaMultiSelect, { sumTarifasValor } from '../ui/TarifaMultiSelect';
+import TarifaMultiSelect, {
+  idsTarifasEnLista,
+  sumTarifasValor,
+  tarifasActivas,
+  totalTarifasSeleccionadas,
+} from '../ui/TarifaMultiSelect';
 import { formatFecha, formatMoneda } from '../../utils/format';
 
 /**
- * Modal de registro de cobro (mismo diseño/campos que CobrosPage).
+ * Modal de registro/edición de cobro.
  * `lockAgendaContext`: prellenado desde una agenda (profesional/agenda/mascota fijos).
+ * `editMode`: edición de cobro pendiente (contexto bloqueado + Guardar cambios).
  * Tarifas: selección múltiple; el valor se recalcula como suma (editable).
  */
 export default function CobroFormSheet({
@@ -26,19 +32,26 @@ export default function CobroFormSheet({
   onFieldChange,
   lockAgendaContext = false,
   stackLevel = 0,
+  /** En CobrosPage: footer con Cancelar + Pendiente + Pagar */
+  creationEstadoActions = false,
+  /** Edición de cobro pendiente */
+  editMode = false,
+  submittingEstado = null,
 }) {
   function setField(key, value) {
     onFieldChange?.({ ...values, [key]: value });
   }
 
+  const lockedContext = lockAgendaContext || editMode;
+  const tarifasVisibles = tarifasActivas(tarifas);
   const selectedIds = (values.id_tarifas || []).map(String);
-  const suma = sumTarifasValor(tarifas, selectedIds);
+  const { ids: idsActivos, total: suma } = totalTarifasSeleccionadas(tarifas, selectedIds);
   const valorNum = parseFloat(values.valor);
   const canSubmit =
     !loading &&
     !!String(values.id_profesional || '').trim() &&
     !!String(values.id_agenda || '').trim() &&
-    selectedIds.length > 0 &&
+    idsActivos.length > 0 &&
     !!String(values.metodo_pago || '').trim() &&
     !Number.isNaN(valorNum) &&
     valorNum >= 0 &&
@@ -49,14 +62,70 @@ export default function CobroFormSheet({
       onTarifasChange(nextIds);
       return;
     }
-    const total = sumTarifasValor(tarifas, nextIds);
+    const ids = idsTarifasEnLista(tarifasVisibles, nextIds);
+    const total = sumTarifasValor(tarifasVisibles, ids);
     onFieldChange?.({
       ...values,
-      id_tarifas: nextIds,
-      id_tarifa: nextIds[0] || '',
+      id_tarifas: ids,
+      id_tarifa: ids[0] || '',
       valor: String(total),
     });
   }
+
+  const footer = creationEstadoActions ? (
+    <div
+      className="ui-btn-row ui-btn-row--mobile-stack"
+      style={{ justifyContent: 'flex-end', width: '100%' }}
+    >
+      <Button variant="ghost" onClick={onClose} disabled={loading}>
+        Cancelar
+      </Button>
+      <Button
+        variant="secondary"
+        onClick={() => onSubmit?.('pendiente')}
+        disabled={!canSubmit || loading}
+        title={
+          !String(values.metodo_pago || '').trim()
+            ? 'Selecciona un método de pago'
+            : undefined
+        }
+      >
+        {loading && submittingEstado === 'pendiente'
+          ? 'Guardando…'
+          : 'Pendiente de pago'}
+      </Button>
+      <Button
+        variant="primary"
+        onClick={() => onSubmit?.('pagado')}
+        disabled={!canSubmit || loading}
+        title={
+          !String(values.metodo_pago || '').trim()
+            ? 'Selecciona un método de pago'
+            : undefined
+        }
+      >
+        {loading && submittingEstado === 'pagado' ? 'Guardando…' : 'Pagar'}
+      </Button>
+    </div>
+  ) : (
+    <div className="ui-btn-row" style={{ justifyContent: 'flex-end' }}>
+      <Button variant="ghost" onClick={onClose} disabled={loading}>
+        Cancelar
+      </Button>
+      <Button
+        variant="primary"
+        onClick={() => onSubmit?.()}
+        disabled={!canSubmit}
+        title={
+          !String(values.metodo_pago || '').trim()
+            ? 'Selecciona un método de pago'
+            : undefined
+        }
+      >
+        {loading ? 'Guardando…' : editMode ? 'Guardar cambios' : 'Guardar'}
+      </Button>
+    </div>
+  );
 
   return (
     <Sheet
@@ -65,29 +134,11 @@ export default function CobroFormSheet({
       title={title}
       dismissible={!loading}
       stackLevel={stackLevel}
-      footer={
-        <div className="ui-btn-row" style={{ justifyContent: 'flex-end' }}>
-          <Button variant="ghost" onClick={onClose} disabled={loading}>
-            Cancelar
-          </Button>
-          <Button
-            variant="primary"
-            onClick={onSubmit}
-            disabled={!canSubmit}
-            title={
-              !String(values.metodo_pago || '').trim()
-                ? 'Selecciona un método de pago'
-                : undefined
-            }
-          >
-            {loading ? 'Procesando…' : 'Guardar'}
-          </Button>
-        </div>
-      }
+      footer={footer}
     >
       <div className="ui-form">
         <Field label="Profesional" required>
-          {lockAgendaContext ? (
+          {lockedContext ? (
             <Input
               type="text"
               value={values.profesional_nombre || ''}
@@ -112,7 +163,7 @@ export default function CobroFormSheet({
         </Field>
 
         <Field label="Agenda" required>
-          {lockAgendaContext ? (
+          {lockedContext ? (
             <Input
               type="text"
               value={values.agenda_label || ''}
@@ -152,14 +203,14 @@ export default function CobroFormSheet({
 
         <Field label="Tarifas" required>
           <TarifaMultiSelect
-            id="cobro-tarifas"
-            tarifas={tarifas.filter((t) => t.activo !== false)}
-            value={selectedIds}
+            id={editMode ? 'cobro-tarifas-edit' : 'cobro-tarifas'}
+            tarifas={tarifasVisibles}
+            value={idsActivos}
             onChange={handleTarifasChange}
-            disabled={loading || (!lockAgendaContext && !values.id_profesional)}
+            disabled={loading || (!lockedContext && !values.id_profesional)}
             required
             emptyLabel={
-              !lockAgendaContext && !values.id_profesional
+              !lockedContext && !values.id_profesional
                 ? 'Elige un profesional primero'
                 : 'Sin tarifas configuradas'
             }
@@ -177,7 +228,7 @@ export default function CobroFormSheet({
             min="0"
             step="any"
           />
-          {selectedIds.length > 0 && (
+          {idsActivos.length > 0 && (
             <div
               style={{
                 marginTop: 6,
@@ -218,7 +269,7 @@ export default function CobroFormSheet({
 
         <Field label="Observación">
           <Textarea
-            value={values.observacion}
+            value={values.observacion || ''}
             onChange={(e) => setField('observacion', e.target.value)}
             placeholder="Observación (opcional)"
             disabled={loading}

@@ -12,7 +12,7 @@ const AGENDA_TARIFA_EMBED =
   'agenda_tarifa(id_tarifa, tarifa(id, descripcion, valor))';
 
 const AGENDA_BASE_COLUMNS =
-  'id, id_profesional, id_mascota, id_tarifa, fecha, hora_inicio, hora_fin, cobrada, atendida, observacion_ingreso';
+  'id, id_profesional, id_mascota, id_tarifa, fecha, hora_inicio, hora_fin, cobrada, atendida, cancelada, observacion_ingreso, observacion_cancelacion';
 
 const AGENDA_SELECT_MASCOTA_TARIFA =
   AGENDA_BASE_COLUMNS +
@@ -76,7 +76,9 @@ function flattenAgendaRow(row) {
     hora_fin: row.hora_fin,
     cobrada: row.cobrada === true,
     atendida: row.atendida === true,
+    cancelada: row.cancelada === true,
     observacion_ingreso: row.observacion_ingreso ?? null,
+    observacion_cancelacion: row.observacion_cancelacion ?? null,
     mascota_nombre: m?.nombre ?? row.mascota_nombre,
     profesional_nombre: row.profesional?.nombre ?? row.profesional_nombre,
     especie: m?.especie ?? row.especie,
@@ -119,7 +121,7 @@ function isMissingRpcError(error) {
 
 function throwMissingRpc(nombreRpc) {
   throw new Error(
-    `Falta la función ${nombreRpc} en Supabase. Ejecuta las migraciones hasta 20260826_000004_agenda_observacion_ingreso.sql.`
+    `Falta la función ${nombreRpc} en Supabase. Ejecuta las migraciones pendientes (incluye 20260827_000006_agenda_cancelacion.sql).`
   );
 }
 
@@ -189,7 +191,7 @@ async function syncAgendaTarifasClient(idAgenda, idTarifas) {
   throwIfError(error, 'Error al sincronizar tarifas de la cita');
 }
 
-/** Solo citas no atendidas ocupan el cupo (alineado al trigger/EXCLUDE DB). */
+/** Solo citas activas (no atendidas ni canceladas) ocupan el cupo. */
 async function assertSinSolape({
   idProfesional,
   idMascota = null,
@@ -206,6 +208,7 @@ async function assertSinSolape({
       .eq('id_profesional', Number(idProfesional))
       .eq('fecha', fecha)
       .eq('atendida', false)
+      .eq('cancelada', false)
       .order('id', { ascending: true })
       .range(from, from + AGENDA_PAGE_SIZE - 1);
     throwIfError(error, 'Error al validar disponibilidad de agenda');
@@ -232,6 +235,7 @@ async function assertSinSolape({
       .eq('id_mascota', idMasc)
       .eq('fecha', fecha)
       .eq('atendida', false)
+      .eq('cancelada', false)
       .order('id', { ascending: true })
       .range(from, from + AGENDA_PAGE_SIZE - 1);
     throwIfError(error, 'Error al validar disponibilidad de la mascota');
@@ -343,6 +347,7 @@ export async function getIdsMascotasConCitaActiva(idsMascota = []) {
         .select('id_mascota')
         .in('id_mascota', slice)
         .eq('atendida', false)
+        .eq('cancelada', false)
         .range(from, from + AGENDA_PAGE_SIZE - 1);
       throwIfError(error, 'Error al consultar citas activas');
       const rows = data ?? [];
@@ -354,7 +359,7 @@ export async function getIdsMascotasConCitaActiva(idsMascota = []) {
   return successOk([...unique]);
 }
 
-/** Citas activas de una mascota: pendientes de atención (no archivadas con Mascota lista). */
+/** Citas activas de una mascota: pendientes de atención (no archivadas ni canceladas). */
 export async function getCitasActivasDeMascota(idMascota) {
   const id = Number(idMascota);
   if (!id) {
@@ -368,6 +373,7 @@ export async function getCitasActivasDeMascota(idMascota) {
       .select(AGENDA_SELECT)
       .eq('id_mascota', id)
       .eq('atendida', false)
+      .eq('cancelada', false)
       .order('fecha', { ascending: true })
       .order('hora_inicio', { ascending: true })
       .range(from, from + AGENDA_PAGE_SIZE - 1);
@@ -498,13 +504,16 @@ async function assertAgendaEditable(idAgenda, idProfesional) {
   const idProf = Number(idProfesional);
   const { data, error } = await supabase
     .from('agenda')
-    .select('id, cobrada, atendida')
+    .select('id, cobrada, atendida, cancelada')
     .eq('id', id)
     .eq('id_profesional', idProf)
     .maybeSingle();
   throwIfError(error, 'Error al validar la cita');
   if (!data) {
     throw new Error('Cita no encontrada');
+  }
+  if (data.cancelada === true) {
+    throw new Error('No se puede modificar una cita cancelada.');
   }
   if (data.cobrada === true) {
     throw new Error(
@@ -517,12 +526,12 @@ async function assertAgendaEditable(idAgenda, idProfesional) {
   return data;
 }
 
-async function assertAgendaEliminable(idAgenda, idProfesional) {
+async function assertAgendaCancelable(idAgenda, idProfesional) {
   const id = Number(idAgenda);
   const idProf = Number(idProfesional);
   const { data, error } = await supabase
     .from('agenda')
-    .select('id, cobrada')
+    .select('id, cobrada, atendida, cancelada')
     .eq('id', id)
     .eq('id_profesional', idProf)
     .maybeSingle();
@@ -530,10 +539,16 @@ async function assertAgendaEliminable(idAgenda, idProfesional) {
   if (!data) {
     throw new Error('Cita no encontrada');
   }
+  if (data.cancelada === true) {
+    throw new Error('Esta cita ya está cancelada');
+  }
   if (data.cobrada === true) {
     throw new Error(
-      'No se puede quitar una cita cobrada. Anula el cobro en Cobros primero.'
+      'No se puede cancelar una cita cobrada. Anula el cobro en Cobros primero.'
     );
+  }
+  if (data.atendida === true) {
+    throw new Error('No se puede cancelar una cita ya marcada como Mascota lista.');
   }
 
   const { data: vigente, error: vigErr } = await supabase
@@ -546,7 +561,7 @@ async function assertAgendaEliminable(idAgenda, idProfesional) {
   throwIfError(vigErr, 'Error al verificar cobros de la cita');
   if (vigente) {
     throw new Error(
-      'No se puede quitar la cita: tiene un cobro vigente. Anúlalo en Cobros primero.'
+      'No se puede cancelar la cita: tiene un cobro vigente. Anúlalo en Cobros primero.'
     );
   }
   return data;
@@ -700,23 +715,25 @@ export async function actualizarCitaAgenda(idProfesional, idAgenda, payload) {
   return successOk({ ...data, id_tarifas, id_tarifa });
 }
 
-export async function eliminarCitaAgenda(idProfesional, idAgenda) {
+export async function cancelarAgenda(idProfesional, idAgenda, observacionCancelacion = '') {
   const idProf = Number(idProfesional);
   const id = Number(idAgenda);
   if (!idProf || !id) throw new Error('Cita inválida');
 
-  await assertAgendaEliminable(id, idProf);
+  await assertAgendaCancelable(id, idProf);
 
-  const { data, error } = await supabase
-    .from('agenda')
-    .delete()
-    .eq('id', id)
-    .eq('id_profesional', idProf)
-    .select()
-    .maybeSingle();
-  throwIfError(error, 'Error al eliminar la cita');
-  if (!data) {
-    throw new Error('Cita no encontrada');
+  const { data: rpcData, error: rpcError } = await supabase.rpc('cancelar_agenda_atomico', {
+    p_id_agenda: id,
+    p_id_profesional: idProf,
+    p_observacion_cancelacion: observacionCancelacion?.trim() || null,
+  });
+
+  if (!rpcError && rpcData) {
+    return successOk(flattenAgendaRow(rpcData));
   }
-  return successOk(data);
+  if (isMissingRpcError(rpcError)) {
+    throwMissingRpc('cancelar_agenda_atomico');
+  }
+  throwIfError(rpcError, rpcError?.message || 'Error al cancelar la cita');
+  throw new Error('Error al cancelar la cita');
 }

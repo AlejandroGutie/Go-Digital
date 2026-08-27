@@ -24,7 +24,7 @@ import {
 } from '../../utils/whatsapp';
 import EmptyState from '../EmptyState';
 import CobroFormSheet from '../cobros/CobroFormSheet';
-import { formatTarifasLabel, sumTarifasValor } from '../ui/TarifaMultiSelect';
+import { formatTarifasLabel, sumTarifasValor, totalTarifasSeleccionadas } from '../ui/TarifaMultiSelect';
 import Button from '../ui/Button';
 import Sheet from '../ui/Sheet';
 import Skeleton from '../ui/Skeleton';
@@ -233,16 +233,13 @@ export default function CitasMascotaAccionesSheet({
     try {
       const resT = await listTarifas(Number(cita.id_profesional));
       const tarifasProf = normalizeListPayload(resT).filter((t) => t.activo !== false);
-      const ids =
+      const idsRaw =
         Array.isArray(cita.id_tarifas) && cita.id_tarifas.length
           ? cita.id_tarifas.map(String)
           : cita.id_tarifa != null
             ? [String(cita.id_tarifa)]
             : [];
-      const valor =
-        cita.tarifa_valor != null && cita.tarifa_valor !== ''
-          ? String(cita.tarifa_valor)
-          : String(sumTarifasValor(tarifasProf, ids));
+      const { ids, total } = totalTarifasSeleccionadas(tarifasProf, idsRaw);
 
       setCobroTarifas(tarifasProf);
       setCobroForm({
@@ -251,7 +248,7 @@ export default function CitasMascotaAccionesSheet({
         id_mascota: String(cita.id_mascota),
         id_tarifas: ids,
         id_tarifa: ids[0] || '',
-        valor,
+        valor: String(total),
         metodo_pago: '',
         observacion: cita.tarifa_descripcion
           ? `Cobro agenda #${cita.id} · ${cita.tarifa_descripcion}`
@@ -269,12 +266,12 @@ export default function CitasMascotaAccionesSheet({
   }
 
   function handleCobroTarifasChange(id_tarifas) {
-    const ids = (id_tarifas || []).map(String);
+    const { ids, total } = totalTarifasSeleccionadas(cobroTarifas, id_tarifas);
     setCobroForm((prev) => ({
       ...prev,
       id_tarifas: ids,
       id_tarifa: ids[0] || '',
-      valor: String(sumTarifasValor(cobroTarifas, ids)),
+      valor: String(total),
     }));
   }
 
