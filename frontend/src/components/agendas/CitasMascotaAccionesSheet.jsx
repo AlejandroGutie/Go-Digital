@@ -1,10 +1,12 @@
 import { useEffect, useState } from 'react';
-import { Banknote, MessageCircle, PawPrint } from 'lucide-react';
+import { MessageCircle, PawPrint, Wallet } from 'lucide-react';
 import {
   getCitasActivasDeMascota,
   marcarAgendaAtendida,
+  debeMostrarEnVistaActiva,
+  estadoPagoAgenda,
 } from '../../api/agendasApi';
-import { createCobro } from '../../api/cobrosApi';
+import { createCobro, updateCobro } from '../../api/cobrosApi';
 import { listTarifas } from '../../api/tarifasApi';
 import { getCuidadoresDeMascota, getMascotaById } from '../../api/mascotasApi';
 import { normalizeListPayload } from '../../api/normalize';
@@ -24,7 +26,7 @@ import {
 } from '../../utils/whatsapp';
 import EmptyState from '../EmptyState';
 import CobroFormSheet from '../cobros/CobroFormSheet';
-import { formatTarifasLabel, sumTarifasValor, totalTarifasSeleccionadas } from '../ui/TarifaMultiSelect';
+import { formatTarifasLabel, totalTarifasSeleccionadas } from '../ui/TarifaMultiSelect';
 import Button from '../ui/Button';
 import Sheet from '../ui/Sheet';
 import Skeleton from '../ui/Skeleton';
@@ -45,12 +47,21 @@ function emptyCobroForm() {
   };
 }
 
-function EstadoBadge({ cobrada }) {
-  if (cobrada) {
+function estadoPagoCita(cita) {
+  return estadoPagoAgenda(cita);
+}
+
+function EstadoBadge({ cita }) {
+  const estado = estadoPagoCita(cita);
+  if (estado === 'pagado') {
     return (
       <span
         className="ui-badge"
-        title="Cobro registrado; pendiente de Mascota lista"
+        title={
+          cita.atendida
+            ? 'Pagada y lista'
+            : 'Pago registrado; pendiente de Mascota lista'
+        }
         style={{
           background: 'color-mix(in srgb, #0d9488 18%, var(--color-white))',
           color: '#0f766e',
@@ -58,20 +69,21 @@ function EstadoBadge({ cobrada }) {
           fontWeight: 600,
         }}
       >
-        Cobrada
+        Pagada
       </span>
     );
   }
   return (
     <span
       className="ui-badge"
+      title="Cobro pendiente de pago"
       style={{
         background: 'var(--bg-selected)',
         color: 'var(--color-entorno)',
         fontWeight: 600,
       }}
     >
-      Pendiente cobro
+      Pendiente de pago
     </span>
   );
 }
@@ -86,6 +98,7 @@ export default function CitasMascotaAccionesSheet({
   const [citas, setCitas] = useState([]);
   const [listLoading, setListLoading] = useState(false);
   const [whatsappBusy, setWhatsappBusy] = useState(null); // { id, kind }
+  const [pagarBusyId, setPagarBusyId] = useState(null);
   const [cobroOpen, setCobroOpen] = useState(false);
   const [cobroForm, setCobroForm] = useState(emptyCobroForm());
   const [cobroTarifas, setCobroTarifas] = useState([]);
@@ -97,6 +110,7 @@ export default function CitasMascotaAccionesSheet({
       setCitas([]);
       setCobroOpen(false);
       setCobroForm(emptyCobroForm());
+      setPagarBusyId(null);
       return undefined;
     }
 
@@ -184,16 +198,22 @@ export default function CitasMascotaAccionesSheet({
   }
 
   async function handleMascotaLista(cita) {
-    if (cita?.cobrada !== true) {
-      addToast?.('Registra el cobro antes de marcar Mascota lista.', 'error');
+    if (cita?.cancelada === true) return;
+    if (cita?.atendida === true) {
+      addToast?.('Esta cita ya está marcada como Mascota lista.', 'success');
       return;
     }
     if (!tryLock()) return;
     setWhatsappBusy({ id: cita.id, kind: 'lista' });
     try {
-      // Archivar siempre; WhatsApp es opcional
       await marcarAgendaAtendida(cita.id, cita.id_profesional);
-      setCitas((prev) => prev.filter((c) => String(c.id) !== String(cita.id)));
+      setCitas((prev) =>
+        prev
+          .map((c) =>
+            String(c.id) === String(cita.id) ? { ...c, atendida: true } : c
+          )
+          .filter(debeMostrarEnVistaActiva)
+      );
       onCitasChanged?.();
 
       let whatsappOk = false;
@@ -211,13 +231,18 @@ export default function CitasMascotaAccionesSheet({
         whatsappOk = true;
       } catch (waErr) {
         addToast?.(
-          `Cita marcada como atendida. No se abrió WhatsApp: ${waErr?.message || 'sin cuidador/teléfono válido'}`,
+          `Mascota lista registrada. No se abrió WhatsApp: ${waErr?.message || 'sin cuidador/teléfono válido'}`,
           'success'
         );
       }
 
       if (whatsappOk) {
-        addToast?.('Cita marcada como atendida y WhatsApp abierto.', 'success');
+        addToast?.(
+          estadoPagoCita(cita) === 'pagado'
+            ? 'Mascota lista y WhatsApp abierto. La cita quedó archivada.'
+            : 'Mascota lista y WhatsApp abierto. La cita sigue visible hasta pagar.',
+          'success'
+        );
       }
     } catch (e) {
       addToast?.(e?.message || 'No se pudo marcar la mascota como lista', 'error');
@@ -227,8 +252,9 @@ export default function CitasMascotaAccionesSheet({
     }
   }
 
-  async function abrirCobrar(cita) {
-    if (cita.cobrada) return;
+  /** Legacy: cita sin cobro → abre formulario para crear cobro pagado. */
+  async function abrirRegistrarPago(cita) {
+    if (estadoPagoCita(cita) === 'pagado') return;
     if (!tryLock()) return;
     try {
       const resT = await listTarifas(Number(cita.id_profesional));
@@ -251,8 +277,8 @@ export default function CitasMascotaAccionesSheet({
         valor: String(total),
         metodo_pago: '',
         observacion: cita.tarifa_descripcion
-          ? `Cobro agenda #${cita.id} · ${cita.tarifa_descripcion}`
-          : `Cobro agenda #${cita.id}`,
+          ? `Pago agenda #${cita.id} · ${cita.tarifa_descripcion}`
+          : `Pago agenda #${cita.id}`,
         fecha_cobro: toDateOnly(cita.fecha) || hoyLocalISO(),
         profesional_nombre: cita.profesional_nombre || '',
         agenda_label: `${formatFecha(cita.fecha)} — ${cita.mascota_nombre || mascota?.nombre || 'Mascota'} · ${formatHora(cita.hora_inicio)}-${formatHora(cita.hora_fin)}`,
@@ -263,6 +289,48 @@ export default function CitasMascotaAccionesSheet({
     } finally {
       unlock();
     }
+  }
+
+  async function handlePagar(cita) {
+    if (estadoPagoCita(cita) === 'pagado') return;
+
+    // Cobro pendiente existente → marcar pagado
+    if (cita.cobro_id && cita.cobro_estado === 'pendiente') {
+      if (!tryLock()) return;
+      setPagarBusyId(cita.id);
+      try {
+        const res = await updateCobro(cita.cobro_id, { estado: 'pagado' });
+        if (res?.status === 'ok') {
+          setCitas((prev) =>
+            prev
+              .map((c) =>
+                String(c.id) === String(cita.id)
+                  ? { ...c, cobrada: true, cobro_estado: 'pagado' }
+                  : c
+              )
+              .filter(debeMostrarEnVistaActiva)
+          );
+          addToast?.(
+            cita.atendida === true
+              ? 'Pago registrado. La cita quedó archivada (lista + pagada).'
+              : 'Pago registrado. La cita quedó como pagada.',
+            'success'
+          );
+          onCitasChanged?.();
+        } else {
+          addToast?.(res?.message || 'Error al registrar el pago', 'error');
+        }
+      } catch (e) {
+        addToast?.(e?.message || 'Error al registrar el pago', 'error');
+      } finally {
+        setPagarBusyId(null);
+        unlock();
+      }
+      return;
+    }
+
+    // Sin cobro (citas antiguas): abrir formulario
+    await abrirRegistrarPago(cita);
   }
 
   function handleCobroTarifasChange(id_tarifas) {
@@ -301,21 +369,34 @@ export default function CitasMascotaAccionesSheet({
         metodo_pago: cobroForm.metodo_pago,
         observacion: cobroForm.observacion,
         fecha_cobro: cobroForm.fecha_cobro,
+        estado: 'pagado',
       });
       if (res?.status === 'ok') {
         const agendaId = String(cobroForm.id_agenda);
-        addToast?.('Cobro registrado. La cita sigue visible hasta Mascota lista.', 'success');
+        const cobroCreado = res?.data;
+        addToast?.('Pago registrado. La cita quedó como pagada.', 'success');
         setCitas((prev) =>
-          prev.map((c) => (String(c.id) === agendaId ? { ...c, cobrada: true } : c))
+          prev
+            .map((c) =>
+              String(c.id) === agendaId
+                ? {
+                    ...c,
+                    cobrada: true,
+                    cobro_id: cobroCreado?.id ?? c.cobro_id,
+                    cobro_estado: 'pagado',
+                  }
+                : c
+            )
+            .filter(debeMostrarEnVistaActiva)
         );
         setCobroOpen(false);
         setCobroForm(emptyCobroForm());
         onCitasChanged?.();
       } else {
-        addToast?.(res?.message || 'Error al crear cobro', 'error');
+        addToast?.(res?.message || 'Error al registrar el pago', 'error');
       }
     } catch (e) {
-      addToast?.(e?.message || 'Error al crear cobro', 'error');
+      addToast?.(e?.message || 'Error al registrar el pago', 'error');
     } finally {
       setCobroLoading(false);
       unlock();
@@ -328,11 +409,15 @@ export default function CitasMascotaAccionesSheet({
         open={open}
         onClose={() => !cobroLoading && onClose?.()}
         title={mascota ? `Citas de ${mascota.nombre}` : 'Gestionar citas'}
-        description="Citas activas (pendientes de Mascota lista). Primero cobra; luego marca Mascota lista para archivar."
-        dismissible={!cobroLoading && !whatsappBusy}
+        description="Citas activas de la mascota. Se archivan solo cuando están pagadas y marcadas como Mascota lista."
+        dismissible={!cobroLoading && !whatsappBusy && pagarBusyId == null}
         stackLevel={1}
         footer={
-          <Button variant="ghost" onClick={onClose} disabled={cobroLoading}>
+          <Button
+            variant="ghost"
+            onClick={onClose}
+            disabled={cobroLoading || pagarBusyId != null}
+          >
             Cerrar
           </Button>
         }
@@ -342,7 +427,7 @@ export default function CitasMascotaAccionesSheet({
         ) : citas.length === 0 ? (
           <EmptyState
             title="Sin citas activas"
-            description="Agenda una cita para esta mascota. Las finalizadas con Mascota lista no aparecen aquí."
+            description="Agenda una cita para esta mascota. Las citas se archivan al completar pago y Mascota lista."
           />
         ) : (
           <div className="ui-table-wrap table-scroll">
@@ -355,79 +440,94 @@ export default function CitasMascotaAccionesSheet({
                 </tr>
               </thead>
               <tbody>
-                {citas.map((c) => (
-                  <tr key={c.id}>
-                    <td style={{ color: 'var(--color-purple-light)' }}>{formatFecha(c.fecha)}</td>
-                    <td>
-                      {formatHora(c.hora_inicio)} – {formatHora(c.hora_fin)}
-                    </td>
-                    <td>{c.profesional_nombre || '—'}</td>
-                    <td>
-                      {Array.isArray(c.tarifas) && c.tarifas.length
-                        ? formatTarifasLabel(c.tarifas)
-                        : c.tarifa_descripcion
-                          ? `${c.tarifa_descripcion}${
-                              c.tarifa_valor != null ? ` · ${formatMoneda(c.tarifa_valor)}` : ''
-                            }`
-                          : '—'}
-                    </td>
-                    <td>
-                      <EstadoBadge cobrada={c.cobrada === true} />
-                    </td>
-                    <td>
-                      <div className="ui-table__actions">
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          onClick={() => handleConfirmarWhatsApp(c)}
-                          disabled={whatsappBusy != null || cobroLoading}
-                          style={{ color: '#128C7E' }}
-                        >
-                          <MessageCircle size={14} />
-                          {whatsappBusy?.id === c.id && whatsappBusy?.kind === 'confirm'
-                            ? 'Abriendo…'
-                            : 'Confirmar'}
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          onClick={() => handleMascotaLista(c)}
-                          disabled={
-                            whatsappBusy != null ||
-                            cobroLoading ||
-                            c.cobrada !== true
-                          }
-                          title={
-                            c.cobrada !== true
-                              ? 'Registra el cobro antes de marcar Mascota lista'
-                              : 'Marcar atención completada y notificar'
-                          }
-                          style={{ color: '#128C7E' }}
-                        >
-                          <PawPrint size={14} />
-                          {whatsappBusy?.id === c.id && whatsappBusy?.kind === 'lista'
-                            ? 'Procesando…'
-                            : 'Mascota lista'}
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          onClick={() => abrirCobrar(c)}
-                          disabled={
-                            whatsappBusy != null ||
-                            cobroLoading ||
-                            cobroOpen ||
-                            c.cobrada === true
-                          }
-                          title={c.cobrada ? 'Esta cita ya está cobrada' : 'Registrar cobro'}
-                        >
-                          <Banknote size={14} />
-                          Cobrar
-                        </Button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
+                {citas.map((c) => {
+                  const pago = estadoPagoCita(c);
+                  const pendientePago = pago === 'pendiente';
+                  return (
+                    <tr key={c.id}>
+                      <td style={{ color: 'var(--color-purple-light)' }}>
+                        {formatFecha(c.fecha)}
+                      </td>
+                      <td>
+                        {formatHora(c.hora_inicio)} – {formatHora(c.hora_fin)}
+                      </td>
+                      <td>{c.profesional_nombre || '—'}</td>
+                      <td>
+                        {Array.isArray(c.tarifas) && c.tarifas.length
+                          ? formatTarifasLabel(c.tarifas)
+                          : c.tarifa_descripcion
+                            ? `${c.tarifa_descripcion}${
+                                c.tarifa_valor != null
+                                  ? ` · ${formatMoneda(c.tarifa_valor)}`
+                                  : ''
+                              }`
+                            : '—'}
+                      </td>
+                      <td>
+                        <EstadoBadge cita={c} />
+                      </td>
+                      <td>
+                        <div className="ui-table__actions">
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => handleConfirmarWhatsApp(c)}
+                            disabled={
+                              whatsappBusy != null ||
+                              cobroLoading ||
+                              pagarBusyId != null
+                            }
+                            style={{ color: '#128C7E' }}
+                          >
+                            <MessageCircle size={14} />
+                            {whatsappBusy?.id === c.id && whatsappBusy?.kind === 'confirm'
+                              ? 'Abriendo…'
+                              : 'Confirmar'}
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => handleMascotaLista(c)}
+                            disabled={
+                              whatsappBusy != null ||
+                              cobroLoading ||
+                              pagarBusyId != null ||
+                              c.atendida === true
+                            }
+                            title={
+                              c.atendida === true
+                                ? 'Esta cita ya está marcada como Mascota lista'
+                                : 'Marcar atención completada y notificar'
+                            }
+                            style={{ color: '#128C7E' }}
+                          >
+                            <PawPrint size={14} />
+                            {whatsappBusy?.id === c.id && whatsappBusy?.kind === 'lista'
+                              ? 'Procesando…'
+                              : 'Mascota lista'}
+                          </Button>
+                          {pendientePago && (
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onClick={() => handlePagar(c)}
+                              disabled={
+                                whatsappBusy != null ||
+                                cobroLoading ||
+                                cobroOpen ||
+                                pagarBusyId != null
+                              }
+                              title="Marcar el cobro como pagado"
+                            >
+                              <Wallet size={14} />
+                              {pagarBusyId === c.id ? 'Pagando…' : 'Pagar'}
+                            </Button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -444,7 +544,7 @@ export default function CitasMascotaAccionesSheet({
         }}
         onSubmit={guardarCobro}
         loading={cobroLoading}
-        title="Registrar cobro"
+        title="Registrar pago"
         values={cobroForm}
         nombreMascotaVisible={mascota?.nombre || ''}
         tarifas={cobroTarifas}

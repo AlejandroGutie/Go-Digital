@@ -85,6 +85,67 @@ export function buildWhatsAppConfirmMessage({
 }
 
 /**
+ * Mensaje de cita reprogramada para WhatsApp.
+ * Misma estructura que la confirmación, con texto explícito de reprogramación.
+ */
+export function buildWhatsAppReprogramadaMessage({
+  cuidadorNombre,
+  mascotaNombre,
+  mascotaEspecie,
+  mascotaRaza,
+  mascotaTamano,
+  profesionalNombre,
+  fechaLabel,
+  horaInicioLabel,
+  horaFinLabel,
+  tarifaDescripcion,
+  valorLabel,
+}) {
+  const nombre = cuidadorNombre?.trim() || 'cliente';
+  const horaRango =
+    horaInicioLabel && horaFinLabel
+      ? `${horaInicioLabel} - ${horaFinLabel}`
+      : horaInicioLabel || horaFinLabel || '-';
+
+  const detalleMascota = [mascotaEspecie, mascotaRaza, mascotaTamano]
+    .filter(Boolean)
+    .join(' / ');
+
+  const tarifaTexto =
+    [tarifaDescripcion, valorLabel].filter(Boolean).join(' - ') || '-';
+
+  const lines = [
+    `*¡Hola, ${nombre}!*`,
+    '',
+    'Tu cita ha sido *reprogramada* con éxito.',
+    'Estos son los nuevos datos de tu reserva:',
+    '',
+    '*NUEVA AGENDA*',
+    line('Fecha', fechaLabel),
+    line('Hora', horaRango),
+    line('Tarifa', tarifaTexto),
+    '',
+    '*MASCOTA*',
+    line('Nombre', mascotaNombre || '-'),
+  ];
+
+  if (detalleMascota) {
+    lines.push(line('Detalle', detalleMascota));
+  }
+
+  lines.push(
+    '',
+    '*PROFESIONAL*',
+    line('Nombre', profesionalNombre || ''),
+    '',
+    'Quedamos atentos a cualquier inquietud.',
+    '¡Te esperamos!'
+  );
+
+  return lines.join('\n');
+}
+
+/**
  * Aviso de "mascota lista" para recogida o entrega a domicilio.
  * Sin emojis (compatibilidad con deeplink WhatsApp en móviles).
  */

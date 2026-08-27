@@ -618,7 +618,7 @@ export default function CobrosPage() {
         <>
           <div className="ui-card ui-card--filters">
             <div className="ui-card__section-title">Filtros de cobros</div>
-            <div className="fields-row fields-row--end">
+            <div className="ui-form-grid ui-form-grid--2">
               <Field label="Estado">
                 <Select
                   value={filtros.estado}
@@ -724,19 +724,24 @@ export default function CobrosPage() {
                   min={filtros.fecha_desde || undefined}
                 />
               </Field>
-              {hayFiltros && (
+            </div>
+            {hayFiltros && (
+              <div
+                className="fields-row fields-row--end"
+                style={{ marginTop: 12 }}
+              >
                 <div className="fields-row__action">
                   <Button variant="ghost" onClick={limpiarFiltros}>
                     Limpiar
                   </Button>
                 </div>
-              )}
-              {hayFiltros && meta != null && (
-                <span className="ui-toolbar__meta fields-row__meta">
-                  {meta.total} resultado{meta.total !== 1 ? 's' : ''}
-                </span>
-              )}
-            </div>
+                {meta != null && (
+                  <span className="ui-toolbar__meta fields-row__meta">
+                    {meta.total} resultado{meta.total !== 1 ? 's' : ''}
+                  </span>
+                )}
+              </div>
+            )}
             {rangoFechasError && (
               <div className="ui-banner ui-banner--warn" style={{ marginTop: 12 }}>
                 La fecha «Desde» no puede ser posterior a «Hasta».

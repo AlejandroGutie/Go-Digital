@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Banknote } from 'lucide-react';
 import {
-  crearCitaAgenda,
   crearCitaYCobrar,
   franjasSeSolapan,
   getAgendaDeProfesional,
@@ -12,10 +11,14 @@ import { listTarifas } from '../../api/tarifasApi';
 import { normalizeListPayload } from '../../api/normalize';
 import { useMutationLock } from '../../hooks/useMutationLock';
 import { formatFecha, formatHora, toDateOnly } from '../../utils/format';
+import { confirmarAgendaPorWhatsApp } from '../../utils/confirmarAgendaWhatsApp';
 import Field, { DateInput, Input, Select, Textarea } from '../ui/Field';
 import Button from '../ui/Button';
 import Sheet from '../ui/Sheet';
-import TarifaMultiSelect, { sumTarifasValor } from '../ui/TarifaMultiSelect';
+import TarifaMultiSelect, {
+  formatTarifasLabel,
+  sumTarifasValor,
+} from '../ui/TarifaMultiSelect';
 import HorarioSlotSelect from '../ui/HorarioSlotSelect';
 import {
   DURACION_CITA_DEFAULT_MIN,
@@ -239,29 +242,7 @@ export default function AgendarMascotaSheet({
     };
   }
 
-  async function handleSubmit() {
-    if (!puedeAgendar) return;
-    const fechaGuardar = toDateOnly(form.fecha);
-    if (!fechaGuardar) {
-      addToast?.('Fecha inválida', 'error');
-      return;
-    }
-    if (!tryLock()) return;
-    setLoading(true);
-    try {
-      await crearCitaAgenda(Number(form.id_profesional), buildPayload(fechaGuardar));
-      addToast?.('Cita agendada correctamente', 'success');
-      onAgendado?.();
-      onClose?.();
-    } catch (e) {
-      addToast?.(e?.message || 'Error al agendar', 'error');
-    } finally {
-      setLoading(false);
-      unlock();
-    }
-  }
-
-  async function handleAgendarYCobrar() {
+  async function handleAgendarConCobro(estadoCobro) {
     if (!puedeAgendar) return;
     const fechaGuardar = toDateOnly(form.fecha);
     if (!fechaGuardar) {
@@ -279,22 +260,83 @@ export default function AgendarMascotaSheet({
     }
     if (!tryLock()) return;
     setLoading(true);
+    const esPendiente = estadoCobro === 'pendiente';
     try {
-      await crearCitaYCobrar(Number(form.id_profesional), buildPayload(fechaGuardar), {
-        valor,
-        metodo_pago: form.metodo_pago,
-        observacion: form.observacion,
-        fecha_cobro: fechaGuardar,
-      });
-      addToast?.('Cita agendada y cobrada correctamente', 'success');
+      const resCreate = await crearCitaYCobrar(
+        Number(form.id_profesional),
+        buildPayload(fechaGuardar),
+        {
+          valor,
+          metodo_pago: form.metodo_pago,
+          observacion: form.observacion,
+          fecha_cobro: fechaGuardar,
+          estado: esPendiente ? 'pendiente' : 'pagado',
+        }
+      );
+
+      const agendaCreada = resCreate?.data?.agenda || null;
+      const profesional = profesionales.find(
+        (p) => String(p.id) === String(form.id_profesional)
+      );
+      const tarifaDescripcion = formatTarifasLabel(
+        (form.id_tarifas || [])
+          .map((id) => tarifasActivas.find((t) => String(t.id) === String(id)))
+          .filter(Boolean)
+      );
+
+      addToast?.(
+        esPendiente
+          ? 'Cita agendada con cobro pendiente.'
+          : 'Cita agendada y pagada correctamente.',
+        'success'
+      );
+
+      try {
+        await confirmarAgendaPorWhatsApp({
+          cita: {
+            ...(agendaCreada || {}),
+            id_mascota: Number(mascota.id),
+            fecha: fechaGuardar,
+            hora_inicio: form.hora_inicio,
+            hora_fin: form.hora_fin,
+            mascota_nombre: mascota?.nombre,
+            especie: mascota?.especie,
+            raza: mascota?.raza,
+            tamano: mascota?.tamano,
+          },
+          profesionalNombre: profesional?.nombre || '',
+          mascotaFallback: mascota,
+          tarifaDescripcion,
+          tarifaValor: valor,
+        });
+        addToast?.('Se abrió WhatsApp con el mensaje de confirmación.', 'success');
+      } catch (waErr) {
+        addToast?.(
+          `No se abrió WhatsApp: ${waErr?.message || 'sin cuidador/teléfono válido'}`,
+          'error'
+        );
+      }
+
       onAgendado?.();
       onClose?.();
     } catch (e) {
-      addToast?.(e?.message || 'Error al agendar y cobrar', 'error');
+      addToast?.(
+        e?.message ||
+          (esPendiente ? 'Error al agendar' : 'Error al agendar y pagar'),
+        'error'
+      );
     } finally {
       setLoading(false);
       unlock();
     }
+  }
+
+  async function handleSubmit() {
+    await handleAgendarConCobro('pendiente');
+  }
+
+  async function handleAgendarYPagar() {
+    await handleAgendarConCobro('pagado');
   }
 
   const mascotaLabel = mascota
@@ -316,13 +358,18 @@ export default function AgendarMascotaSheet({
           </Button>
           <Button
             variant="ghost"
-            onClick={handleAgendarYCobrar}
+            onClick={handleAgendarYPagar}
             disabled={!puedeAgendar || !form.metodo_pago?.trim()}
+            title="Crea la cita, registra el cobro como pagado y confirma por WhatsApp"
           >
             <Banknote size={14} />
-            {loading ? '…' : 'Agendar y Cobrar'}
+            {loading ? '…' : 'Agendar y Pagar'}
           </Button>
-          <Button variant="primary" onClick={handleSubmit} disabled={!puedeAgendar}>
+          <Button
+            variant="primary"
+            onClick={handleSubmit}
+            disabled={!puedeAgendar || !form.metodo_pago?.trim()}
+          >
             {loading ? '…' : citaConflicto ? 'Cita ocupada' : 'Agendar'}
           </Button>
         </div>
@@ -431,7 +478,7 @@ export default function AgendarMascotaSheet({
               color: 'var(--color-purple-light)',
             }}
           >
-            Obligatorio para Agendar y Cobrar (no aplica a solo Agendar)
+            Obligatorio para Agendar (cobro pendiente) y Agendar y Pagar
           </div>
         </Field>
 
@@ -439,7 +486,7 @@ export default function AgendarMascotaSheet({
           <Textarea
             value={form.observacion}
             onChange={(e) => setField('observacion', e.target.value)}
-            placeholder="Solo se usa en Agendar y Cobrar (observación financiera)"
+            placeholder="Observación financiera del cobro (opcional)"
             disabled={loading}
             rows={2}
           />

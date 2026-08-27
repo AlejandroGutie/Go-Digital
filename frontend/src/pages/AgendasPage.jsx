@@ -8,33 +8,37 @@ import {
   PawPrint,
   Search,
   Stethoscope,
+  Wallet,
   X,
   XCircle,
 } from 'lucide-react';
 import { listProfesionales } from '../api/profesionalesApi';
 import {
   getAgendaDeProfesional,
-  crearCitaAgenda,
   crearCitaYCobrar,
   actualizarCitaAgenda,
   cancelarAgenda,
   marcarAgendaAtendida,
+  debeMostrarEnVistaActiva,
+  estadoPagoAgenda,
 } from '../api/agendasApi';
 import { getCuidadoresDeMascota, getMascotaById } from '../api/mascotasApi';
 import { getMascotasDeCuidador, listCuidadores } from '../api/cuidadoresApi';
 import { listTarifas } from '../api/tarifasApi';
-import { createCobro } from '../api/cobrosApi';
+import { createCobro, updateCobro } from '../api/cobrosApi';
 import { normalizeListPayload } from '../api/normalize';
 import { useToast } from '../hooks/useToast';
 import { useMutationLock } from '../hooks/useMutationLock';
 import { Toast } from '../components/Toast';
 import { formatFecha, formatHora, formatMoneda, hoyLocalISO, toDateOnly } from '../utils/format';
 import {
-  buildWhatsAppConfirmMessage,
   buildWhatsAppMascotaListaMessage,
   openWhatsAppChat,
-  sanitizePhoneCO,
 } from '../utils/whatsapp';
+import {
+  confirmarAgendaPorWhatsApp,
+  resolverCuidadorParaWhatsApp,
+} from '../utils/confirmarAgendaWhatsApp';
 import EmptyState from '../components/EmptyState';
 import PageHeader from '../components/ui/PageHeader';
 import Field, { DateInput, Input, Select, Textarea } from '../components/ui/Field';
@@ -89,6 +93,11 @@ function formatTarifaLabel(c) {
   const desc = c.tarifa_descripcion || 'Tarifa';
   if (c.tarifa_valor == null || c.tarifa_valor === '') return desc;
   return `${desc} · ${formatMoneda(c.tarifa_valor)}`;
+}
+
+/** Estado de pago UI (alias local sobre helper de API). */
+function estadoPagoCita(cita) {
+  return estadoPagoAgenda(cita);
 }
 
 /** Convierte "HH:MM" o "HH:MM:SS" a minutos desde medianoche. */
@@ -175,6 +184,7 @@ export default function AgendasPage() {
   const [tarifas, setTarifas] = useState([]);
   const [loading, setLoading] = useState(false);
   const [whatsappBusy, setWhatsappBusy] = useState(null); // { id, kind: 'confirm'|'lista' }
+  const [pagarBusyId, setPagarBusyId] = useState(null);
   const [initLoading, setInitLoading] = useState(true);
   const [initError, setInitError] = useState(null);
   const [busquedaProf, setBusquedaProf] = useState('');
@@ -666,49 +676,7 @@ export default function AgendasPage() {
     setCobroObservacion('');
   }
 
-  async function handleAgendar() {
-    if (!mascotaId || !fecha || !horaInicio || !horaFin || !idTarifas.length) return;
-    const fechaGuardar = toDateOnly(fecha);
-    if (!fechaGuardar) {
-      addToast('Fecha inválida', 'error');
-      return;
-    }
-    if (horaAMinutos(horaFin) <= horaAMinutos(horaInicio)) {
-      addToast('La hora final debe ser posterior a la hora de inicio', 'error');
-      return;
-    }
-    const conflicto = encontrarCitaConflicto(citas, fechaGuardar, horaInicio, horaFin);
-    if (conflicto) {
-      addToast(
-        `Cita ocupada: ${formatFecha(conflicto.fecha)} · ${formatHora(conflicto.hora_inicio)} – ${formatHora(conflicto.hora_fin)} (${conflicto.mascota_nombre || 'otra mascota'})`,
-        'error'
-      );
-      return;
-    }
-    if (!tryLock()) return;
-    setLoading(true);
-    try {
-      await crearCitaAgenda(profSel.id, {
-        id_mascota: Number(mascotaId),
-        id_tarifas: idTarifas.map(Number),
-        fecha: fechaGuardar,
-        hora_inicio: horaInicio,
-        hora_fin: horaFin,
-        observacion_ingreso: observacionIngreso,
-      });
-      addToast('Cita agendada correctamente', 'success');
-      limpiarFormularioAgenda();
-      const res = await getAgendaDeProfesional(profSel.id);
-      setCitas(normalizeListPayload(res));
-    } catch (e) {
-      addToast(e?.message || 'Error al agendar', 'error');
-    } finally {
-      setLoading(false);
-      unlock();
-    }
-  }
-
-  async function handleAgendarYCobrar() {
+  async function handleAgendarConCobro(estadoCobro) {
     if (!mascotaId || !fecha || !horaInicio || !horaFin || !idTarifas.length || !profSel?.id)
       return;
     const fechaGuardar = toDateOnly(fecha);
@@ -739,8 +707,9 @@ export default function AgendasPage() {
     }
     if (!tryLock()) return;
     setLoading(true);
+    const esPendiente = estadoCobro === 'pendiente';
     try {
-      await crearCitaYCobrar(
+      const resCreate = await crearCitaYCobrar(
         Number(profSel.id),
         {
           id_mascota: Number(mascotaId),
@@ -755,18 +724,75 @@ export default function AgendasPage() {
           metodo_pago: cobroMetodoPago,
           observacion: cobroObservacion,
           fecha_cobro: fechaGuardar,
+          estado: esPendiente ? 'pendiente' : 'pagado',
         }
       );
-      addToast('Cita agendada y cobrada correctamente', 'success');
+
+      const agendaCreada = resCreate?.data?.agenda || resCreate?.agenda || null;
+      const mascotaSel =
+        mascotas.find((m) => String(m.id) === String(mascotaId)) || null;
+      const tarifaDescripcion = formatTarifasLabel(
+        idTarifas
+          .map((id) => tarifas.find((t) => String(t.id) === String(id)))
+          .filter(Boolean)
+      );
+
+      addToast(
+        esPendiente
+          ? 'Cita agendada con cobro pendiente.'
+          : 'Cita agendada y pagada correctamente.',
+        'success'
+      );
+
+      try {
+        whatsappCancelRef.current?.cancel?.();
+        const citaWa = {
+          ...(agendaCreada || {}),
+          id_mascota: Number(mascotaId),
+          fecha: fechaGuardar,
+          hora_inicio: horaInicio,
+          hora_fin: horaFin,
+          mascota_nombre: mascotaSel?.nombre,
+          especie: mascotaSel?.especie,
+          raza: mascotaSel?.raza,
+          tamano: mascotaSel?.tamano,
+        };
+        whatsappCancelRef.current = await confirmarAgendaPorWhatsApp({
+          cita: citaWa,
+          profesionalNombre: profSel?.nombre || '',
+          mascotaFallback: mascotaSel,
+          tarifaDescripcion,
+          tarifaValor: valor,
+        });
+        addToast('Se abrió WhatsApp con el mensaje de confirmación.', 'success');
+      } catch (waErr) {
+        addToast(
+          `No se abrió WhatsApp: ${waErr?.message || 'sin cuidador/teléfono válido'}`,
+          'error'
+        );
+      }
+
       limpiarFormularioAgenda();
       const res = await getAgendaDeProfesional(profSel.id);
       setCitas(normalizeListPayload(res));
     } catch (e) {
-      addToast(e?.message || 'Error al agendar y cobrar', 'error');
+      addToast(
+        e?.message ||
+          (esPendiente ? 'Error al agendar' : 'Error al agendar y pagar'),
+        'error'
+      );
     } finally {
       setLoading(false);
       unlock();
     }
+  }
+
+  async function handleAgendar() {
+    await handleAgendarConCobro('pendiente');
+  }
+
+  async function handleAgendarYPagar() {
+    await handleAgendarConCobro('pagado');
   }
 
   async function handleReprogramar() {
@@ -818,7 +844,62 @@ export default function AgendasPage() {
         hora_fin,
         observacion_ingreso,
       });
-      addToast('Cita reprogramada correctamente', 'success');
+
+      const mascotaSel =
+        editMascotas.find((m) => String(m.id) === String(id_mascota)) ||
+        mascotas.find((m) => String(m.id) === String(id_mascota)) ||
+        null;
+      const { tarifaDescripcion, tarifaValor } = (() => {
+        const fromEdit = id_tarifas
+          .map((id) =>
+            (tarifasParaEditar.length ? tarifasParaEditar : tarifas).find(
+              (t) => String(t.id) === String(id)
+            )
+          )
+          .filter(Boolean);
+        if (fromEdit.length) {
+          return {
+            tarifaDescripcion: formatTarifasLabel(fromEdit),
+            tarifaValor: sumTarifasValor(fromEdit, id_tarifas),
+          };
+        }
+        return resolverTarifaCita({
+          ...editCita,
+          id_tarifas,
+          id_tarifa: id_tarifas[0],
+        });
+      })();
+
+      addToast('Cita reprogramada correctamente.', 'success');
+
+      try {
+        whatsappCancelRef.current?.cancel?.();
+        whatsappCancelRef.current = await confirmarAgendaPorWhatsApp({
+          cita: {
+            id: editCita.id,
+            id_mascota: Number(id_mascota),
+            fecha: fechaGuardar,
+            hora_inicio,
+            hora_fin,
+            mascota_nombre: mascotaSel?.nombre || editCita.mascota_nombre,
+            especie: mascotaSel?.especie || editCita.especie,
+            raza: mascotaSel?.raza || editCita.raza,
+            tamano: mascotaSel?.tamano || editCita.tamano,
+          },
+          profesionalNombre: profSel?.nombre || '',
+          mascotaFallback: mascotaSel,
+          tarifaDescripcion,
+          tarifaValor,
+          tipo: 'reprogramada',
+        });
+        addToast('Se abrió WhatsApp con el aviso de reprogramación.', 'success');
+      } catch (waErr) {
+        addToast(
+          `No se abrió WhatsApp: ${waErr?.message || 'sin cuidador/teléfono válido'}`,
+          'error'
+        );
+      }
+
       cerrarReprogramar();
       const res = await getAgendaDeProfesional(profSel.id);
       setCitas(normalizeListPayload(res));
@@ -872,38 +953,13 @@ export default function AgendasPage() {
     setObservacionCancelacion('');
   }
 
-  async function resolverCuidadorParaWhatsApp(cita) {
-    if (!cita?.id_mascota) {
-      throw new Error('La cita no tiene mascota asociada');
-    }
-
-    const [resCuidadores, resMascota] = await Promise.all([
-      getCuidadoresDeMascota(cita.id_mascota),
-      getMascotaById(cita.id_mascota).catch(() => null),
-    ]);
-    const cuidadores = normalizeListPayload(resCuidadores);
-    const mascotaData = resMascota?.data?.[0] || resMascota?.data || null;
-
-    const cuidador =
-      cuidadores.find((c) => c.activo !== false && c.telefono) ||
-      cuidadores.find((c) => c.telefono) ||
-      cuidadores[0] ||
-      null;
-
-    if (!cuidador) {
-      throw new Error(
-        'Esta mascota no tiene un cuidador asignado. Asígnalo en el módulo de Asignación.'
-      );
-    }
-
-    const phone = sanitizePhoneCO(cuidador.telefono);
-    if (!phone) {
-      throw new Error(
-        'El cuidador no tiene un celular colombiano válido (10 dígitos iniciando en 3, o con prefijo 57). Actualízalo en Cuidadores.'
-      );
-    }
-
-    return { cuidador, phone, mascotaData };
+  async function resolverCuidadorParaWhatsAppLocal(cita) {
+    return resolverCuidadorParaWhatsApp(cita?.id_mascota, {
+      nombre: cita?.mascota_nombre,
+      especie: cita?.especie,
+      raza: cita?.raza,
+      tamano: cita?.tamano,
+    });
   }
 
   function resolverTarifaCita(cita) {
@@ -943,32 +999,13 @@ export default function AgendasPage() {
     setWhatsappBusy({ id: cita.id, kind: 'confirm' });
     try {
       whatsappCancelRef.current?.cancel?.();
-      const { cuidador, phone, mascotaData } = await resolverCuidadorParaWhatsApp(cita);
-
-      const mascotaNombre = mascotaData?.nombre || cita.mascota_nombre || '';
-      const mascotaEspecie = mascotaData?.especie || cita.especie || '';
-      const mascotaRaza = mascotaData?.raza || cita.raza || '';
-      const mascotaTamano = mascotaData?.tamano || cita.tamano || '';
       const { tarifaDescripcion, tarifaValor } = resolverTarifaCita(cita);
-
-      const message = buildWhatsAppConfirmMessage({
-        cuidadorNombre: cuidador.nombre,
-        mascotaNombre,
-        mascotaEspecie,
-        mascotaRaza,
-        mascotaTamano,
+      whatsappCancelRef.current = await confirmarAgendaPorWhatsApp({
+        cita,
         profesionalNombre: profSel?.nombre || '',
-        fechaLabel: formatFecha(cita.fecha),
-        horaInicioLabel: formatHora(cita.hora_inicio),
-        horaFinLabel: formatHora(cita.hora_fin),
         tarifaDescripcion,
-        valorLabel:
-          tarifaValor != null && tarifaValor !== ''
-            ? formatMoneda(tarifaValor)
-            : '',
+        tarifaValor,
       });
-
-      whatsappCancelRef.current = openWhatsAppChat(phone, message);
       addToast('Se abrió WhatsApp con el mensaje de confirmación.', 'success');
     } catch (e) {
       addToast(e?.message || 'No se pudo confirmar la agenda por WhatsApp', 'error');
@@ -979,8 +1016,9 @@ export default function AgendasPage() {
   }
 
   async function handleMascotaListaWhatsApp(cita) {
-    if (cita?.cobrada !== true) {
-      addToast('Registra el cobro antes de marcar Mascota lista.', 'error');
+    if (cita?.cancelada === true) return;
+    if (cita?.atendida === true) {
+      addToast('Esta cita ya está marcada como Mascota lista.', 'success');
       return;
     }
     if (!tryLock()) return;
@@ -988,14 +1026,20 @@ export default function AgendasPage() {
     try {
       whatsappCancelRef.current?.cancel?.();
 
-      // Archivar siempre (no depende de cuidador/WhatsApp)
       await marcarAgendaAtendida(cita.id, profSel?.id ?? null);
-      setCitas((prev) => prev.filter((c) => String(c.id) !== String(cita.id)));
+      setCitas((prev) =>
+        prev
+          .map((c) =>
+            String(c.id) === String(cita.id) ? { ...c, atendida: true } : c
+          )
+          .filter(debeMostrarEnVistaActiva)
+      );
       if (editCita != null && String(editCita.id) === String(cita.id)) cerrarReprogramar();
 
       let whatsappOk = false;
       try {
-        const { cuidador, phone, mascotaData } = await resolverCuidadorParaWhatsApp(cita);
+        const { cuidador, phone, mascotaData } =
+          await resolverCuidadorParaWhatsAppLocal(cita);
         const mascotaNombre = mascotaData?.nombre || cita.mascota_nombre || '';
         const { tarifaDescripcion } = resolverTarifaCita(cita);
         const message = buildWhatsAppMascotaListaMessage({
@@ -1010,13 +1054,18 @@ export default function AgendasPage() {
         whatsappOk = true;
       } catch (waErr) {
         addToast(
-          `Cita marcada como atendida. No se abrió WhatsApp: ${waErr?.message || 'sin cuidador/teléfono válido'}`,
+          `Mascota lista registrada. No se abrió WhatsApp: ${waErr?.message || 'sin cuidador/teléfono válido'}`,
           'success'
         );
       }
 
       if (whatsappOk) {
-        addToast('Cita marcada como atendida y WhatsApp abierto.', 'success');
+        addToast(
+          estadoPagoCita(cita) === 'pagado'
+            ? 'Mascota lista y WhatsApp abierto. La cita quedó archivada.'
+            : 'Mascota lista y WhatsApp abierto. La cita sigue visible hasta pagar.',
+          'success'
+        );
       }
     } catch (e) {
       addToast(e?.message || 'No se pudo marcar la mascota como lista', 'error');
@@ -1036,6 +1085,7 @@ export default function AgendasPage() {
 
   async function abrirCobrar(cita) {
     if (!profSel?.id || !cita?.id) return;
+    if (estadoPagoCita(cita) === 'pagado') return;
     const { tarifaDescripcion, idTarifas: idsRaw } = resolverTarifaCita(cita);
     let tarifasProf = tarifas;
     if (!tarifasProf.length) {
@@ -1062,13 +1112,55 @@ export default function AgendasPage() {
       valor: String(total),
       metodo_pago: '',
       observacion: tarifaDescripcion
-        ? `Cobro agenda #${cita.id} · ${tarifaDescripcion}`
-        : `Cobro agenda #${cita.id}`,
+        ? `Pago agenda #${cita.id} · ${tarifaDescripcion}`
+        : `Pago agenda #${cita.id}`,
       fecha_cobro: toDateOnly(cita.fecha) || hoyLocalISO(),
       profesional_nombre: profSel.nombre || '',
       agenda_label: `${formatFecha(cita.fecha)} — ${cita.mascota_nombre || 'Mascota'} · ${formatHora(cita.hora_inicio)}-${formatHora(cita.hora_fin)}`,
     });
     setCobroModalOpen(true);
+  }
+
+  async function handlePagar(cita) {
+    if (!cita?.id || cita.cancelada) return;
+    if (estadoPagoCita(cita) === 'pagado') return;
+
+    // Cobro pendiente existente → marcar pagado
+    if (cita.cobro_id && cita.cobro_estado === 'pendiente') {
+      if (!tryLock()) return;
+      setPagarBusyId(cita.id);
+      try {
+        const res = await updateCobro(cita.cobro_id, { estado: 'pagado' });
+        if (res?.status === 'ok') {
+          setCitas((prev) =>
+            prev
+              .map((c) =>
+                String(c.id) === String(cita.id)
+                  ? { ...c, cobrada: true, cobro_estado: 'pagado' }
+                  : c
+              )
+              .filter(debeMostrarEnVistaActiva)
+          );
+          addToast(
+            cita.atendida === true
+              ? 'Pago registrado. La cita quedó archivada (lista + pagada).'
+              : 'Pago registrado. La cita quedó como pagada.',
+            'success'
+          );
+        } else {
+          addToast(res?.message || 'Error al registrar el pago', 'error');
+        }
+      } catch (e) {
+        addToast(e?.message || 'Error al registrar el pago', 'error');
+      } finally {
+        setPagarBusyId(null);
+        unlock();
+      }
+      return;
+    }
+
+    // Sin cobro (citas antiguas): abrir formulario
+    await abrirCobrar(cita);
   }
 
   function handleCobroTarifasChange(id_tarifas) {
@@ -1124,21 +1216,32 @@ export default function AgendasPage() {
         metodo_pago: cobroForm.metodo_pago,
         observacion: cobroForm.observacion,
         fecha_cobro: cobroForm.fecha_cobro,
+        estado: 'pagado',
       });
       if (res?.status === 'ok') {
         const agendaId = String(cobroForm.id_agenda);
-        addToast('Cobro registrado. La cita sigue visible hasta Mascota lista.', 'success');
+        const cobroCreado = res?.data;
+        addToast('Pago registrado. La cita quedó como pagada.', 'success');
         setCitas((prev) =>
-          prev.map((c) =>
-            String(c.id) === agendaId ? { ...c, cobrada: true } : c
-          )
+          prev
+            .map((c) =>
+              String(c.id) === agendaId
+                ? {
+                    ...c,
+                    cobrada: true,
+                    cobro_id: cobroCreado?.id ?? c.cobro_id,
+                    cobro_estado: 'pagado',
+                  }
+                : c
+            )
+            .filter(debeMostrarEnVistaActiva)
         );
         cerrarCobroModal({ force: true });
       } else {
-        addToast(res?.message || 'Error al crear cobro', 'error');
+        addToast(res?.message || 'Error al registrar el pago', 'error');
       }
     } catch (e) {
-      addToast(e?.message || 'Error al crear cobro', 'error');
+      addToast(e?.message || 'Error al registrar el pago', 'error');
     } finally {
       setLoading(false);
       unlock();
@@ -1308,9 +1411,9 @@ export default function AgendasPage() {
         formatTarifaLabel(c),
         c.cancelada
           ? 'cancelada'
-          : c.cobrada
-            ? 'cobrada pagada'
-            : 'pendiente cobro',
+          : estadoPagoCita(c) === 'pagado'
+            ? 'pagada cobrada'
+            : 'pendiente de pago cobro',
         c.observacion_cancelacion,
       ]
         .filter(Boolean)
@@ -1744,7 +1847,9 @@ export default function AgendasPage() {
                           <Button
                             variant="primary"
                             onClick={handleAgendar}
-                            disabled={loading || !puedeAgendar}
+                            disabled={
+                              loading || !puedeAgendar || !cobroMetodoPago.trim()
+                            }
                           >
                             {loading ? '…' : franjaOcupada ? 'Cita ocupada' : 'Agendar'}
                           </Button>
@@ -1774,14 +1879,14 @@ export default function AgendasPage() {
                               color: 'var(--color-purple-light)',
                             }}
                           >
-                            Obligatorio para Agendar y Cobrar (no aplica a solo Agendar)
+                            Obligatorio para Agendar (cobro pendiente) y Agendar y Pagar
                           </div>
                         </Field>
                         <Field label="Observación del cobro">
                           <Textarea
                             value={cobroObservacion}
                             onChange={(e) => setCobroObservacion(e.target.value)}
-                            placeholder="Solo se usa en Agendar y Cobrar (observación financiera)"
+                            placeholder="Observación financiera del cobro (opcional)"
                             disabled={loading}
                             rows={2}
                           />
@@ -1791,12 +1896,12 @@ export default function AgendasPage() {
                         <div className="agenda-form__action">
                           <Button
                             variant="ghost"
-                            onClick={handleAgendarYCobrar}
+                            onClick={handleAgendarYPagar}
                             disabled={loading || !puedeAgendar || !cobroMetodoPago.trim()}
-                            title="Crea la cita y registra el cobro en un solo paso"
+                            title="Crea la cita, registra el cobro como pagado y confirma por WhatsApp"
                           >
                             <Banknote size={14} />
-                            Agendar y Cobrar
+                            Agendar y Pagar
                           </Button>
                         </div>
                       </div>
@@ -1981,10 +2086,10 @@ export default function AgendasPage() {
                                       >
                                         Cancelada
                                       </span>
-                                    ) : c.cobrada ? (
+                                    ) : estadoPagoCita(c) === 'pagado' ? (
                                       <span
                                         className="ui-badge"
-                                        title="Cobro registrado; pendiente de Mascota lista"
+                                        title="Pago registrado; pendiente de Mascota lista"
                                         style={{
                                           background: 'color-mix(in srgb, #0d9488 18%, var(--color-white))',
                                           color: '#0f766e',
@@ -1992,18 +2097,19 @@ export default function AgendasPage() {
                                           fontWeight: 600,
                                         }}
                                       >
-                                        Cobrada
+                                        Pagada
                                       </span>
                                     ) : (
                                       <span
                                         className="ui-badge"
+                                        title="Cobro pendiente de pago"
                                         style={{
                                           background: 'var(--bg-selected)',
                                           color: 'var(--color-entorno)',
                                           fontWeight: 600,
                                         }}
                                       >
-                                        Pendiente cobro
+                                        Pendiente de pago
                                       </span>
                                     )}
                                     {c.cancelada && c.observacion_cancelacion ? (
@@ -2027,7 +2133,11 @@ export default function AgendasPage() {
                                         size="sm"
                                         variant="ghost"
                                         onClick={() => handleConfirmarWhatsApp(c)}
-                                        disabled={loading || whatsappBusy != null}
+                                        disabled={
+                                          loading ||
+                                          whatsappBusy != null ||
+                                          pagarBusyId != null
+                                        }
                                         aria-label="Confirmar por WhatsApp"
                                         style={{ color: '#128C7E' }}
                                       >
@@ -2043,12 +2153,13 @@ export default function AgendasPage() {
                                         disabled={
                                           loading ||
                                           whatsappBusy != null ||
-                                          c.cobrada !== true
+                                          pagarBusyId != null ||
+                                          c.atendida === true
                                         }
                                         aria-label="Marcar mascota lista y notificar"
                                         title={
-                                          c.cobrada !== true
-                                            ? 'Registra el cobro antes de marcar Mascota lista'
+                                          c.atendida === true
+                                            ? 'Esta cita ya está marcada como Mascota lista'
                                             : 'Marcar atención completada y notificar'
                                         }
                                         style={{ color: '#128C7E' }}
@@ -2061,22 +2172,28 @@ export default function AgendasPage() {
                                       <Button
                                         size="sm"
                                         variant="ghost"
-                                        onClick={() => abrirCobrar(c)}
+                                        onClick={() => handlePagar(c)}
                                         disabled={
                                           loading ||
                                           whatsappBusy != null ||
                                           cobroModalOpen ||
-                                          c.cobrada === true
+                                          pagarBusyId != null ||
+                                          estadoPagoCita(c) === 'pagado'
                                         }
-                                        aria-label="Registrar cobro"
+                                        aria-label="Registrar pago"
                                         title={
-                                          c.cobrada
-                                            ? 'Esta cita ya está cobrada'
-                                            : 'Registrar cobro'
+                                          estadoPagoCita(c) === 'pagado'
+                                            ? 'Esta cita ya está pagada'
+                                            : 'Marcar el cobro como pagado'
+                                        }
+                                        style={
+                                          estadoPagoCita(c) === 'pagado'
+                                            ? { cursor: 'not-allowed' }
+                                            : undefined
                                         }
                                       >
-                                        <Banknote size={14} />
-                                        Cobrar
+                                        <Wallet size={14} />
+                                        {pagarBusyId === c.id ? 'Pagando…' : 'Pagar'}
                                       </Button>
                                       <Button
                                         size="sm"
@@ -2085,6 +2202,7 @@ export default function AgendasPage() {
                                         disabled={
                                           loading ||
                                           whatsappBusy != null ||
+                                          pagarBusyId != null ||
                                           c.cobrada === true
                                         }
                                         aria-label="Reprogramar"
@@ -2107,6 +2225,7 @@ export default function AgendasPage() {
                                         disabled={
                                           loading ||
                                           whatsappBusy != null ||
+                                          pagarBusyId != null ||
                                           c.cobrada === true
                                         }
                                         aria-label="Cancelar agenda"
@@ -2444,7 +2563,7 @@ export default function AgendasPage() {
         onClose={cerrarCobroModal}
         onSubmit={guardarCobroDesdeAgenda}
         loading={loading}
-        title="Registrar cobro"
+        title="Registrar pago"
         values={cobroForm}
         nombreMascotaVisible={cobroMascotaNombre}
         tarifas={cobroTarifas}

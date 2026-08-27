@@ -330,13 +330,12 @@ async function fetchAgendaRows(idProfesional, incluirAtendidas, { page, limit, f
 
 const AGENDA_SELECT = AGENDA_SELECT_WITH_PROF;
 
-/** IDs de mascota con al menos una cita pendiente de "Mascota lista" (atendida = false). */
+/** IDs de mascota con al menos una cita en vista activa (no archivada). */
 export async function getIdsMascotasConCitaActiva(idsMascota = []) {
   const ids = [...new Set((idsMascota || []).map(Number).filter(Boolean))];
   if (ids.length === 0) return successOk([]);
 
   const unique = new Set();
-  // Consulta por lotes para no saturar .in() ni el tope PostgREST
   const BATCH = 100;
   for (let i = 0; i < ids.length; i += BATCH) {
     const slice = ids.slice(i, i + BATCH);
@@ -344,14 +343,24 @@ export async function getIdsMascotasConCitaActiva(idsMascota = []) {
     for (;;) {
       const { data, error } = await supabase
         .from('agenda')
-        .select('id_mascota')
+        .select('id, id_mascota, atendida, cobrada')
         .in('id_mascota', slice)
-        .eq('atendida', false)
         .eq('cancelada', false)
         .range(from, from + AGENDA_PAGE_SIZE - 1);
       throwIfError(error, 'Error al consultar citas activas');
       const rows = data ?? [];
-      for (const row of rows) unique.add(row.id_mascota);
+      const mapped = await attachCobrosVigentes(
+        rows.map((r) => ({
+          id: r.id,
+          id_mascota: r.id_mascota,
+          atendida: r.atendida === true,
+          cobrada: r.cobrada === true,
+          cancelada: false,
+        }))
+      );
+      for (const cita of mapped) {
+        if (debeMostrarEnVistaActiva(cita)) unique.add(cita.id_mascota);
+      }
       if (rows.length < AGENDA_PAGE_SIZE) break;
       from += AGENDA_PAGE_SIZE;
     }
@@ -359,7 +368,92 @@ export async function getIdsMascotasConCitaActiva(idsMascota = []) {
   return successOk([...unique]);
 }
 
-/** Citas activas de una mascota: pendientes de atención (no archivadas ni canceladas). */
+async function attachCobrosVigentes(citas = []) {
+  const agendaIds = citas.map((c) => c.id).filter(Boolean);
+  if (agendaIds.length === 0) return citas;
+
+  const { data: cobros, error: cobrosErr } = await supabase
+    .from('cobro')
+    .select('id, id_agenda, estado')
+    .in('id_agenda', agendaIds)
+    .neq('estado', 'anulado');
+  throwIfError(cobrosErr, 'Error al cargar el estado de pago de las citas');
+
+  const byAgenda = new Map();
+  for (const cobro of cobros || []) {
+    byAgenda.set(Number(cobro.id_agenda), cobro);
+  }
+  for (const cita of citas) {
+    const cobro = byAgenda.get(Number(cita.id));
+    cita.cobro_id = cobro?.id ?? null;
+    cita.cobro_estado = cobro?.estado ?? null;
+  }
+  return citas;
+}
+
+/** Estado de pago UI: prioriza cobro_estado; fallback a cobrada (legacy). */
+export function estadoPagoAgenda(cita) {
+  if (cita?.cobro_estado === 'pagado') return 'pagado';
+  if (cita?.cobro_estado === 'pendiente') return 'pendiente';
+  if (cita?.cobrada === true) return 'pagado';
+  return 'pendiente';
+}
+
+/**
+ * Vista activa: permanece visible si falta Mascota lista o el pago.
+ * Se archiva solo con atendida=true Y cobro pagado.
+ * Las canceladas se dejan pasar (el UI decide mostrarlas u ocultarlas).
+ */
+export function debeMostrarEnVistaActiva(cita) {
+  if (!cita) return false;
+  if (cita.cancelada === true) return true;
+  const lista = cita.atendida === true;
+  const pagada = estadoPagoAgenda(cita) === 'pagado';
+  return !(lista && pagada);
+}
+
+async function fetchAtendidasConCobroPendiente(filter = {}) {
+  const { idProfesional = null, idMascota = null } = filter;
+  const { data: cobros, error: cobrosErr } = await supabase
+    .from('cobro')
+    .select('id_agenda')
+    .eq('estado', 'pendiente');
+  throwIfError(cobrosErr, 'Error al consultar cobros pendientes');
+  const ids = [...new Set((cobros || []).map((c) => Number(c.id_agenda)).filter(Boolean))];
+  if (ids.length === 0) return [];
+
+  let query = supabase
+    .from('agenda')
+    .select(
+      idProfesional != null ? AGENDA_SELECT_MASCOTA_TARIFA : AGENDA_SELECT
+    )
+    .in('id', ids)
+    .eq('atendida', true)
+    .eq('cancelada', false);
+
+  if (idProfesional != null) {
+    query = query.eq('id_profesional', Number(idProfesional));
+  }
+  if (idMascota != null) {
+    query = query.eq('id_mascota', Number(idMascota));
+  }
+
+  const { data, error } = await query;
+  throwIfError(error, 'Error al cargar citas atendidas con pago pendiente');
+  return data ?? [];
+}
+
+function mergeAgendaRowsById(...lists) {
+  const map = new Map();
+  for (const list of lists) {
+    for (const row of list || []) {
+      if (row?.id != null) map.set(Number(row.id), row);
+    }
+  }
+  return [...map.values()];
+}
+
+/** Citas activas de una mascota (vista operativa: no archivadas). */
 export async function getCitasActivasDeMascota(idMascota) {
   const id = Number(idMascota);
   if (!id) {
@@ -383,23 +477,44 @@ export async function getCitasActivasDeMascota(idMascota) {
     if (rows.length < AGENDA_PAGE_SIZE) break;
     from += AGENDA_PAGE_SIZE;
   }
-  const mapped = all.map(flattenAgendaRow);
-  return successList(mapped, mapped.length, 1, mapped.length || 1);
+
+  const atendidasPendientes = await fetchAtendidasConCobroPendiente({ idMascota: id });
+  const merged = mergeAgendaRowsById(all, atendidasPendientes);
+  const mapped = await attachCobrosVigentes(merged.map(flattenAgendaRow));
+  const visibles = mapped
+    .filter(debeMostrarEnVistaActiva)
+    .sort((a, b) => {
+      const fa = String(a.fecha || '');
+      const fb = String(b.fecha || '');
+      if (fa !== fb) return fa.localeCompare(fb);
+      return String(a.hora_inicio || '').localeCompare(String(b.hora_inicio || ''));
+    });
+  return successList(visibles, visibles.length, 1, visibles.length || 1);
 }
 
 export async function getAgendaDeProfesional(idProfesional, options = {}) {
   const incluirAtendidas = options.incluirAtendidas === true;
   const page = options.page;
   const limit = options.limit;
-  // fechaDesde: string ISO, null = sin filtro, undefined = ventana por defecto (activas)
   const fechaDesde = options.fechaDesde;
   const result = await fetchAgendaRows(idProfesional, incluirAtendidas, {
     page,
     limit,
     fechaDesde,
   });
-  const rows = result.rows.map(flattenAgendaRow);
-  return successList(rows, result.count, result.page, result.limit);
+
+  let rowsRaw = result.rows;
+  // Vista operativa: también citas ya "lista" con cobro pendiente
+  if (!incluirAtendidas) {
+    const atendidasPendientes = await fetchAtendidasConCobroPendiente({
+      idProfesional,
+    });
+    rowsRaw = mergeAgendaRowsById(rowsRaw, atendidasPendientes);
+  }
+
+  const rows = await attachCobrosVigentes(rowsRaw.map(flattenAgendaRow));
+  const visibles = incluirAtendidas ? rows : rows.filter(debeMostrarEnVistaActiva);
+  return successList(visibles, visibles.length, result.page, result.limit);
 }
 
 /**
@@ -436,7 +551,7 @@ export async function marcarAgendaCobrada(idAgenda, idProfesional = null) {
   return successOk(data);
 }
 
-/** Marca la cita como atendida (Mascota lista). Requiere cobrada=true. Preferir RPC. */
+/** Marca la cita como atendida (Mascota lista). Independiente del estado de pago. */
 export async function marcarAgendaAtendida(idAgenda, idProfesional = null) {
   const id = Number(idAgenda);
   if (!id) {
@@ -615,6 +730,7 @@ export async function crearCitaAgenda(idProfesional, payload) {
 
 /**
  * Crea la cita y el cobro en una sola transacción (RPC multi-tarifa).
+ * cobroExtras.estado: 'pendiente' (Agendar) | 'pagado' (Agendar y Pagar). Default pagado.
  * Fail-closed si el RPC no está desplegado (evita estado parcial).
  */
 export async function crearCitaYCobrar(idProfesional, payload, cobroExtras = {}) {
@@ -633,6 +749,9 @@ export async function crearCitaYCobrar(idProfesional, payload, cobroExtras = {})
     throw new Error('El valor del cobro es inválido (revisa las tarifas seleccionadas)');
   }
 
+  const estadoRaw = String(cobroExtras.estado || 'pagado').trim().toLowerCase();
+  const estado = estadoRaw === 'pendiente' ? 'pendiente' : 'pagado';
+
   const { id_mascota, id_tarifas, fecha, hora_inicio, hora_fin, observacion_ingreso } =
     validateCitaPayload(payload);
 
@@ -644,7 +763,7 @@ export async function crearCitaYCobrar(idProfesional, payload, cobroExtras = {})
     'crear_cita_y_cobrar_atomico',
     {
       p_id_profesional: idProf,
-      p_id_mascota,
+      p_id_mascota: id_mascota,
       p_id_tarifas: id_tarifas,
       p_fecha: fecha,
       p_hora_inicio: hora_inicio,
@@ -654,6 +773,7 @@ export async function crearCitaYCobrar(idProfesional, payload, cobroExtras = {})
       p_observacion: cobroExtras.observacion?.trim() || null,
       p_fecha_cobro: fecha_cobro,
       p_observacion_ingreso: observacion_ingreso,
+      p_estado: estado,
     }
   );
 

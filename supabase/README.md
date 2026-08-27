@@ -43,11 +43,13 @@ Ejecutar en **Supabase → SQL Editor** en este orden (idempotente; se puede re-
 19. `migrations/20260827_000003_restaurar_cobro_atomico.sql` — RPC restaurar cobro anulado → pendiente  
 20. `migrations/20260827_000004_devolver_pago_cobro.sql` — RPC devolver pago + ajuste trigger protección  
 21. `migrations/20260827_000005_actualizar_cobro_pendiente.sql` — RPC editar cobro pendiente  
-22. `migrations/20260827_000006_agenda_cancelacion.sql` — cancelar agenda (sin DELETE) + libera cupo
+22. `migrations/20260827_000006_agenda_cancelacion.sql` — cancelar agenda (sin DELETE) + libera cupo  
+23. `migrations/20260827_000007_crear_cita_y_cobrar_estado.sql` — `crear_cita_y_cobrar_atomico` con `p_estado` (pendiente|pagado)  
+24. `migrations/20260827_000008_mascota_lista_independiente_pago.sql` — Mascota lista sin exigir cobrada; archiva en UI solo si también está pagada
 
 ### BD nueva
 
-Aplica **1 → 22** en orden.
+Aplica **1 → 24** en orden.
 
 ### BD de producción (ya aplicada)
 
@@ -60,14 +62,18 @@ Para crear cobros como pagado/pendiente desde el modal, ejecuta **17–18**.
 Para restaurar cobros anulados (sin borrado físico), ejecuta el paso **19**.  
 Para devolver pagos (pagado → pendiente), ejecuta el paso **20** (`20260827_000004_devolver_pago_cobro.sql`).  
 Para editar cobros pendientes (tarifas/valor/método), ejecuta el paso **21** (`20260827_000005_actualizar_cobro_pendiente.sql`).  
-Para cancelar agendas (sin borrado físico), ejecuta el paso **22** (`20260827_000006_agenda_cancelacion.sql`).
+Para cancelar agendas (sin borrado físico), ejecuta el paso **22** (`20260827_000006_agenda_cancelacion.sql`).  
+Para Agendar (cobro pendiente) / Agendar y Pagar (cobro pagado) atómicos, ejecuta el paso **23** (`20260827_000007_crear_cita_y_cobrar_estado.sql`).  
+Para Mascota lista independiente del pago, ejecuta el paso **24** (`20260827_000008_mascota_lista_independiente_pago.sql`).
 
 ## Comportamiento importante
 
-- **Quitar cita** = `DELETE` en `agenda` (histórico se pierde). Bloqueado si hay cobro vigente o `cobrada`.
-- **Cobrar / Agendar y Cobrar** = RPC atómico multi-tarifa (`p_id_tarifas`); cobro nace en `estado = pagado`, con filas en `cobro_detalle`, y `agenda.cobrada = true`.
+- **Cancelar cita** = soft-cancel (`cancelada=true`); libera cupo. Bloqueado si hay cobro vigente o `cobrada`.
+- **Agendar** = RPC atómico agenda + cobro en `estado = pendiente` + confirma por WhatsApp; `agenda.cobrada = true`.
+- **Agendar y Pagar** = mismo RPC con `estado = pagado` + confirma por WhatsApp.
+- **Cobrar / Pagar** (cita existente) = marca cobro `pagado` (o crea cobro vía RPC).
 - **Tarifas** = N por cita (`agenda_tarifa`); `agenda.id_tarifa` / `cobro.id_tarifa` conservan la primera tarifa por compatibilidad.
-- **Mascota lista** = RPC `marcar_agenda_atendida` (exige `cobrada`); oculta la cita y libera el cupo. WhatsApp es opcional (no bloquea el archivo).
+- **Mascota lista** = RPC `marcar_agenda_atendida` (independiente del pago). La cita **permanece en vista activa** si el cobro sigue pendiente; se archiva solo con `atendida=true` **y** cobro `pagado`. WhatsApp es opcional.
 - **Anular cobro** = RPC `anular_cobro_atomico`: pone `cobrada = false` y reabre `atendida = false` **solo si** el cupo no fue reutilizado; si hay choque, deja la cita archivada.
 - **Solape** = trigger + `EXCLUDE` GiST (profesional y mascota) sobre citas no atendidas.
 - **Cita cobrada** = inmutable (fecha/hora/profesional/mascota/tarifa) hasta anular el cobro.

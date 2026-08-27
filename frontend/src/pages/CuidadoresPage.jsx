@@ -828,7 +828,7 @@ export default function CuidadoresPage() {
           />
         ) : (
           <div className="ui-table-wrap table-scroll">
-            <table className="ui-table">
+            <table className={TABLE_STICKY_COLS_2}>
               <thead>
                 <tr>
                   {['ID', 'Nombre', 'Especie', 'Raza', 'Tamaño', 'Fecha de Nacimiento', ''].map(
@@ -866,7 +866,7 @@ export default function CuidadoresPage() {
                           disabled={modalLoading || !idsConCitaActiva.has(Number(m.id))}
                           title={
                             idsConCitaActiva.has(Number(m.id))
-                              ? 'Gestionar citas activas (confirmar, cobrar, mascota lista)'
+                              ? 'Gestionar citas activas (confirmar, pagar, mascota lista)'
                               : 'Sin citas activas para esta mascota'
                           }
                           aria-label={`Gestionar citas de ${m.nombre}`}
