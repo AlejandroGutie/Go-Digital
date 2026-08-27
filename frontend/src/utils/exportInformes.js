@@ -230,7 +230,7 @@ export function exportDashboardCSV(dashboard, filtros) {
 }
 
 export function exportAgendaCSV(rows, filtros) {
-  const lines = ['Fecha,Inicio,Fin,Profesional,Mascota,Especie,Raza,Tamaño'];
+  const lines = ['Fecha,Inicio,Fin,Profesional,Mascota,Cuidador,Especie,Raza,Tamaño'];
   for (const r of rows || []) {
     lines.push(
       [
@@ -239,6 +239,7 @@ export function exportAgendaCSV(rows, filtros) {
         r.hora_fin,
         csvEscape(r.profesional_nombre),
         csvEscape(r.mascota_nombre),
+        csvEscape(r.cuidador_nombre),
         csvEscape(r.especie),
         csvEscape(r.raza),
         csvEscape(r.tamano),
@@ -376,17 +377,18 @@ export async function exportAgendaPDF(rows, filtros) {
 
   autoTable(doc, {
     startY: y,
-    head: [['Fecha', 'Inicio', 'Fin', 'Profesional', 'Mascota', 'Especie', 'Raza']],
+    head: [['Fecha', 'Inicio', 'Fin', 'Profesional', 'Mascota', 'Cuidador', 'Especie', 'Raza']],
     body: (rows || []).map((r) => [
       formatFecha(r.fecha),
       formatHora(r.hora_inicio),
       formatHora(r.hora_fin),
       r.profesional_nombre || '—',
       r.mascota_nombre || '—',
+      r.cuidador_nombre || '—',
       r.especie || '—',
       r.raza || '—',
     ]),
-    styles: tableBaseStyles,
+    styles: { ...tableBaseStyles, fontSize: 8 },
     headStyles: headStylesFromBrand(),
     alternateRowStyles: { fillColor: [252, 248, 251] },
     margin: { top: LETTERHEAD_HEIGHT + 6, left: 14, right: 14, bottom: 18 },
@@ -402,6 +404,72 @@ export async function exportAgendaPDF(rows, filtros) {
   const suffix = filtros.id_profesional ? `_prof${filtros.id_profesional}` : '';
   doc.save(
     `agenda_${filtros.fecha_desde || 'inicio'}_${filtros.fecha_hasta || 'fin'}${suffix}.pdf`
+  );
+}
+
+export function exportAgendaLibresCSV(rows, filtros) {
+  const lines = ['Profesional,Fecha,Horario inicio,Horario fin,Estado'];
+  for (const r of rows || []) {
+    lines.push(
+      [
+        csvEscape(r.profesional_nombre),
+        toCsvDate(r.fecha),
+        r.hora_inicio,
+        r.hora_fin,
+        csvEscape(r.estado || 'Disponible'),
+      ].join(',')
+    );
+  }
+  const suffix = filtros.id_profesional ? `_prof${filtros.id_profesional}` : '';
+  downloadBlob(
+    '\uFEFF' + lines.join('\n'),
+    `agendas_libres_${filtros.fecha_desde || 'inicio'}_${filtros.fecha_hasta || 'fin'}${suffix}.csv`,
+    'text/csv;charset=utf-8;'
+  );
+}
+
+export async function exportAgendaLibresPDF(rows, filtros) {
+  const doc = new jsPDF({ orientation: 'landscape' });
+  const logoDataUrl = await getLogoDataUrl();
+  const goDigitalLogoDataUrl = await getGoDigitalLogoDataUrl();
+
+  applyPageChrome(doc, logoDataUrl, goDigitalLogoDataUrl);
+
+  const y = drawReportTitle(
+    doc,
+    'Informe de horarios libres',
+    [
+      `Periodo: ${filtros.fecha_desde ? formatFecha(filtros.fecha_desde) : '—'} a ${filtros.fecha_hasta ? formatFecha(filtros.fecha_hasta) : '—'} | Generado: ${formatFecha(hoyLocalISO())}`,
+      `Profesional: ${filtros.id_profesional || 'Todos'}`,
+    ],
+    LETTERHEAD_HEIGHT + 8
+  );
+
+  autoTable(doc, {
+    startY: y,
+    head: [['Profesional', 'Fecha', 'Horario libre', 'Estado']],
+    body: (rows || []).map((r) => [
+      r.profesional_nombre || '—',
+      formatFecha(r.fecha),
+      r.horario_label || `${formatHora(r.hora_inicio)} - ${formatHora(r.hora_fin)}`,
+      r.estado || 'Disponible',
+    ]),
+    styles: { ...tableBaseStyles, fontSize: 8 },
+    headStyles: headStylesFromBrand(),
+    alternateRowStyles: { fillColor: [252, 248, 251] },
+    margin: { top: LETTERHEAD_HEIGHT + 6, left: 14, right: 14, bottom: 18 },
+    didDrawPage: () => applyPageChrome(doc, logoDataUrl, goDigitalLogoDataUrl),
+  });
+
+  const totalPages = doc.internal.getNumberOfPages();
+  for (let i = 1; i <= totalPages; i++) {
+    doc.setPage(i);
+    applyPageChrome(doc, logoDataUrl, goDigitalLogoDataUrl);
+  }
+
+  const suffix = filtros.id_profesional ? `_prof${filtros.id_profesional}` : '';
+  doc.save(
+    `agendas_libres_${filtros.fecha_desde || 'inicio'}_${filtros.fecha_hasta || 'fin'}${suffix}.pdf`
   );
 }
 

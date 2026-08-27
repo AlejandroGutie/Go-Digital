@@ -8,36 +8,106 @@ import { toDateOnly } from '../utils/format';
 
 const AGENDA_PAGE_SIZE = 1000;
 
+const AGENDA_TARIFA_EMBED =
+  'agenda_tarifa(id_tarifa, tarifa(id, descripcion, valor))';
+
+const AGENDA_BASE_COLUMNS =
+  'id, id_profesional, id_mascota, id_tarifa, fecha, hora_inicio, hora_fin, cobrada, atendida, observacion_ingreso';
+
+const AGENDA_SELECT_MASCOTA_TARIFA =
+  AGENDA_BASE_COLUMNS +
+  ', mascota(nombre, especie, raza, tamano), tarifa(descripcion, valor), ' +
+  AGENDA_TARIFA_EMBED;
+
+const AGENDA_SELECT_WITH_PROF =
+  AGENDA_BASE_COLUMNS +
+  ', mascota(nombre, especie, raza, tamano), tarifa(descripcion, valor), profesional(nombre), ' +
+  AGENDA_TARIFA_EMBED;
+
+function extractTarifasFromRow(row) {
+  const fromJoin = (row.agenda_tarifa || [])
+    .map((link) => {
+      const t = link?.tarifa;
+      if (!t?.id && link?.id_tarifa == null) return null;
+      return {
+        id: t?.id ?? link.id_tarifa,
+        descripcion: t?.descripcion ?? null,
+        valor: t?.valor ?? null,
+      };
+    })
+    .filter(Boolean);
+
+  if (fromJoin.length > 0) return fromJoin;
+
+  // Legacy: una sola tarifa en agenda.id_tarifa / embed tarifa
+  if (row.id_tarifa != null || row.tarifa) {
+    return [
+      {
+        id: row.tarifa?.id ?? row.id_tarifa,
+        descripcion: row.tarifa?.descripcion ?? row.tarifa_descripcion ?? null,
+        valor: row.tarifa?.valor ?? row.tarifa_valor ?? null,
+      },
+    ].filter((t) => t.id != null);
+  }
+  return [];
+}
+
 function flattenAgendaRow(row) {
   const m = row.mascota;
-  const t = row.tarifa;
+  const tarifas = extractTarifasFromRow(row);
+  const primary = tarifas[0] || null;
+  const totalValor = tarifas.reduce((acc, t) => acc + (Number(t.valor) || 0), 0);
+  const descripcionJoined =
+    tarifas.length === 0
+      ? null
+      : tarifas.length === 1
+        ? primary?.descripcion ?? null
+        : tarifas.map((t) => t.descripcion || 'Tarifa').join(' + ');
+
   return {
     id: row.id,
     id_profesional: row.id_profesional,
     id_mascota: row.id_mascota,
-    id_tarifa: row.id_tarifa ?? null,
+    id_tarifa: primary?.id ?? row.id_tarifa ?? null,
+    id_tarifas: tarifas.map((t) => t.id),
+    tarifas,
     fecha: toDateOnly(row.fecha),
     hora_inicio: row.hora_inicio,
     hora_fin: row.hora_fin,
     cobrada: row.cobrada === true,
     atendida: row.atendida === true,
+    observacion_ingreso: row.observacion_ingreso ?? null,
     mascota_nombre: m?.nombre ?? row.mascota_nombre,
     profesional_nombre: row.profesional?.nombre ?? row.profesional_nombre,
     especie: m?.especie ?? row.especie,
     raza: m?.raza ?? row.raza,
     tamano: m?.tamano ?? row.tamano,
-    tarifa_descripcion: t?.descripcion ?? null,
-    tarifa_valor: t?.valor ?? null,
+    tarifa_descripcion: descripcionJoined,
+    tarifa_valor: tarifas.length ? totalValor : (row.tarifa?.valor ?? row.tarifa_valor ?? null),
   };
 }
 
-function normalizeIdTarifa(valor) {
-  if (valor == null || valor === '') return null;
-  const id = Number(valor);
-  if (!id || Number.isNaN(id)) {
-    throw new Error('Tarifa inválida');
+function normalizeIdTarifas(payload) {
+  const raw =
+    payload?.id_tarifas ??
+    payload?.tarifasIds ??
+    payload?.tarifas ??
+    (payload?.id_tarifa != null && payload?.id_tarifa !== ''
+      ? [payload.id_tarifa]
+      : []);
+
+  const list = Array.isArray(raw) ? raw : [raw];
+  const ids = [
+    ...new Set(
+      list
+        .map((v) => (typeof v === 'object' && v != null ? Number(v.id) : Number(v)))
+        .filter((n) => n && !Number.isNaN(n))
+    ),
+  ];
+  if (ids.length === 0) {
+    throw new Error('Selecciona al menos una tarifa');
   }
-  return id;
+  return ids;
 }
 
 function isMissingRpcError(error) {
@@ -49,7 +119,7 @@ function isMissingRpcError(error) {
 
 function throwMissingRpc(nombreRpc) {
   throw new Error(
-    `Falta la función ${nombreRpc} en Supabase. Ejecuta la migración 20260813_000001_audit_remediation_ciclo_cita.sql (y las anteriores del historial).`
+    `Falta la función ${nombreRpc} en Supabase. Ejecuta las migraciones hasta 20260826_000004_agenda_observacion_ingreso.sql.`
   );
 }
 
@@ -83,22 +153,40 @@ function assertHorarioValido(hora_inicio, hora_fin) {
   }
 }
 
-async function assertTarifaDelProfesional(idProfesional, idTarifa) {
+async function assertTarifasDelProfesional(idProfesional, idTarifas) {
   const idProf = Number(idProfesional);
-  const idTar = Number(idTarifa);
-  if (!idProf || !idTar) {
+  const ids = [...new Set((idTarifas || []).map(Number).filter((n) => n && !Number.isNaN(n)))];
+  if (!idProf || ids.length === 0) {
     throw new Error('Tarifa inválida para el profesional');
   }
   const { data, error } = await supabase
     .from('tarifa')
     .select('id')
-    .eq('id', idTar)
     .eq('id_profesional', idProf)
-    .maybeSingle();
-  throwIfError(error, 'Error al validar la tarifa');
-  if (!data) {
+    .in('id', ids);
+  throwIfError(error, 'Error al validar las tarifas');
+  if ((data ?? []).length !== ids.length) {
     throw new Error('Tarifa inválida para el profesional');
   }
+}
+
+async function syncAgendaTarifasClient(idAgenda, idTarifas) {
+  const { error } = await supabase.rpc('sync_agenda_tarifas', {
+    p_id_agenda: Number(idAgenda),
+    p_id_tarifas: idTarifas.map(Number),
+  });
+  if (isMissingRpcError(error)) {
+    // Fallback: insert directo si el RPC aún no está
+    await supabase.from('agenda_tarifa').delete().eq('id_agenda', Number(idAgenda));
+    const rows = idTarifas.map((id_tarifa) => ({
+      id_agenda: Number(idAgenda),
+      id_tarifa: Number(id_tarifa),
+    }));
+    const { error: insErr } = await supabase.from('agenda_tarifa').insert(rows);
+    throwIfError(insErr, 'Error al guardar tarifas de la cita');
+    return;
+  }
+  throwIfError(error, 'Error al sincronizar tarifas de la cita');
 }
 
 /** Solo citas no atendidas ocupan el cupo (alineado al trigger/EXCLUDE DB). */
@@ -189,10 +277,7 @@ async function fetchAgendaRows(idProfesional, incluirAtendidas, { page, limit, f
 
     let query = supabase
       .from('agenda')
-      .select(
-        'id, id_profesional, id_mascota, id_tarifa, fecha, hora_inicio, hora_fin, cobrada, atendida, mascota(nombre, especie, raza, tamano), tarifa(descripcion, valor)',
-        { count: 'exact' }
-      )
+      .select(AGENDA_SELECT_MASCOTA_TARIFA, { count: 'exact' })
       .eq('id_profesional', idProf)
       .order('fecha', { ascending: true })
       .order('hora_inicio', { ascending: true })
@@ -216,9 +301,7 @@ async function fetchAgendaRows(idProfesional, incluirAtendidas, { page, limit, f
   for (;;) {
     let query = supabase
       .from('agenda')
-      .select(
-        'id, id_profesional, id_mascota, id_tarifa, fecha, hora_inicio, hora_fin, cobrada, atendida, mascota(nombre, especie, raza, tamano), tarifa(descripcion, valor)'
-      )
+      .select(AGENDA_SELECT_MASCOTA_TARIFA)
       .eq('id_profesional', idProf)
       .order('fecha', { ascending: true })
       .order('hora_inicio', { ascending: true })
@@ -241,8 +324,7 @@ async function fetchAgendaRows(idProfesional, incluirAtendidas, { page, limit, f
   return { rows: all, count: all.length, page: 1, limit: all.length || 1 };
 }
 
-const AGENDA_SELECT =
-  'id, id_profesional, id_mascota, id_tarifa, fecha, hora_inicio, hora_fin, cobrada, atendida, mascota(nombre, especie, raza, tamano), tarifa(descripcion, valor), profesional(nombre)';
+const AGENDA_SELECT = AGENDA_SELECT_WITH_PROF;
 
 /** IDs de mascota con al menos una cita pendiente de "Mascota lista" (atendida = false). */
 export async function getIdsMascotasConCitaActiva(idsMascota = []) {
@@ -376,22 +458,39 @@ export async function marcarAgendaAtendida(idAgenda, idProfesional = null) {
   throw new Error('Error al marcar la agenda como atendida');
 }
 
+function normalizeObservacionIngreso(payload) {
+  if (payload?.observacion_ingreso === undefined && payload?.observacionIngreso === undefined) {
+    return undefined;
+  }
+  const raw = payload?.observacion_ingreso ?? payload?.observacionIngreso ?? '';
+  const trimmed = String(raw).trim();
+  return trimmed || null;
+}
+
 function validateCitaPayload(payload) {
   const id_mascota = Number(payload.id_mascota);
-  const id_tarifa = normalizeIdTarifa(payload.id_tarifa);
+  const id_tarifas = normalizeIdTarifas(payload);
+  const id_tarifa = id_tarifas[0];
   const fecha = toDateOnly(payload.fecha?.trim()) || payload.fecha?.trim();
   const hora_inicio = payload.hora_inicio?.trim();
   const hora_fin = payload.hora_fin?.trim();
+  const observacion_ingreso = normalizeObservacionIngreso(payload);
 
   if (!id_mascota || !fecha || !hora_inicio || !hora_fin) {
     throw new Error('Fecha, hora de inicio y hora final son requeridas');
   }
-  if (!id_tarifa) {
-    throw new Error('La tarifa es requerida');
-  }
   assertHorarioValido(hora_inicio, hora_fin);
 
-  return { id_mascota, id_tarifa, fecha, hora_inicio, hora_fin };
+  return {
+    id_mascota,
+    id_tarifa,
+    id_tarifas,
+    fecha,
+    hora_inicio,
+    hora_fin,
+    observacion_ingreso:
+      observacion_ingreso === undefined ? null : observacion_ingreso,
+  };
 }
 
 async function assertAgendaEditable(idAgenda, idProfesional) {
@@ -457,10 +556,10 @@ export async function crearCitaAgenda(idProfesional, payload) {
   const idProf = Number(idProfesional);
   if (!idProf) throw new Error('Profesional inválido');
 
-  const { id_mascota, id_tarifa, fecha, hora_inicio, hora_fin } =
+  const { id_mascota, id_tarifa, id_tarifas, fecha, hora_inicio, hora_fin, observacion_ingreso } =
     validateCitaPayload(payload);
 
-  await assertTarifaDelProfesional(idProf, id_tarifa);
+  await assertTarifasDelProfesional(idProf, id_tarifas);
 
   await assertSinSolape({
     idProfesional: idProf,
@@ -479,15 +578,28 @@ export async function crearCitaAgenda(idProfesional, payload) {
       fecha,
       hora_inicio,
       hora_fin,
+      observacion_ingreso,
     })
     .select()
     .single();
   throwIfError(error, 'Error al agendar la mascota');
-  return successOk(data);
+
+  try {
+    await syncAgendaTarifasClient(data.id, id_tarifas);
+  } catch (syncErr) {
+    try {
+      await supabase.from('agenda').delete().eq('id', data.id);
+    } catch {
+      /* ignore */
+    }
+    throw syncErr;
+  }
+
+  return successOk({ ...data, id_tarifas, id_tarifa });
 }
 
 /**
- * Crea la cita y el cobro en una sola transacción (RPC).
+ * Crea la cita y el cobro en una sola transacción (RPC multi-tarifa).
  * Fail-closed si el RPC no está desplegado (evita estado parcial).
  */
 export async function crearCitaYCobrar(idProfesional, payload, cobroExtras = {}) {
@@ -503,13 +615,13 @@ export async function crearCitaYCobrar(idProfesional, payload, cobroExtras = {})
 
   const valorPrecheck = parseFloat(cobroExtras.valor);
   if (Number.isNaN(valorPrecheck) || valorPrecheck < 0) {
-    throw new Error('El valor del cobro es inválido (revisa la tarifa seleccionada)');
+    throw new Error('El valor del cobro es inválido (revisa las tarifas seleccionadas)');
   }
 
-  const { id_mascota, id_tarifa, fecha, hora_inicio, hora_fin } =
+  const { id_mascota, id_tarifas, fecha, hora_inicio, hora_fin, observacion_ingreso } =
     validateCitaPayload(payload);
 
-  await assertTarifaDelProfesional(idProf, id_tarifa);
+  await assertTarifasDelProfesional(idProf, id_tarifas);
 
   const fecha_cobro = toDateOnly(cobroExtras.fecha_cobro) || fecha;
 
@@ -518,7 +630,7 @@ export async function crearCitaYCobrar(idProfesional, payload, cobroExtras = {})
     {
       p_id_profesional: idProf,
       p_id_mascota,
-      p_id_tarifa,
+      p_id_tarifas: id_tarifas,
       p_fecha: fecha,
       p_hora_inicio: hora_inicio,
       p_hora_fin: hora_fin,
@@ -526,6 +638,7 @@ export async function crearCitaYCobrar(idProfesional, payload, cobroExtras = {})
       p_metodo_pago: metodo_pago,
       p_observacion: cobroExtras.observacion?.trim() || null,
       p_fecha_cobro: fecha_cobro,
+      p_observacion_ingreso: observacion_ingreso,
     }
   );
 
@@ -550,10 +663,10 @@ export async function actualizarCitaAgenda(idProfesional, idAgenda, payload) {
 
   await assertAgendaEditable(id, idProf);
 
-  const { id_mascota, id_tarifa, fecha, hora_inicio, hora_fin } =
+  const { id_mascota, id_tarifa, id_tarifas, fecha, hora_inicio, hora_fin, observacion_ingreso } =
     validateCitaPayload(payload);
 
-  await assertTarifaDelProfesional(idProf, id_tarifa);
+  await assertTarifasDelProfesional(idProf, id_tarifas);
 
   await assertSinSolape({
     idProfesional: idProf,
@@ -572,6 +685,7 @@ export async function actualizarCitaAgenda(idProfesional, idAgenda, payload) {
       fecha,
       hora_inicio,
       hora_fin,
+      observacion_ingreso,
     })
     .eq('id', id)
     .eq('id_profesional', idProf)
@@ -581,7 +695,9 @@ export async function actualizarCitaAgenda(idProfesional, idAgenda, payload) {
   if (!data) {
     throw new Error('Cita no encontrada');
   }
-  return successOk(data);
+
+  await syncAgendaTarifasClient(id, id_tarifas);
+  return successOk({ ...data, id_tarifas, id_tarifa });
 }
 
 export async function eliminarCitaAgenda(idProfesional, idAgenda) {

@@ -2,10 +2,17 @@ import Button from './Button';
 import { Select } from './Field';
 
 export const PAGE_SIZE_OPTIONS = [5, 10, 20];
+export const INFORMES_LIBRES_PAGE_SIZE_OPTIONS = [10, 25, 50, 100];
 export const DEFAULT_PAGE_SIZE = 10;
 
 /** Selector “N por página” (mismo patrón que Informes). */
-export function PageSizeSelect({ value, onChange, disabled = false, id }) {
+export function PageSizeSelect({
+  value,
+  onChange,
+  disabled = false,
+  id,
+  options = PAGE_SIZE_OPTIONS,
+}) {
   return (
     <Select
       id={id}
@@ -15,7 +22,7 @@ export function PageSizeSelect({ value, onChange, disabled = false, id }) {
       aria-label="Filas por página"
       style={{ maxWidth: 140, flex: '0 0 auto' }}
     >
-      {PAGE_SIZE_OPTIONS.map((n) => (
+      {options.map((n) => (
         <option key={n} value={n}>
           {n} por página
         </option>

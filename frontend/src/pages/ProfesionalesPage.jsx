@@ -32,10 +32,29 @@ import TablePagination, {
   DEFAULT_PAGE_SIZE,
   PageSizeSelect,
 } from '../components/ui/TablePagination';
+import HorarioSlotSelect from '../components/ui/HorarioSlotSelect';
 import { formatFecha, formatHora, formatMoneda } from '../utils/format';
+import {
+  JORNADA_DEFAULT_FIN,
+  JORNADA_DEFAULT_INICIO,
+  generarBloquesHorarios,
+  jornadaDelProfesional,
+  labelJornadaProfesional,
+  toTimeHHMM,
+} from '../utils/horarios';
 import '../index.css';
+import { TABLE_STICKY_COLS_2 } from '../lib/tableSticky';
 
-const EMPTY_FORM = { nombre: '', telefono: '' };
+const EMPTY_FORM = {
+  nombre: '',
+  telefono: '',
+  hora_inicio_jornada: JORNADA_DEFAULT_INICIO,
+  hora_fin_jornada: JORNADA_DEFAULT_FIN,
+};
+
+const SLOTS_JORNADA_CONFIG = generarBloquesHorarios('05:00', '23:00', 30, {
+  includeEnd: true,
+});
 
 export default function ProfesionalesPage() {
   const [form, setForm] = useState(EMPTY_FORM);
@@ -235,7 +254,12 @@ export default function ProfesionalesPage() {
       const nombre = form.nombre.trim();
       const telefono = form.telefono.trim();
       if (!nombre || !telefono) throw new Error('Nombre y teléfono son requeridos');
-      await createProfesional({ nombre, telefono });
+      await createProfesional({
+        nombre,
+        telefono,
+        hora_inicio_jornada: form.hora_inicio_jornada,
+        hora_fin_jornada: form.hora_fin_jornada,
+      });
       addToast('Profesional guardado correctamente', 'success');
       setForm(EMPTY_FORM);
       setFiltro('');
@@ -250,8 +274,14 @@ export default function ProfesionalesPage() {
   }
 
   function startEdit(p) {
+    const j = jornadaDelProfesional(p);
     setInlineEditId(p.id);
-    setInlineDraft({ nombre: p.nombre, telefono: p.telefono || '' });
+    setInlineDraft({
+      nombre: p.nombre,
+      telefono: p.telefono || '',
+      hora_inicio_jornada: j.inicio,
+      hora_fin_jornada: j.fin,
+    });
   }
 
   function cancelEdit() {
@@ -267,7 +297,12 @@ export default function ProfesionalesPage() {
       const telefono = inlineDraft.telefono.trim();
       if (!nombre || !telefono) throw new Error('Nombre y teléfono son requeridos');
 
-      await updateProfesional(id, { nombre, telefono });
+      await updateProfesional(id, {
+        nombre,
+        telefono,
+        hora_inicio_jornada: inlineDraft.hora_inicio_jornada,
+        hora_fin_jornada: inlineDraft.hora_fin_jornada,
+      });
       addToast('Actualizado correctamente', 'success');
       cancelEdit();
       await refresh();
@@ -367,6 +402,52 @@ export default function ProfesionalesPage() {
                     onChange={(e) => setForm((p) => ({ ...p, telefono: e.target.value }))}
                   />
                 </Field>
+                <Field id="pjornada-inicio" label="Hora inicio jornada" required>
+                  <HorarioSlotSelect
+                    id="pjornada-inicio"
+                    value={form.hora_inicio_jornada}
+                    slots={SLOTS_JORNADA_CONFIG}
+                    disabled={loading || !!inlineEditId}
+                    required
+                    placeholder="Inicio de atención"
+                    onChange={(v) =>
+                      setForm((p) => {
+                        const next = { ...p, hora_inicio_jornada: v };
+                        const ini = toTimeHHMM(v);
+                        const fin = toTimeHHMM(p.hora_fin_jornada);
+                        if (ini && fin && fin <= ini) {
+                          const posteriores = generarBloquesHorarios(ini, '23:00', 30, {
+                            includeEnd: true,
+                          }).filter((s) => s > ini);
+                          next.hora_fin_jornada = posteriores[0] || JORNADA_DEFAULT_FIN;
+                        }
+                        return next;
+                      })
+                    }
+                  />
+                </Field>
+                <Field id="pjornada-fin" label="Hora fin jornada" required>
+                  <HorarioSlotSelect
+                    id="pjornada-fin"
+                    value={form.hora_fin_jornada}
+                    slots={generarBloquesHorarios(
+                      form.hora_inicio_jornada || JORNADA_DEFAULT_INICIO,
+                      '23:00',
+                      30,
+                      { includeEnd: true }
+                    ).filter(
+                      (s) =>
+                        s >
+                        (toTimeHHMM(form.hora_inicio_jornada) || JORNADA_DEFAULT_INICIO)
+                    )}
+                    disabled={loading || !!inlineEditId}
+                    required
+                    placeholder="Fin de atención"
+                    onChange={(v) =>
+                      setForm((p) => ({ ...p, hora_fin_jornada: v }))
+                    }
+                  />
+                </Field>
               </div>
               <Button
                 type="submit"
@@ -447,10 +528,10 @@ export default function ProfesionalesPage() {
           ) : (
             <>
               <div className="ui-table-wrap table-scroll">
-                <table className="ui-table">
+                <table className={TABLE_STICKY_COLS_2}>
                   <thead>
                     <tr>
-                      {['ID', 'Nombre', 'Teléfono', 'Acciones'].map((h) => (
+                      {['ID', 'Nombre', 'Teléfono', 'Jornada', 'Acciones'].map((h) => (
                         <th key={h}>{h}</th>
                       ))}
                     </tr>
@@ -483,6 +564,59 @@ export default function ProfesionalesPage() {
                               />
                             </td>
                             <td>
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                                <HorarioSlotSelect
+                                  value={inlineDraft.hora_inicio_jornada}
+                                  slots={SLOTS_JORNADA_CONFIG}
+                                  disabled={loading}
+                                  required
+                                  placeholder="Inicio"
+                                  onChange={(v) =>
+                                    setInlineDraft((d) => {
+                                      const next = { ...d, hora_inicio_jornada: v };
+                                      const ini = toTimeHHMM(v);
+                                      const fin = toTimeHHMM(d.hora_fin_jornada);
+                                      if (ini && fin && fin <= ini) {
+                                        const posteriores = generarBloquesHorarios(
+                                          ini,
+                                          '23:00',
+                                          30,
+                                          { includeEnd: true }
+                                        ).filter((s) => s > ini);
+                                        next.hora_fin_jornada =
+                                          posteriores[0] || JORNADA_DEFAULT_FIN;
+                                      }
+                                      return next;
+                                    })
+                                  }
+                                />
+                                <HorarioSlotSelect
+                                  value={inlineDraft.hora_fin_jornada}
+                                  slots={generarBloquesHorarios(
+                                    inlineDraft.hora_inicio_jornada ||
+                                      JORNADA_DEFAULT_INICIO,
+                                    '23:00',
+                                    30,
+                                    { includeEnd: true }
+                                  ).filter(
+                                    (s) =>
+                                      s >
+                                      (toTimeHHMM(inlineDraft.hora_inicio_jornada) ||
+                                        JORNADA_DEFAULT_INICIO)
+                                  )}
+                                  disabled={loading}
+                                  required
+                                  placeholder="Fin"
+                                  onChange={(v) =>
+                                    setInlineDraft((d) => ({
+                                      ...d,
+                                      hora_fin_jornada: v,
+                                    }))
+                                  }
+                                />
+                              </div>
+                            </td>
+                            <td>
                               <div className="ui-table__actions">
                                 <Button
                                   size="sm"
@@ -507,6 +641,9 @@ export default function ProfesionalesPage() {
                           <>
                             <td>{p.nombre}</td>
                             <td>{p.telefono || '—'}</td>
+                            <td style={{ whiteSpace: 'nowrap' }}>
+                              {labelJornadaProfesional(p)}
+                            </td>
                             <td>
                               <div className="ui-table__actions">
                                 <Button

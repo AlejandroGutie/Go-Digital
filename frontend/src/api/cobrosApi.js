@@ -19,13 +19,49 @@ const TRANSICIONES_COBRO = {
 };
 
 function flattenCobroRow(row) {
+  const detalles = (row.cobro_detalle || []).map((d) => ({
+    id: d.id,
+    id_tarifa: d.id_tarifa,
+    descripcion: d.descripcion,
+    valor: d.valor,
+  }));
   return {
     ...row,
     profesional_nombre: row.profesional?.nombre ?? row.profesional_nombre,
     mascota_nombre: row.mascota?.nombre ?? row.mascota_nombre,
+    detalles,
+    id_tarifas:
+      detalles.length > 0
+        ? detalles.map((d) => d.id_tarifa).filter((id) => id != null)
+        : row.id_tarifa != null
+          ? [row.id_tarifa]
+          : [],
     profesional: undefined,
     mascota: undefined,
+    cobro_detalle: undefined,
   };
+}
+
+function normalizeIdTarifasPayload(payload) {
+  const raw =
+    payload?.id_tarifas ??
+    payload?.tarifasIds ??
+    payload?.tarifas ??
+    (payload?.id_tarifa != null && payload?.id_tarifa !== ''
+      ? [payload.id_tarifa]
+      : []);
+  const list = Array.isArray(raw) ? raw : [raw];
+  const ids = [
+    ...new Set(
+      list
+        .map((v) => (typeof v === 'object' && v != null ? Number(v.id) : Number(v)))
+        .filter((n) => n && !Number.isNaN(n))
+    ),
+  ];
+  if (ids.length === 0) {
+    throw new Error('Selecciona al menos una tarifa');
+  }
+  return ids;
 }
 
 function assertEstadoCobro(estado) {
@@ -54,7 +90,7 @@ function isMissingRpcError(error) {
 
 function throwMissingRpc(nombreRpc) {
   throw new Error(
-    `Falta la función ${nombreRpc} en Supabase. Ejecuta la migración 20260813_000001_audit_remediation_ciclo_cita.sql (y las anteriores del historial).`
+    `Falta la función ${nombreRpc} en Supabase. Ejecuta las migraciones hasta 20260826_000001_multi_tarifas_agenda_cobro.sql.`
   );
 }
 
@@ -75,7 +111,10 @@ export async function listCobros(params = {}) {
 
   let query = supabase
     .from('cobro')
-    .select('*, profesional(nombre), mascota(nombre)', { count: 'exact' })
+    .select(
+      '*, profesional(nombre), mascota(nombre), cobro_detalle(id, id_tarifa, descripcion, valor)',
+      { count: 'exact' }
+    )
     .order('id', { ascending: false });
 
   if (params.estado) {
@@ -130,14 +169,14 @@ export async function listCobros(params = {}) {
 }
 
 /**
- * Crea cobro vía RPC atómico (marca agenda.cobrada y deja estado=pagado).
+ * Crea cobro vía RPC atómico multi-tarifa (marca agenda.cobrada y estado=pagado).
  * Fail-closed si el RPC no está desplegado.
  */
 export async function createCobro(payload) {
   const id_agenda = Number(payload.id_agenda);
   const id_profesional = Number(payload.id_profesional);
   const id_mascota = Number(payload.id_mascota);
-  const id_tarifa = payload.id_tarifa ? Number(payload.id_tarifa) : null;
+  const id_tarifas = normalizeIdTarifasPayload(payload);
   const valor = parseFloat(payload.valor);
   const metodo_pago = payload.metodo_pago?.trim() || null;
   const observacion = payload.observacion?.trim() || null;
@@ -145,9 +184,6 @@ export async function createCobro(payload) {
 
   if (!id_agenda || !id_profesional || !id_mascota || Number.isNaN(valor) || valor < 0) {
     throw new Error('Campos requeridos inválidos');
-  }
-  if (!id_tarifa) {
-    throw new Error('La tarifa es requerida');
   }
   if (!metodo_pago) {
     throw new Error('El método de pago es requerido');
@@ -157,7 +193,7 @@ export async function createCobro(payload) {
     p_id_agenda: id_agenda,
     p_id_profesional: id_profesional,
     p_id_mascota: id_mascota,
-    p_id_tarifa: id_tarifa,
+    p_id_tarifas: id_tarifas,
     p_valor: valor,
     p_metodo_pago: metodo_pago,
     p_observacion: observacion,
@@ -196,7 +232,11 @@ export async function updateCobro(id, payload) {
     if (existing.estado !== 'pendiente') {
       throw new Error('Solo se puede editar el método de pago en cobros pendientes');
     }
-    patch.metodo_pago = payload.metodo_pago?.trim() || null;
+    const metodo = payload.metodo_pago?.trim() || '';
+    if (!metodo) {
+      throw new Error('El método de pago es requerido');
+    }
+    patch.metodo_pago = metodo;
   }
   if (payload.observacion !== undefined) {
     patch.observacion = payload.observacion?.trim() || null;

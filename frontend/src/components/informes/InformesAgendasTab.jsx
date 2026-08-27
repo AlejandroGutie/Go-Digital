@@ -1,17 +1,30 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { AlertTriangle, CalendarDays } from 'lucide-react';
-import { getAgendaInforme } from '../../api/informesApi';
+import { AlertTriangle, CalendarDays, Clock } from 'lucide-react';
+import { getAgendaInforme, getHorariosLibres } from '../../api/informesApi';
+import { normalizeListPayload } from '../../api/normalize';
 import { useToast } from '../../hooks/useToast';
 import EmptyState from '../EmptyState';
 import Skeleton from '../ui/Skeleton';
 import InformesFiltros from './InformesFiltros';
 import { KpiCardsAgenda } from './KpiCards';
 import { ChartTendenciaCitas, ChartCitasPorProfesional } from './InformesCharts';
-import { TablaCitasPorProfesional } from './InformesTablas';
+import {
+  TablaCitasPorProfesional,
+  TablaDetalleAgendas,
+  TablaHorariosLibres,
+} from './InformesTablas';
 import InformesExportBar from './InformesExportBar';
 import { EMPTY_FILTROS_INFORMES, rangoDesdePreset } from '../../utils/dateRanges';
 import { rangoFechasInvalido, toDateOnly } from '../../utils/format';
-import { exportAgendaCSV, exportAgendaPDF } from '../../utils/exportInformes';
+import {
+  exportAgendaCSV,
+  exportAgendaPDF,
+  exportAgendaLibresCSV,
+  exportAgendaLibresPDF,
+} from '../../utils/exportInformes';
+
+const MODO_OCUPADAS = 'ocupadas';
+const MODO_LIBRES = 'libres';
 
 function daysInRange(desde, hasta) {
   if (!desde || !hasta) return 1;
@@ -69,11 +82,13 @@ function buildAgendaSummary(rows, filtros) {
 }
 
 export default function InformesAgendasTab({ profesionales, addToast }) {
+  const [modo, setModo] = useState(MODO_OCUPADAS);
   const [filtros, setFiltros] = useState(() => {
     const base = EMPTY_FILTROS_INFORMES();
     return { ...base, estado: '' };
   });
   const [rows, setRows] = useState([]);
+  const [rowsLibres, setRowsLibres] = useState([]);
   const [listLoading, setListLoading] = useState(true);
   const [loadError, setLoadError] = useState(null);
   const [exporting, setExporting] = useState(false);
@@ -82,8 +97,9 @@ export default function InformesAgendasTab({ profesionales, addToast }) {
   const notify = addToast || localToast.addToast;
 
   const rangoFechasError = rangoFechasInvalido(filtros.fecha_desde, filtros.fecha_hasta);
+  const esModoLibres = modo === MODO_LIBRES;
 
-  async function refresh(f = filtros) {
+  async function refreshOcupadas(f = filtros) {
     const reqId = ++fetchIdRef.current;
     setListLoading(true);
     setLoadError(null);
@@ -110,14 +126,47 @@ export default function InformesAgendasTab({ profesionales, addToast }) {
     }
   }
 
+  async function refreshLibres(f = filtros) {
+    const reqId = ++fetchIdRef.current;
+    setListLoading(true);
+    setLoadError(null);
+    try {
+      const res = await getHorariosLibres({
+        fecha_desde: f.fecha_desde || undefined,
+        fecha_hasta: f.fecha_hasta || undefined,
+        id_profesional: f.id_profesional || undefined,
+      });
+      if (reqId !== fetchIdRef.current) return;
+      if (res?.status === 'error') throw new Error(res.message || 'Error al calcular horarios libres');
+      setRowsLibres(normalizeListPayload(res));
+    } catch (e) {
+      if (reqId !== fetchIdRef.current) return;
+      const msg =
+        e?.message ||
+        'No se pudo calcular la disponibilidad (revisa la sesión o la conexión).';
+      setLoadError(msg);
+      setRowsLibres([]);
+      notify(msg, 'error');
+    } finally {
+      if (reqId === fetchIdRef.current) setListLoading(false);
+    }
+  }
+
   useEffect(() => {
     if (rangoFechasError) return undefined;
     const timer = setTimeout(() => {
-      refresh(filtros);
+      if (esModoLibres) refreshLibres(filtros);
+      else refreshOcupadas(filtros);
     }, 400);
     return () => clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filtros.fecha_desde, filtros.fecha_hasta, filtros.id_profesional, rangoFechasError]);
+  }, [
+    filtros.fecha_desde,
+    filtros.fecha_hasta,
+    filtros.id_profesional,
+    rangoFechasError,
+    esModoLibres,
+  ]);
 
   function onPreset(presetId) {
     const r = rangoDesdePreset(presetId);
@@ -154,12 +203,34 @@ export default function InformesAgendasTab({ profesionales, addToast }) {
     estado: '',
   };
 
-  const sinDatos = !listLoading && !loadError && rows.length === 0;
+  const datosActivos = esModoLibres ? rowsLibres : rows;
+  const sinDatos = !listLoading && !loadError && datosActivos.length === 0;
 
   return (
     <>
+      <div className="ui-tabs" role="tablist" aria-label="Modo de consulta de agendas" style={{ marginBottom: 16 }}>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={!esModoLibres}
+          className={`ui-tabs__btn${!esModoLibres ? ' ui-tabs__btn--active' : ''}`}
+          onClick={() => setModo(MODO_OCUPADAS)}
+        >
+          Citas agendadas
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={esModoLibres}
+          className={`ui-tabs__btn${esModoLibres ? ' ui-tabs__btn--active' : ''}`}
+          onClick={() => setModo(MODO_LIBRES)}
+        >
+          Agendas / Horarios libres
+        </button>
+      </div>
+
       <InformesFiltros
-        title="Filtros de agendas"
+        title={esModoLibres ? 'Filtros de disponibilidad' : 'Filtros de agendas'}
         filtros={filtros}
         profesionales={profesionales}
         onChange={setFiltros}
@@ -173,6 +244,45 @@ export default function InformesAgendasTab({ profesionales, addToast }) {
         <Skeleton rows={6} />
       ) : loadError ? (
         <EmptyState icon={<AlertTriangle size={24} />} title="No se pudo cargar la información" description={loadError} />
+      ) : esModoLibres ? (
+        sinDatos ? (
+          <>
+            <EmptyState
+              icon={<Clock size={24} />}
+              title="No hay horarios libres"
+              description="Ajusta el rango de fechas o el profesional; puede que la jornada esté completamente ocupada"
+            />
+            <InformesExportBar
+              variant="agenda-libres"
+              disabled
+              exporting={exporting}
+              onExportAgendaLibresCsv={() => {}}
+              onExportAgendaLibresPdf={() => {}}
+            />
+          </>
+        ) : (
+          <>
+            <TablaHorariosLibres rows={rowsLibres} filtros={filtros} />
+
+            <InformesExportBar
+              variant="agenda-libres"
+              disabled={rowsLibres.length === 0}
+              exporting={exporting}
+              onExportAgendaLibresCsv={() =>
+                withExport(async () => {
+                  exportAgendaLibresCSV(rowsLibres, filtroExport);
+                  notify('CSV de agendas libres descargado', 'success');
+                })
+              }
+              onExportAgendaLibresPdf={() =>
+                withExport(async () => {
+                  await exportAgendaLibresPDF(rowsLibres, filtroExport);
+                  notify('PDF de agendas libres descargado', 'success');
+                })
+              }
+            />
+          </>
+        )
       ) : sinDatos ? (
         <>
           <EmptyState
@@ -196,6 +306,8 @@ export default function InformesAgendasTab({ profesionales, addToast }) {
             <ChartTendenciaCitas serie={summary.serie} agruparPor={summary.agrupar_por} />
             <ChartCitasPorProfesional rows={summary.por_profesional} />
           </div>
+
+          <TablaDetalleAgendas rows={rows} filtros={filtros} />
 
           <TablaCitasPorProfesional rows={summary.por_profesional} filtros={filtros} />
 

@@ -11,19 +11,29 @@ import { listProfesionales } from '../../api/profesionalesApi';
 import { listTarifas } from '../../api/tarifasApi';
 import { normalizeListPayload } from '../../api/normalize';
 import { useMutationLock } from '../../hooks/useMutationLock';
-import { formatFecha, formatHora, formatMoneda, toDateOnly } from '../../utils/format';
+import { formatFecha, formatHora, toDateOnly } from '../../utils/format';
 import Field, { DateInput, Input, Select, Textarea } from '../ui/Field';
 import Button from '../ui/Button';
 import Sheet from '../ui/Sheet';
+import TarifaMultiSelect, { sumTarifasValor } from '../ui/TarifaMultiSelect';
+import HorarioSlotSelect from '../ui/HorarioSlotSelect';
+import {
+  DURACION_CITA_DEFAULT_MIN,
+  generarBloquesHorarios,
+  jornadaDelProfesional,
+  sugerirHoraFin,
+  toTimeHHMM,
+} from '../../utils/horarios';
 
 const inputErrorStyle = { borderColor: 'var(--color-entorno)' };
 
 const EMPTY = {
   id_profesional: '',
-  id_tarifa: '',
+  id_tarifas: [],
   fecha: '',
   hora_inicio: '',
   hora_fin: '',
+  observacion_ingreso: '',
   metodo_pago: '',
   observacion: '',
 };
@@ -103,6 +113,62 @@ export default function AgendarMascotaSheet({
     [tarifas]
   );
 
+  const profesionalSel = useMemo(
+    () => profesionales.find((p) => String(p.id) === String(form.id_profesional)) || null,
+    [profesionales, form.id_profesional]
+  );
+
+  const jornadaProf = useMemo(
+    () => jornadaDelProfesional(profesionalSel),
+    [profesionalSel]
+  );
+
+  const citasDelDia = useMemo(() => {
+    if (!form.fecha) return [];
+    const fechaNorm = toDateOnly(form.fecha);
+    return citasProf
+      .filter((c) => toDateOnly(c.fecha) === fechaNorm)
+      .sort(
+        (a, b) => (horaAMinutos(a.hora_inicio) ?? 0) - (horaAMinutos(b.hora_inicio) ?? 0)
+      );
+  }, [citasProf, form.fecha]);
+
+  const slotsInicio = useMemo(() => {
+    const base = generarBloquesHorarios(jornadaProf.inicio, jornadaProf.fin, 30, {
+      includeEnd: false,
+    });
+    if (!form.fecha) return base;
+    return base.filter((slot) => {
+      const m = horaAMinutos(slot);
+      if (m == null) return false;
+      return !citasDelDia.some((c) => {
+        const a = horaAMinutos(c.hora_inicio);
+        const b = horaAMinutos(c.hora_fin);
+        return a != null && b != null && m >= a && m < b;
+      });
+    });
+  }, [jornadaProf, form.fecha, citasDelDia]);
+
+  const slotsFin = useMemo(() => {
+    if (!form.hora_inicio) {
+      return generarBloquesHorarios(jornadaProf.inicio, jornadaProf.fin, 30, {
+        includeEnd: true,
+      }).filter((s) => s > jornadaProf.inicio);
+    }
+    const despues = generarBloquesHorarios(form.hora_inicio, jornadaProf.fin, 30, {
+      includeEnd: true,
+    }).filter((s) => s > form.hora_inicio);
+    if (!form.fecha) return despues;
+    const fechaNorm = toDateOnly(form.fecha);
+    return despues.filter((fin) => {
+      return !citasProf.some(
+        (c) =>
+          toDateOnly(c.fecha) === fechaNorm &&
+          franjasSeSolapan(form.hora_inicio, fin, c.hora_inicio, c.hora_fin)
+      );
+    });
+  }, [jornadaProf, form.hora_inicio, form.fecha, citasProf]);
+
   const horaFinInvalida =
     !!form.hora_inicio &&
     !!form.hora_fin &&
@@ -120,20 +186,10 @@ export default function AgendarMascotaSheet({
     );
   }, [citasProf, form.fecha, form.hora_inicio, form.hora_fin, horaFinInvalida]);
 
-  const citasDelDia = useMemo(() => {
-    if (!form.fecha) return [];
-    const fechaNorm = toDateOnly(form.fecha);
-    return citasProf
-      .filter((c) => toDateOnly(c.fecha) === fechaNorm)
-      .sort(
-        (a, b) => (horaAMinutos(a.hora_inicio) ?? 0) - (horaAMinutos(b.hora_inicio) ?? 0)
-      );
-  }, [citasProf, form.fecha]);
-
   const puedeAgendar =
     !!mascota?.id &&
     !!form.id_profesional &&
-    !!form.id_tarifa &&
+    (form.id_tarifas?.length || 0) > 0 &&
     !!form.fecha &&
     !!form.hora_inicio &&
     !!form.hora_fin &&
@@ -145,18 +201,41 @@ export default function AgendarMascotaSheet({
   function setField(key, value) {
     setForm((prev) => {
       const next = { ...prev, [key]: value };
-      if (key === 'id_profesional') next.id_tarifa = '';
+      if (key === 'id_profesional') {
+        next.id_tarifas = [];
+        next.hora_inicio = '';
+        next.hora_fin = '';
+      }
       return next;
+    });
+  }
+
+  function onChangeHoraInicio(value) {
+    const inicio = toTimeHHMM(value);
+    setForm((prev) => {
+      if (!inicio) {
+        return { ...prev, hora_inicio: '', hora_fin: '' };
+      }
+      const j = jornadaDelProfesional(
+        profesionales.find((p) => String(p.id) === String(prev.id_profesional))
+      );
+      const sugerida = sugerirHoraFin(inicio, j.fin, DURACION_CITA_DEFAULT_MIN);
+      return {
+        ...prev,
+        hora_inicio: inicio,
+        hora_fin: sugerida && sugerida > inicio ? sugerida : '',
+      };
     });
   }
 
   function buildPayload(fechaGuardar) {
     return {
       id_mascota: Number(mascota.id),
-      id_tarifa: Number(form.id_tarifa),
+      id_tarifas: (form.id_tarifas || []).map(Number),
       fecha: fechaGuardar,
       hora_inicio: form.hora_inicio,
       hora_fin: form.hora_fin,
+      observacion_ingreso: form.observacion_ingreso,
     };
   }
 
@@ -189,10 +268,9 @@ export default function AgendarMascotaSheet({
       addToast?.('Fecha inválida', 'error');
       return;
     }
-    const tarifa = tarifasActivas.find((t) => String(t.id) === String(form.id_tarifa));
-    const valor = tarifa?.valor;
-    if (valor == null || valor === '' || Number.isNaN(parseFloat(valor))) {
-      addToast?.('La tarifa seleccionada no tiene un valor válido', 'error');
+    const valor = sumTarifasValor(tarifasActivas, form.id_tarifas);
+    if (Number.isNaN(valor) || valor < 0) {
+      addToast?.('Las tarifas seleccionadas no tienen un valor válido', 'error');
       return;
     }
     if (!form.metodo_pago?.trim()) {
@@ -271,26 +349,20 @@ export default function AgendarMascotaSheet({
           </Select>
         </Field>
 
-        <Field label="Tarifa" required>
-          <Select
-            value={form.id_tarifa}
-            onChange={(e) => setField('id_tarifa', e.target.value)}
+        <Field label="Tarifas" required>
+          <TarifaMultiSelect
+            id="sheet-tarifas"
+            tarifas={tarifasActivas}
+            value={form.id_tarifas || []}
+            onChange={(ids) => setField('id_tarifas', ids)}
             disabled={loading || !form.id_profesional || tarifasActivas.length === 0}
             required
-          >
-            <option value="">
-              {!form.id_profesional
+            emptyLabel={
+              !form.id_profesional
                 ? 'Elige un profesional primero'
-                : tarifasActivas.length === 0
-                  ? 'Sin tarifas configuradas'
-                  : 'Seleccionar tarifa'}
-            </option>
-            {tarifasActivas.map((t) => (
-              <option key={t.id} value={t.id}>
-                {`${t.descripcion} — ${formatMoneda(t.valor)}`}
-              </option>
-            ))}
-          </Select>
+                : 'Sin tarifas configuradas'
+            }
+          />
         </Field>
 
         <Field label="Fecha" required>
@@ -304,24 +376,40 @@ export default function AgendarMascotaSheet({
 
         <div className="agenda-form__row agenda-form__row--times">
           <Field label="Inicio" required>
-            <Input
-              type="time"
+            <HorarioSlotSelect
               value={form.hora_inicio}
-              onChange={(e) => setField('hora_inicio', e.target.value)}
-              disabled={loading}
+              slots={slotsInicio}
+              disabled={loading || !form.id_profesional}
+              required
+              placeholder="Hora inicio"
+              emptyLabel="Sin horarios libres"
               style={citaConflicto || horaFinInvalida ? inputErrorStyle : undefined}
+              onChange={onChangeHoraInicio}
             />
           </Field>
           <Field label="Fin" required>
-            <Input
-              type="time"
+            <HorarioSlotSelect
               value={form.hora_fin}
-              onChange={(e) => setField('hora_fin', e.target.value)}
-              disabled={loading}
+              slots={slotsFin}
+              disabled={loading || !form.id_profesional || !form.hora_inicio}
+              required
+              placeholder="Hora fin"
+              emptyLabel="Sin horarios disponibles"
               style={citaConflicto || horaFinInvalida ? inputErrorStyle : undefined}
+              onChange={(v) => setField('hora_fin', toTimeHHMM(v))}
             />
           </Field>
         </div>
+
+        <Field label="Observaciones de ingreso / mascota">
+          <Textarea
+            value={form.observacion_ingreso}
+            onChange={(e) => setField('observacion_ingreso', e.target.value)}
+            placeholder="Notas al ingresar la mascota (opcional)"
+            disabled={loading}
+            rows={2}
+          />
+        </Field>
 
         <Field label="Método de pago" required>
           <Select
@@ -329,19 +417,29 @@ export default function AgendarMascotaSheet({
             onChange={(e) => setField('metodo_pago', e.target.value)}
             disabled={loading}
             required
+            aria-required="true"
           >
             <option value="">Seleccionar método de pago</option>
             <option value="Efectivo">Efectivo</option>
             <option value="Transferencia">Transferencia</option>
             <option value="Tarjeta">Tarjeta</option>
           </Select>
+          <div
+            style={{
+              marginTop: 6,
+              fontSize: '0.75rem',
+              color: 'var(--color-purple-light)',
+            }}
+          >
+            Obligatorio para Agendar y Cobrar (no aplica a solo Agendar)
+          </div>
         </Field>
 
         <Field label="Observación del cobro">
           <Textarea
             value={form.observacion}
             onChange={(e) => setField('observacion', e.target.value)}
-            placeholder="Solo se usa en Agendar y Cobrar"
+            placeholder="Solo se usa en Agendar y Cobrar (observación financiera)"
             disabled={loading}
             rows={2}
           />

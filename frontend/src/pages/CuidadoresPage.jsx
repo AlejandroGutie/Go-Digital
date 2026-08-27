@@ -39,6 +39,7 @@ import AgendarMascotaSheet from '../components/agendas/AgendarMascotaSheet';
 import CitasMascotaAccionesSheet from '../components/agendas/CitasMascotaAccionesSheet';
 import { formatFecha, hoyLocalISO, toDateOnly } from '../utils/format';
 import '../index.css';
+import { TABLE_STICKY_COLS_2 } from '../lib/tableSticky';
 
 const EMPTY_FORM = { nombre: '', telefono: '', direccion: '', email: '' };
 const EMPTY_MASCOTA_FORM = {
@@ -653,7 +654,7 @@ export default function CuidadoresPage() {
           ) : (
             <>
               <div className="ui-table-wrap table-scroll">
-                <table className="ui-table">
+                <table className={TABLE_STICKY_COLS_2}>
                   <thead>
                     <tr>
                       {['ID', 'Nombre', 'Email', 'Teléfono', 'Dirección', 'Acciones'].map((h) => (

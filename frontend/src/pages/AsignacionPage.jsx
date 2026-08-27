@@ -16,6 +16,7 @@ import Skeleton from '../components/ui/Skeleton';
 import ConfirmSheet from '../components/ui/ConfirmSheet';
 import TablePagination, { PageSizeSelect } from '../components/ui/TablePagination';
 import '../index.css';
+import { TABLE_STICKY_COLS_2 } from '../lib/tableSticky';
 
 const LIST_LIMIT = 500;
 
@@ -533,7 +534,7 @@ export default function AsignacionPage() {
                     ) : (
                       <>
                         <div className="ui-table-wrap table-scroll">
-                          <table className="ui-table">
+                          <table className={TABLE_STICKY_COLS_2}>
                             <thead>
                               <tr>
                                 {['ID', 'Nombre', 'Especie', 'Raza', 'Tamaño', 'Desde', 'Activo', ''].map(

@@ -21,6 +21,7 @@ import TablePagination, {
 } from '../components/ui/TablePagination';
 import CobroFormSheet from '../components/cobros/CobroFormSheet';
 import '../index.css';
+import { TABLE_STICKY_COLS_2 } from '../lib/tableSticky';
 
 const EMPTY_FILTROS = { estado: '', id_profesional: '', fecha_desde: '', fecha_hasta: '' };
 
@@ -59,6 +60,7 @@ export default function CobrosPage() {
     id_agenda: '',
     id_mascota: '',
     id_tarifa: '',
+    id_tarifas: [],
     valor: '',
     metodo_pago: '',
     observacion: '',
@@ -237,6 +239,7 @@ export default function CobrosPage() {
       id_agenda: '',
       id_mascota: '',
       id_tarifa: '',
+      id_tarifas: [],
       valor: '',
     }));
     setNombreMascotaVisible('');
@@ -267,36 +270,42 @@ export default function CobrosPage() {
   const handleAgendaChange = (id_agenda) => {
     const agenda = agendas.find((a) => String(a.id) === String(id_agenda));
     if (agenda) {
-      const idTarifa =
-        agenda.id_tarifa != null && agenda.id_tarifa !== ''
-          ? String(agenda.id_tarifa)
-          : '';
-      const tarifa = idTarifa
-        ? tarifas.find((t) => String(t.id) === String(idTarifa))
-        : null;
-      const valor =
+      const ids =
+        Array.isArray(agenda.id_tarifas) && agenda.id_tarifas.length
+          ? agenda.id_tarifas.map(String)
+          : agenda.id_tarifa != null && agenda.id_tarifa !== ''
+            ? [String(agenda.id_tarifa)]
+            : [];
+      const total =
         agenda.tarifa_valor != null && agenda.tarifa_valor !== ''
-          ? String(agenda.tarifa_valor)
-          : tarifa
-            ? String(tarifa.valor)
-            : '';
+          ? Number(agenda.tarifa_valor)
+          : ids.reduce((acc, id) => {
+              const t = tarifas.find((x) => String(x.id) === String(id));
+              return acc + (Number(t?.valor) || 0);
+            }, 0);
       setNuevoCobro((prev) => ({
         ...prev,
         id_agenda,
         id_mascota: agenda.id_mascota,
-        id_tarifa: idTarifa,
-        valor: valor || prev.valor,
+        id_tarifas: ids,
+        id_tarifa: ids[0] || '',
+        valor: ids.length ? String(total) : prev.valor,
       }));
       setNombreMascotaVisible(agenda.mascota_nombre);
     }
   };
 
-  const handleTarifaChange = (id_tarifa) => {
-    const tarifa = tarifas.find((t) => String(t.id) === String(id_tarifa));
+  const handleTarifasChange = (id_tarifas) => {
+    const ids = (id_tarifas || []).map(String);
+    const total = ids.reduce((acc, id) => {
+      const tarifa = tarifas.find((t) => String(t.id) === String(id));
+      return acc + (Number(tarifa?.valor) || 0);
+    }, 0);
     setNuevoCobro((prev) => ({
       ...prev,
-      id_tarifa,
-      valor: tarifa ? tarifa.valor : '',
+      id_tarifas: ids,
+      id_tarifa: ids[0] || '',
+      valor: String(total),
     }));
   };
 
@@ -313,8 +322,8 @@ export default function CobrosPage() {
       addToast('La agenda debe tener una mascota asociada', 'error');
       return;
     }
-    if (!nuevoCobro.id_tarifa) {
-      addToast('Selecciona una tarifa', 'error');
+    if (!nuevoCobro.id_tarifas?.length) {
+      addToast('Selecciona al menos una tarifa', 'error');
       return;
     }
     if (!nuevoCobro.metodo_pago?.trim()) {
@@ -338,7 +347,7 @@ export default function CobrosPage() {
         id_profesional: Number(nuevoCobro.id_profesional),
         id_agenda: Number(nuevoCobro.id_agenda),
         id_mascota: Number(nuevoCobro.id_mascota),
-        id_tarifa: Number(nuevoCobro.id_tarifa),
+        id_tarifas: (nuevoCobro.id_tarifas || []).map(Number),
         valor: nuevoCobro.valor,
         metodo_pago: nuevoCobro.metodo_pago,
         observacion: nuevoCobro.observacion,
@@ -352,6 +361,7 @@ export default function CobrosPage() {
           id_agenda: '',
           id_mascota: '',
           id_tarifa: '',
+          id_tarifas: [],
           valor: '',
           metodo_pago: '',
           observacion: '',
@@ -645,7 +655,7 @@ export default function CobrosPage() {
           ) : (
             <>
               <div className="ui-table-wrap table-scroll">
-                <table className="ui-table">
+                <table className={TABLE_STICKY_COLS_2}>
                   <thead>
                     <tr>
                       {['ID', 'Mascota', 'Profesional', 'Fecha', 'Valor', 'Estado', 'Método', 'Acciones'].map((h) => (
@@ -746,7 +756,7 @@ export default function CobrosPage() {
         tarifas={tarifas}
         onProfesionalChange={handleProfesionalChange}
         onAgendaChange={handleAgendaChange}
-        onTarifaChange={handleTarifaChange}
+        onTarifasChange={handleTarifasChange}
         onFieldChange={setNuevoCobro}
       />
 

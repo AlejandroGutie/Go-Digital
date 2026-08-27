@@ -2,7 +2,7 @@ import Button from '../ui/Button';
 
 /**
  * Barra de exportación por contexto de pestaña.
- * `variant`: 'financiero' | 'agenda'
+ * `variant`: 'financiero' | 'agenda' | 'agenda-libres'
  */
 export default function InformesExportBar({
   variant = 'financiero',
@@ -12,9 +12,12 @@ export default function InformesExportBar({
   onExportFinPdf,
   onExportAgendaCsv,
   onExportAgendaPdf,
+  onExportAgendaLibresCsv,
+  onExportAgendaLibresPdf,
 }) {
   const isFinanciero = variant === 'financiero';
   const isAgenda = variant === 'agenda';
+  const isAgendaLibres = variant === 'agenda-libres';
 
   return (
     <div className="ui-card" style={{ marginBottom: 24 }}>
@@ -39,6 +42,16 @@ export default function InformesExportBar({
             </Button>
             <Button variant="secondary" disabled={disabled || exporting} onClick={onExportAgendaPdf}>
               PDF agendas
+            </Button>
+          </>
+        )}
+        {isAgendaLibres && (
+          <>
+            <Button variant="primary" disabled={disabled || exporting} onClick={onExportAgendaLibresCsv}>
+              CSV Agendas Libres
+            </Button>
+            <Button variant="secondary" disabled={disabled || exporting} onClick={onExportAgendaLibresPdf}>
+              PDF Agendas Libres
             </Button>
           </>
         )}

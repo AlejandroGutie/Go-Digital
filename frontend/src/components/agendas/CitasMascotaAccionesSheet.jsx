@@ -24,6 +24,7 @@ import {
 } from '../../utils/whatsapp';
 import EmptyState from '../EmptyState';
 import CobroFormSheet from '../cobros/CobroFormSheet';
+import { formatTarifasLabel, sumTarifasValor } from '../ui/TarifaMultiSelect';
 import Button from '../ui/Button';
 import Sheet from '../ui/Sheet';
 import Skeleton from '../ui/Skeleton';
@@ -34,6 +35,7 @@ function emptyCobroForm() {
     id_agenda: '',
     id_mascota: '',
     id_tarifa: '',
+    id_tarifas: [],
     valor: '',
     metodo_pago: '',
     observacion: '',
@@ -231,23 +233,24 @@ export default function CitasMascotaAccionesSheet({
     try {
       const resT = await listTarifas(Number(cita.id_profesional));
       const tarifasProf = normalizeListPayload(resT).filter((t) => t.activo !== false);
-      const tarifa =
-        cita.id_tarifa != null
-          ? tarifasProf.find((t) => String(t.id) === String(cita.id_tarifa))
-          : null;
+      const ids =
+        Array.isArray(cita.id_tarifas) && cita.id_tarifas.length
+          ? cita.id_tarifas.map(String)
+          : cita.id_tarifa != null
+            ? [String(cita.id_tarifa)]
+            : [];
       const valor =
         cita.tarifa_valor != null && cita.tarifa_valor !== ''
           ? String(cita.tarifa_valor)
-          : tarifa
-            ? String(tarifa.valor)
-            : '';
+          : String(sumTarifasValor(tarifasProf, ids));
 
       setCobroTarifas(tarifasProf);
       setCobroForm({
         id_profesional: String(cita.id_profesional),
         id_agenda: String(cita.id),
         id_mascota: String(cita.id_mascota),
-        id_tarifa: cita.id_tarifa != null ? String(cita.id_tarifa) : '',
+        id_tarifas: ids,
+        id_tarifa: ids[0] || '',
         valor,
         metodo_pago: '',
         observacion: cita.tarifa_descripcion
@@ -265,18 +268,19 @@ export default function CitasMascotaAccionesSheet({
     }
   }
 
-  function handleCobroTarifaChange(id_tarifa) {
-    const tarifa = cobroTarifas.find((t) => String(t.id) === String(id_tarifa));
+  function handleCobroTarifasChange(id_tarifas) {
+    const ids = (id_tarifas || []).map(String);
     setCobroForm((prev) => ({
       ...prev,
-      id_tarifa,
-      valor: tarifa ? String(tarifa.valor) : prev.valor,
+      id_tarifas: ids,
+      id_tarifa: ids[0] || '',
+      valor: String(sumTarifasValor(cobroTarifas, ids)),
     }));
   }
 
   async function guardarCobro() {
-    if (!cobroForm.id_tarifa) {
-      addToast?.('Selecciona una tarifa', 'error');
+    if (!cobroForm.id_tarifas?.length) {
+      addToast?.('Selecciona al menos una tarifa', 'error');
       return;
     }
     if (!cobroForm.metodo_pago?.trim()) {
@@ -295,7 +299,7 @@ export default function CitasMascotaAccionesSheet({
         id_profesional: Number(cobroForm.id_profesional),
         id_agenda: Number(cobroForm.id_agenda),
         id_mascota: Number(cobroForm.id_mascota),
-        id_tarifa: Number(cobroForm.id_tarifa),
+        id_tarifas: (cobroForm.id_tarifas || []).map(Number),
         valor: cobroForm.valor,
         metodo_pago: cobroForm.metodo_pago,
         observacion: cobroForm.observacion,
@@ -362,11 +366,13 @@ export default function CitasMascotaAccionesSheet({
                     </td>
                     <td>{c.profesional_nombre || '—'}</td>
                     <td>
-                      {c.tarifa_descripcion
-                        ? `${c.tarifa_descripcion}${
-                            c.tarifa_valor != null ? ` · ${formatMoneda(c.tarifa_valor)}` : ''
-                          }`
-                        : '—'}
+                      {Array.isArray(c.tarifas) && c.tarifas.length
+                        ? formatTarifasLabel(c.tarifas)
+                        : c.tarifa_descripcion
+                          ? `${c.tarifa_descripcion}${
+                              c.tarifa_valor != null ? ` · ${formatMoneda(c.tarifa_valor)}` : ''
+                            }`
+                          : '—'}
                     </td>
                     <td>
                       <EstadoBadge cobrada={c.cobrada === true} />
@@ -445,7 +451,7 @@ export default function CitasMascotaAccionesSheet({
         values={cobroForm}
         nombreMascotaVisible={mascota?.nombre || ''}
         tarifas={cobroTarifas}
-        onTarifaChange={handleCobroTarifaChange}
+        onTarifasChange={handleCobroTarifasChange}
         onFieldChange={setCobroForm}
         lockAgendaContext
         stackLevel={2}

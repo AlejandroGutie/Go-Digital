@@ -1,11 +1,13 @@
 import Field, { DateInput, Input, Select, Textarea } from '../ui/Field';
 import Button from '../ui/Button';
 import Sheet from '../ui/Sheet';
+import TarifaMultiSelect, { sumTarifasValor } from '../ui/TarifaMultiSelect';
 import { formatFecha, formatMoneda } from '../../utils/format';
 
 /**
  * Modal de registro de cobro (mismo diseño/campos que CobrosPage).
  * `lockAgendaContext`: prellenado desde una agenda (profesional/agenda/mascota fijos).
+ * Tarifas: selección múltiple; el valor se recalcula como suma (editable).
  */
 export default function CobroFormSheet({
   open,
@@ -20,13 +22,40 @@ export default function CobroFormSheet({
   tarifas = [],
   onProfesionalChange,
   onAgendaChange,
-  onTarifaChange,
+  onTarifasChange,
   onFieldChange,
   lockAgendaContext = false,
   stackLevel = 0,
 }) {
   function setField(key, value) {
     onFieldChange?.({ ...values, [key]: value });
+  }
+
+  const selectedIds = (values.id_tarifas || []).map(String);
+  const suma = sumTarifasValor(tarifas, selectedIds);
+  const valorNum = parseFloat(values.valor);
+  const canSubmit =
+    !loading &&
+    !!String(values.id_profesional || '').trim() &&
+    !!String(values.id_agenda || '').trim() &&
+    selectedIds.length > 0 &&
+    !!String(values.metodo_pago || '').trim() &&
+    !Number.isNaN(valorNum) &&
+    valorNum >= 0 &&
+    !!String(values.fecha_cobro || '').trim();
+
+  function handleTarifasChange(nextIds) {
+    if (onTarifasChange) {
+      onTarifasChange(nextIds);
+      return;
+    }
+    const total = sumTarifasValor(tarifas, nextIds);
+    onFieldChange?.({
+      ...values,
+      id_tarifas: nextIds,
+      id_tarifa: nextIds[0] || '',
+      valor: String(total),
+    });
   }
 
   return (
@@ -41,7 +70,16 @@ export default function CobroFormSheet({
           <Button variant="ghost" onClick={onClose} disabled={loading}>
             Cancelar
           </Button>
-          <Button variant="primary" onClick={onSubmit} disabled={loading}>
+          <Button
+            variant="primary"
+            onClick={onSubmit}
+            disabled={!canSubmit}
+            title={
+              !String(values.metodo_pago || '').trim()
+                ? 'Selecciona un método de pago'
+                : undefined
+            }
+          >
             {loading ? 'Procesando…' : 'Guardar'}
           </Button>
         </div>
@@ -112,20 +150,20 @@ export default function CobroFormSheet({
           />
         </Field>
 
-        <Field label="Tarifa" required>
-          <Select
-            value={values.id_tarifa}
-            onChange={(e) => onTarifaChange?.(e.target.value)}
+        <Field label="Tarifas" required>
+          <TarifaMultiSelect
+            id="cobro-tarifas"
+            tarifas={tarifas.filter((t) => t.activo !== false)}
+            value={selectedIds}
+            onChange={handleTarifasChange}
             disabled={loading || (!lockAgendaContext && !values.id_profesional)}
             required
-          >
-            <option value="">Seleccionar tarifa</option>
-            {tarifas.map((t) => (
-              <option key={t.id} value={t.id}>
-                {`${t.descripcion} — ${formatMoneda(t.valor)}`}
-              </option>
-            ))}
-          </Select>
+            emptyLabel={
+              !lockAgendaContext && !values.id_profesional
+                ? 'Elige un profesional primero'
+                : 'Sin tarifas configuradas'
+            }
+          />
         </Field>
 
         <Field label="Valor" required>
@@ -139,6 +177,17 @@ export default function CobroFormSheet({
             min="0"
             step="any"
           />
+          {selectedIds.length > 0 && (
+            <div
+              style={{
+                marginTop: 6,
+                fontSize: '0.75rem',
+                color: 'var(--color-purple-light)',
+              }}
+            >
+              Suma de tarifas: {formatMoneda(suma)} (puedes ajustar el valor)
+            </div>
+          )}
         </Field>
 
         <Field label="Método de pago" required>
@@ -147,12 +196,24 @@ export default function CobroFormSheet({
             onChange={(e) => setField('metodo_pago', e.target.value)}
             disabled={loading}
             required
+            aria-required="true"
           >
             <option value="">Seleccionar método de pago</option>
             <option value="Efectivo">Efectivo</option>
             <option value="Transferencia">Transferencia</option>
             <option value="Tarjeta">Tarjeta</option>
           </Select>
+          {!String(values.metodo_pago || '').trim() && (
+            <div
+              style={{
+                marginTop: 6,
+                fontSize: '0.75rem',
+                color: 'var(--color-purple-light)',
+              }}
+            >
+              Obligatorio para registrar el cobro
+            </div>
+          )}
         </Field>
 
         <Field label="Observación">

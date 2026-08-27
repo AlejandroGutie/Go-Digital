@@ -163,6 +163,94 @@ body {
   min-height: var(--touch-min, 44px);
 }
 
+/* Multi-selección de tarifas */
+.tarifa-multi {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.tarifa-multi__chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.tarifa-multi__chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid color-mix(in srgb, var(--color-entorno) 35%, transparent);
+  background: color-mix(in srgb, var(--color-entorno) 10%, var(--color-white));
+  color: var(--color-entorno);
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.tarifa-multi__chip:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.tarifa-multi__chip-val,
+.tarifa-multi__option-val {
+  font-weight: 500;
+  color: var(--color-purple-light);
+}
+
+.tarifa-multi__list {
+  max-height: 180px;
+  overflow: auto;
+  border: 1px solid color-mix(in srgb, var(--color-purple-light) 35%, transparent);
+  border-radius: 8px;
+  background: var(--color-white);
+}
+
+.tarifa-multi__empty {
+  padding: 10px 12px;
+  font-size: 0.8125rem;
+  color: var(--color-purple-light);
+}
+
+.tarifa-multi__option {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 8px 12px;
+  cursor: pointer;
+  border-bottom: 1px solid color-mix(in srgb, var(--color-purple-light) 18%, transparent);
+}
+
+.tarifa-multi__option:last-child {
+  border-bottom: none;
+}
+
+.tarifa-multi__option--on {
+  background: var(--bg-selected);
+}
+
+.tarifa-multi__option input {
+  margin-top: 2px;
+}
+
+.tarifa-multi__option-text {
+  display: flex;
+  flex: 1;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 0.8125rem;
+  min-width: 0;
+}
+
+.tarifa-multi__total {
+  font-size: 0.8125rem;
+  color: var(--color-purple-light);
+}
+
 .table-scroll {
   width: 100%;
   max-width: 100%;

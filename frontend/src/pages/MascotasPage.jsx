@@ -21,6 +21,7 @@ import TablePagination, {
   PageSizeSelect,
 } from '../components/ui/TablePagination';
 import { formatFecha, hoyLocalISO, toDateOnly } from '../utils/format';
+import { TABLE_STICKY_COLS_2 } from '../lib/tableSticky';
 import '../index.css';
 
 const EMPTY_FORM = {
@@ -440,7 +441,7 @@ export default function MascotasPage() {
           ) : (
             <>
               <div className="ui-table-wrap table-scroll">
-                <table className="ui-table">
+                <table className={TABLE_STICKY_COLS_2}>
                   <thead>
                     <tr>
                       {[
