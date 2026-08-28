@@ -73,7 +73,7 @@ export default function InformesPage() {
         <InformesAgendasTab profesionales={profesionales} addToast={addToast} />
       )}
       {activeTab === 'fidelizacion' && (
-        <InformesFidelizacionTab profesionales={profesionales} />
+        <InformesFidelizacionTab profesionales={profesionales} addToast={addToast} />
       )}
 
       <Toast toasts={toasts} removeToast={removeToast} />

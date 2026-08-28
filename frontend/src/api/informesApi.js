@@ -2,11 +2,19 @@ import { supabase } from '../lib/supabaseClient';
 import { throwIfError } from '../lib/apiResponse';
 import { normalizeListPayload, normalizeMeta } from './normalize';
 import { toDateOnly, formatHora } from '../utils/format';
+import { informesAgruparPorDia } from '../utils/dateRanges';
 import {
   calcularFranjasLibres,
   iterarFechasEnRango,
   jornadaDelProfesional,
 } from '../utils/horarios';
+import {
+  claveContactoCumple,
+  claveContactoHito,
+  eventoProximidadNacimiento,
+  formatEdadFidelizacion,
+  hitoDesdeServicios,
+} from '../utils/fidelizacion';
 
 /** Tamaño de página PostgREST; evita truncar silenciosamente en ~1000 filas. */
 const FETCH_PAGE_SIZE = 1000;
@@ -43,15 +51,8 @@ function applyCobroFilters(query, params) {
   return q;
 }
 
-function daysBetween(desde, hasta) {
-  if (!desde || !hasta) return 30;
-  const a = new Date(`${desde}T12:00:00`);
-  const b = new Date(`${hasta}T12:00:00`);
-  return Math.max(0, Math.round((b - a) / 86400000));
-}
-
 function buildDashboardFromRows(cobros, agendas, profesionales, params) {
-  const agruparDia = daysBetween(params.fecha_desde, params.fecha_hasta) <= 45;
+  const agruparDia = informesAgruparPorDia(params.fecha_desde, params.fecha_hasta);
 
   let total_ingresos = 0;
   let total_pagado = 0;
@@ -200,7 +201,8 @@ async function getDashboardFallback(params) {
     fetchAllRows(() => {
       let q = supabase
         .from('agenda')
-        .select('id, id_profesional, fecha')
+        .select('id, id_profesional, fecha, cancelada')
+        .eq('cancelada', false)
         .order('fecha', { ascending: true });
       if (params.fecha_desde) q = q.gte('fecha', params.fecha_desde);
       if (params.fecha_hasta) q = q.lte('fecha', params.fecha_hasta);
@@ -208,11 +210,7 @@ async function getDashboardFallback(params) {
       return q;
     }, 'Error al cargar agendas del informe'),
     fetchAllRows(() => {
-      let q = supabase
-        .from('profesional')
-        .select('id, nombre')
-        .eq('activo', true)
-        .order('nombre');
+      let q = supabase.from('profesional').select('id, nombre').order('nombre');
       if (params.id_profesional) q = q.eq('id', params.id_profesional);
       return q;
     }, 'Error al cargar profesionales'),
@@ -277,6 +275,8 @@ export async function getAgendaInforme(params = {}) {
         especie: a.especie,
         raza: a.raza,
         tamano: a.tamano,
+        atendida: a.atendida === true,
+        cancelada: a.cancelada === true,
         cuidador_nombre: a.cuidador_nombre ?? null,
         cuidadores: Array.isArray(a.cuidadores) ? a.cuidadores : undefined,
       }))
@@ -296,13 +296,14 @@ export async function getAgendaInforme(params = {}) {
     let q = supabase
       .from('agenda')
       .select(
-        `id, fecha, hora_inicio, hora_fin, id_profesional, id_mascota,
+        `id, fecha, hora_inicio, hora_fin, id_profesional, id_mascota, atendida, cancelada,
          profesional(nombre),
          mascota(
            nombre, especie, raza, tamano,
            cuidador_mascota(activo, cuidador(id, nombre))
          )`
       )
+      .eq('cancelada', false)
       .order('fecha', { ascending: true })
       .order('hora_inicio', { ascending: true });
     if (params.fecha_desde) q = q.gte('fecha', params.fecha_desde);
@@ -325,6 +326,8 @@ export async function getAgendaInforme(params = {}) {
       especie: a.mascota?.especie,
       raza: a.mascota?.raza,
       tamano: a.mascota?.tamano,
+      atendida: a.atendida === true,
+      cancelada: a.cancelada === true,
       cuidadores,
       cuidador_nombre: cuidadores.length ? cuidadores.join(', ') : null,
     };
@@ -505,4 +508,286 @@ export async function getHorariosLibres(params = {}) {
   const meta = normalizeMeta({ ...payload, data: list, meta: { total, page: 1, pages: total === 0 ? 0 : 1 } }, 1, list.length || 1);
 
   return { status: 'success', data: list, meta };
+}
+
+function isMissingRpcError(error) {
+  return (
+    error?.code === 'PGRST202' ||
+    /could not find the function|schema cache/i.test(error?.message || '')
+  );
+}
+
+function isMissingTableError(error) {
+  return (
+    error?.code === '42P01' ||
+    error?.code === 'PGRST205' ||
+    /could not find the table|relation .* does not exist|schema cache/i.test(error?.message || '')
+  );
+}
+
+function pickCuidadorFromLinks(links) {
+  const list = Array.isArray(links) ? links : [];
+  const activos = list.filter((l) => l?.activo !== false && l?.cuidador);
+  const withPhone = activos.find((l) => String(l.cuidador?.telefono || '').trim());
+  const chosen = withPhone || activos[0] || list.find((l) => l?.cuidador) || null;
+  const c = chosen?.cuidador;
+  return {
+    id_cuidador: c?.id ?? null,
+    cuidador_nombre: c?.nombre ?? null,
+    cuidador_telefono: c?.telefono ?? null,
+  };
+}
+
+function mapCumpleRow(raw) {
+  const tipo = raw.tipo_evento === 'mesario' ? 'mesario' : 'cumpleanos';
+  const proxima = toDateOnly(raw.proxima_fecha);
+  return {
+    id_mascota: raw.id_mascota,
+    mascota_nombre: raw.mascota_nombre,
+    especie: raw.especie || '',
+    raza: raw.raza || '',
+    fecha_nacimiento: toDateOnly(raw.fecha_nacimiento),
+    edad_label: raw.edad_label || '',
+    tipo_evento: tipo,
+    proxima_fecha: proxima,
+    dias_restantes: Number(raw.dias_restantes) || 0,
+    servicios_atendidos: Number(raw.servicios_atendidos) || 0,
+    id_cuidador: raw.id_cuidador ?? null,
+    cuidador_nombre: raw.cuidador_nombre ?? null,
+    cuidador_telefono: raw.cuidador_telefono ?? null,
+    clave_contacto: `${tipo}:${proxima}`,
+  };
+}
+
+function mapHitoRow(raw) {
+  const hito = Number(raw.hito) || 0;
+  return {
+    id_mascota: raw.id_mascota,
+    mascota_nombre: raw.mascota_nombre,
+    especie: raw.especie || '',
+    raza: raw.raza || '',
+    fecha_nacimiento: toDateOnly(raw.fecha_nacimiento),
+    servicios_atendidos: Number(raw.servicios_atendidos) || 0,
+    servicios_totales: Number(raw.servicios_totales ?? raw.servicios_atendidos) || 0,
+    hito,
+    estado_hito: raw.estado_hito === 'por_alcanzar' ? 'por_alcanzar' : 'alcanzado',
+    servicios_faltantes: Number(raw.servicios_faltantes) || 0,
+    alcance: raw.alcance === 'profesional' ? 'profesional' : 'total',
+    id_profesional: raw.id_profesional ?? null,
+    profesional_nombre: raw.profesional_nombre ?? null,
+    id_cuidador: raw.id_cuidador ?? null,
+    cuidador_nombre: raw.cuidador_nombre ?? null,
+    cuidador_telefono: raw.cuidador_telefono ?? null,
+    clave_contacto: `hito:${hito}`,
+  };
+}
+
+function hitoRowFromCounts({ base, n, alcance, idProfesional, profesionalNombre, serviciosTotales }) {
+  const hito = hitoDesdeServicios(n);
+  if (!hito) return null;
+  const row = {
+    ...base,
+    ...hito,
+    servicios_atendidos: n,
+    servicios_totales: serviciosTotales ?? n,
+    alcance,
+    id_profesional: idProfesional ?? null,
+    profesional_nombre: profesionalNombre ?? null,
+  };
+  row.clave_contacto = claveContactoHito(row);
+  return row;
+}
+
+async function getInformeFidelizacionFallback(params) {
+  const hoy = toDateOnly(params.hoy) || toDateOnly(new Date());
+  const diasVentana = Number(params.dias_ventana) > 0 ? Number(params.dias_ventana) : 30;
+  const idProf = params.id_profesional ? Number(params.id_profesional) : null;
+
+  const [mascotas, agendas, profesionales] = await Promise.all([
+    fetchAllRows(
+      () =>
+        supabase
+          .from('mascota')
+          .select(
+            `id, nombre, especie, raza, fecha_nacimiento,
+             cuidador_mascota(activo, fecha_inicio, cuidador(id, nombre, telefono))`
+          )
+          .order('nombre'),
+      'Error al cargar mascotas de fidelización'
+    ),
+    fetchAllRows(() => {
+      let q = supabase
+        .from('agenda')
+        .select('id, id_mascota, id_profesional, atendida, cancelada')
+        .eq('atendida', true);
+      if (idProf) q = q.eq('id_profesional', idProf);
+      return q;
+    }, 'Error al cargar servicios atendidos de fidelización'),
+    idProf
+      ? Promise.resolve([])
+      : fetchAllRows(
+          () => supabase.from('profesional').select('id, nombre').order('nombre'),
+          'Error al cargar profesionales de fidelización'
+        ),
+  ]);
+
+  const nombreProf = new Map((profesionales || []).map((p) => [Number(p.id), p.nombre]));
+  const totalByMascota = new Map();
+  const byMascotaProf = new Map();
+  const visitedProf = new Set();
+
+  for (const a of agendas) {
+    if (a.cancelada === true) continue;
+    const mid = Number(a.id_mascota);
+    if (!mid) continue;
+    if (idProf) visitedProf.add(mid);
+    totalByMascota.set(mid, (totalByMascota.get(mid) || 0) + 1);
+    const pid = Number(a.id_profesional) || 0;
+    if (!byMascotaProf.has(mid)) byMascotaProf.set(mid, new Map());
+    const inner = byMascotaProf.get(mid);
+    inner.set(pid, (inner.get(pid) || 0) + 1);
+  }
+
+  const cumpleanos = [];
+  const hitos = [];
+
+  for (const m of mascotas) {
+    const id = Number(m.id);
+    if (idProf && !visitedProf.has(id)) continue;
+
+    const total = totalByMascota.get(id) || 0;
+    const cuidador = pickCuidadorFromLinks(m.cuidador_mascota);
+    const base = {
+      id_mascota: id,
+      mascota_nombre: m.nombre,
+      especie: m.especie,
+      raza: m.raza,
+      fecha_nacimiento: toDateOnly(m.fecha_nacimiento),
+      ...cuidador,
+    };
+
+    const evento = eventoProximidadNacimiento(m.fecha_nacimiento, { hoy, diasVentana });
+    if (evento) {
+      const row = {
+        ...base,
+        servicios_atendidos: total,
+        edad_label: formatEdadFidelizacion(m.fecha_nacimiento, hoy),
+        ...evento,
+      };
+      row.clave_contacto = claveContactoCumple(row);
+      cumpleanos.push(row);
+    }
+
+    let hitoRow = null;
+    if (idProf) {
+      hitoRow = hitoRowFromCounts({
+        base,
+        n: total,
+        alcance: 'profesional',
+        idProfesional: idProf,
+        serviciosTotales: total,
+      });
+    } else {
+      hitoRow = hitoRowFromCounts({
+        base,
+        n: total,
+        alcance: 'total',
+        serviciosTotales: total,
+      });
+      if (!hitoRow) {
+        let bestN = 0;
+        let bestPid = null;
+        const inner = byMascotaProf.get(id);
+        if (inner) {
+          for (const [pid, n] of inner) {
+            if (hitoDesdeServicios(n) && n > bestN) {
+              bestN = n;
+              bestPid = pid;
+            }
+          }
+        }
+        if (bestPid != null) {
+          hitoRow = hitoRowFromCounts({
+            base,
+            n: bestN,
+            alcance: 'profesional',
+            idProfesional: bestPid,
+            profesionalNombre: nombreProf.get(bestPid) || null,
+            serviciosTotales: total,
+          });
+        }
+      }
+    }
+    if (hitoRow) hitos.push(hitoRow);
+  }
+
+  cumpleanos.sort((a, b) => {
+    if (a.dias_restantes !== b.dias_restantes) return a.dias_restantes - b.dias_restantes;
+    return String(a.mascota_nombre || '').localeCompare(String(b.mascota_nombre || ''), 'es');
+  });
+  hitos.sort((a, b) => {
+    if (b.servicios_atendidos !== a.servicios_atendidos) {
+      return b.servicios_atendidos - a.servicios_atendidos;
+    }
+    return String(a.mascota_nombre || '').localeCompare(String(b.mascota_nombre || ''), 'es');
+  });
+
+  return { cumpleanos, hitos };
+}
+
+/**
+ * Oportunidades de fidelización: próximos cumpleaños/mesarios e hitos de visitas.
+ * No modifica getDashboardInformes ni getAgendaInforme.
+ */
+export async function getInformeFidelizacion(params = {}) {
+  const payload = {
+    p_dias_ventana: Number(params.dias_ventana) > 0 ? Number(params.dias_ventana) : 30,
+  };
+  if (params.id_profesional) payload.p_id_profesional = Number(params.id_profesional);
+
+  const { data, error } = await supabase.rpc('get_informe_fidelizacion', payload);
+  if (!error && Number(data?.version) >= 2) {
+    return {
+      status: 'success',
+      data: {
+        cumpleanos: (data.cumpleanos || []).map(mapCumpleRow),
+        hitos: (data.hitos || []).map(mapHitoRow),
+      },
+      source: 'rpc',
+    };
+  }
+
+  if (error && !isMissingRpcError(error)) {
+    throwIfError(error, error.message || 'Error al generar informe de fidelización');
+  }
+
+  const fallback = await getInformeFidelizacionFallback(params);
+  return { status: 'success', data: fallback, source: 'client' };
+}
+
+export async function listContactosFidelizacion() {
+  const { data, error } = await supabase
+    .from('fidelizacion_contacto')
+    .select('id_mascota, tipo, clave, enviado_en');
+  if (error && isMissingTableError(error)) {
+    return { status: 'success', data: [], source: 'local' };
+  }
+  throwIfError(error, 'Error al cargar contactos de fidelización');
+  return { status: 'success', data: data ?? [], source: 'db' };
+}
+
+export async function marcarContactoFidelizacion({ id_mascota, tipo, clave }) {
+  const row = {
+    id_mascota: Number(id_mascota),
+    tipo,
+    clave: String(clave || ''),
+  };
+  const { error } = await supabase.from('fidelizacion_contacto').upsert(row, {
+    onConflict: 'user_id,id_mascota,tipo,clave',
+  });
+  if (error && isMissingTableError(error)) {
+    return { status: 'success', source: 'local' };
+  }
+  throwIfError(error, 'Error al registrar el contacto de fidelización');
+  return { status: 'success', source: 'db' };
 }

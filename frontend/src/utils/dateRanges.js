@@ -67,6 +67,20 @@ export function detectarPreset(fecha_desde, fecha_hasta) {
   return 'personalizado';
 }
 
+/** Días inclusivos entre dos fechas ISO (mismo criterio en informes RPC y cliente). */
+export function diasEnRangoInclusive(fechaDesde, fechaHasta, defaultDias = 30) {
+  if (!fechaDesde || !fechaHasta) return defaultDias;
+  const a = parseFechaLocal(fechaDesde);
+  const b = parseFechaLocal(fechaHasta);
+  if (!a || !b) return defaultDias;
+  return Math.max(1, Math.round((b.getTime() - a.getTime()) / 86400000) + 1);
+}
+
+/** true si el rango es corto y conviene agrupar por día (≤ 45 días inclusivos). */
+export function informesAgruparPorDia(fechaDesde, fechaHasta) {
+  return diasEnRangoInclusive(fechaDesde, fechaHasta) <= 45;
+}
+
 export const EMPTY_FILTROS_INFORMES = () => {
   const r = rangoDesdePreset('mes');
   return {

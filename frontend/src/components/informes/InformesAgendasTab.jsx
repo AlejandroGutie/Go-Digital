@@ -14,7 +14,7 @@ import {
   TablaHorariosLibres,
 } from './InformesTablas';
 import InformesExportBar from './InformesExportBar';
-import { EMPTY_FILTROS_INFORMES, rangoDesdePreset } from '../../utils/dateRanges';
+import { EMPTY_FILTROS_INFORMES, rangoDesdePreset, diasEnRangoInclusive, informesAgruparPorDia } from '../../utils/dateRanges';
 import { rangoFechasInvalido, toDateOnly } from '../../utils/format';
 import {
   exportAgendaCSV,
@@ -26,21 +26,15 @@ import {
 const MODO_OCUPADAS = 'ocupadas';
 const MODO_LIBRES = 'libres';
 
-function daysInRange(desde, hasta) {
-  if (!desde || !hasta) return 1;
-  const a = new Date(`${desde}T12:00:00`);
-  const b = new Date(`${hasta}T12:00:00`);
-  return Math.max(1, Math.round((b - a) / 86400000) + 1);
-}
-
 function buildAgendaSummary(rows, filtros) {
-  const list = rows || [];
-  const dias = daysInRange(filtros.fecha_desde, filtros.fecha_hasta);
-  const agruparDia = dias <= 45;
+  const list = (rows || []).filter((r) => r?.cancelada !== true);
+  const dias = diasEnRangoInclusive(filtros.fecha_desde, filtros.fecha_hasta);
+  const agruparDia = informesAgruparPorDia(filtros.fecha_desde, filtros.fecha_hasta);
 
   const serieMap = new Map();
   const profMap = new Map();
   const mascotas = new Set();
+  const mascotasAtendidas = new Set();
 
   for (const row of list) {
     const fecha = toDateOnly(row.fecha);
@@ -57,12 +51,14 @@ function buildAgendaSummary(rows, filtros) {
     p.citas += 1;
     profMap.set(pid, p);
 
-    if (row.id_mascota != null) mascotas.add(row.id_mascota);
+    if (row.id_mascota != null) {
+      mascotas.add(row.id_mascota);
+      if (row.atendida === true) mascotasAtendidas.add(row.id_mascota);
+    }
   }
 
   const total = list.length;
-  const promedio =
-    total === 0 ? 0 : Math.round((total / dias) * 10) / 10;
+  const promedio = total === 0 ? 0 : Math.round((total / dias) * 10) / 10;
 
   return {
     kpis: {
@@ -70,6 +66,7 @@ function buildAgendaSummary(rows, filtros) {
       promedio_diario: promedio,
       profesionales_activos: profMap.size,
       mascotas_unicas: mascotas.size,
+      mascotas_atendidas: mascotasAtendidas.size,
     },
     serie: [...serieMap.values()].sort((a, b) =>
       String(a.periodo).localeCompare(String(b.periodo))
