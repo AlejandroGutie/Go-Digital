@@ -17,6 +17,9 @@ import {
   deleteCuidador,
   getMascotasDeCuidador,
   asignarMascota,
+  getMotivosCuidadorNoEliminar,
+  mensajeCuidadorNoEliminar,
+  assertCuidadorEliminable,
 } from '../api/cuidadoresApi';
 import { createMascota, listMascotasConCuidadores } from '../api/mascotasApi';
 import { getIdsMascotasConCitaActiva } from '../api/agendasApi';
@@ -57,6 +60,9 @@ function labelCuidadoresMascota(m) {
   return `Cuidador${nombres.length > 1 ? 'es' : ''}: ${nombres.join(', ')}`;
 }
 
+const MSG_CUIDADOR_NO_ELIMINAR =
+  'No se puede eliminar este cuidador en este momento.';
+
 export default function CuidadoresPage() {
   // ── Estados Principales de Cuidadores ───────────────────────
   const [form, setForm] = useState(EMPTY_FORM);
@@ -73,6 +79,7 @@ export default function CuidadoresPage() {
   const [inlineEditId, setInlineEditId] = useState(null);
   const [inlineDraft, setInlineDraft] = useState(EMPTY_FORM);
   const [deleteModalId, setDeleteModalId] = useState(null);
+  const [motivosNoEliminarCuidador, setMotivosNoEliminarCuidador] = useState(() => new Map());
   const [formOpen, setFormOpen] = useState(true);
 
   // ── Estados del Modal de Mascotas y su Formulario Interno ──
@@ -157,8 +164,10 @@ export default function CuidadoresPage() {
     try {
       const res = await listCuidadores(p, limit, search);
       if (fetchId !== fetchIdRef.current) return;
-      setCuidadores(normalizeListPayload(res));
+      const rows = normalizeListPayload(res);
+      setCuidadores(rows);
       setMeta(normalizeMeta(res, p, limit));
+      await cargarFlagsEliminacionCuidadores(rows);
     } catch (e) {
       if (fetchId !== fetchIdRef.current) return;
       const msg =
@@ -167,12 +176,54 @@ export default function CuidadoresPage() {
       setLoadError(msg);
       setCuidadores([]);
       setMeta(null);
+      setMotivosNoEliminarCuidador(new Map());
       addToast(msg, 'error');
     } finally {
       if (fetchId === fetchIdRef.current) {
         setListLoading(false);
       }
     }
+  }
+
+  async function cargarFlagsEliminacionCuidadores(rows) {
+    try {
+      const res = await getMotivosCuidadorNoEliminar((rows || []).map((c) => c.id));
+      const map = new Map(
+        Object.entries(res?.data ?? {}).map(([id, motivo]) => [Number(id), motivo])
+      );
+      setMotivosNoEliminarCuidador(map);
+    } catch {
+      /* Mantener flags previos: evita habilitar eliminación si falla la verificación */
+    }
+  }
+
+  function marcarCuidadorNoEliminable(id, motivo = 'mascotas_asignadas') {
+    setMotivosNoEliminarCuidador((prev) => new Map(prev).set(Number(id), motivo));
+  }
+
+  async function solicitarEliminarCuidador(c) {
+    if (loading) return;
+    try {
+      await assertCuidadorEliminable(c.id);
+      setDeleteModalId(c.id);
+    } catch (e) {
+      const res = await getMotivosCuidadorNoEliminar([c.id]);
+      const motivo = res?.data?.[Number(c.id)] ?? 'mascotas_asignadas';
+      marcarCuidadorNoEliminable(c.id, motivo);
+      addToast(e?.message || MSG_CUIDADOR_NO_ELIMINAR, 'error');
+    }
+  }
+
+  function motivoNoEliminarCuidador(id) {
+    return motivosNoEliminarCuidador.get(Number(id)) ?? null;
+  }
+
+  function mensajeNoEliminarCuidador(id) {
+    return mensajeCuidadorNoEliminar(motivoNoEliminarCuidador(id));
+  }
+
+  function cuidadorSePuedeEliminar(id) {
+    return !motivosNoEliminarCuidador.has(Number(id));
   }
 
   async function cargarFlagsCitasActivas(mascotas) {
@@ -370,6 +421,17 @@ export default function CuidadoresPage() {
   }
 
   async function confirmDelete() {
+    if (!deleteModalId) return;
+    try {
+      await assertCuidadorEliminable(deleteModalId);
+    } catch (e) {
+      const res = await getMotivosCuidadorNoEliminar([deleteModalId]);
+      const motivo = res?.data?.[Number(deleteModalId)] ?? 'mascotas_asignadas';
+      marcarCuidadorNoEliminable(deleteModalId, motivo);
+      addToast(e?.message || MSG_CUIDADOR_NO_ELIMINAR, 'error');
+      setDeleteModalId(null);
+      return;
+    }
     if (!tryLock()) return;
     setLoading(true);
     try {
@@ -438,6 +500,7 @@ export default function CuidadoresPage() {
       limpiarMascotaAsignar();
       await refreshModalMascotas(mascotasModal.id);
       await cargarMascotasDisponibles('');
+      void cargarFlagsEliminacionCuidadores(cuidadores);
     } catch (error) {
       addToast(error?.message || 'Error al asignar la mascota', 'error');
     } finally {
@@ -486,6 +549,7 @@ export default function CuidadoresPage() {
 
       await refreshModalMascotas(mascotasModal.id);
       await cargarMascotasDisponibles('');
+      void cargarFlagsEliminacionCuidadores(cuidadores);
     } catch (error) {
       addToast(error?.message || 'Error en el flujo de guardado de mascota', 'error');
     } finally {
@@ -757,9 +821,14 @@ export default function CuidadoresPage() {
                                 <Button
                                   size="sm"
                                   variant="ghost"
-                                  onClick={() => setDeleteModalId(c.id)}
-                                  disabled={loading}
+                                  onClick={() => solicitarEliminarCuidador(c)}
+                                  disabled={loading || !cuidadorSePuedeEliminar(c.id)}
                                   aria-label="Eliminar"
+                                  title={
+                                    cuidadorSePuedeEliminar(c.id)
+                                      ? 'Eliminar cuidador'
+                                      : mensajeNoEliminarCuidador(c.id) || MSG_CUIDADOR_NO_ELIMINAR
+                                  }
                                 >
                                   <Trash2 size={14} />
                                   Eliminar
@@ -797,9 +866,19 @@ export default function CuidadoresPage() {
         confirmLabel="Eliminar"
         loading={loading}
         danger
+        confirmDisabled={!deleteModalId || !cuidadorSePuedeEliminar(deleteModalId)}
       >
-        ¿Eliminar el cuidador <b>#{deleteModalId}</b>? Sus relaciones con mascotas también se
-        eliminarán.
+        {deleteModalId && !cuidadorSePuedeEliminar(deleteModalId) ? (
+          <p>{mensajeNoEliminarCuidador(deleteModalId) || MSG_CUIDADOR_NO_ELIMINAR}</p>
+        ) : (
+          <>
+            ¿Eliminar el cuidador{' '}
+            <b>
+              {cuidadores.find((c) => c.id === deleteModalId)?.nombre ?? `#${deleteModalId}`}
+            </b>
+            ? Sus relaciones con mascotas también se eliminarán.
+          </>
+        )}
       </ConfirmSheet>
 
       <Sheet
@@ -1129,6 +1208,7 @@ export default function CuidadoresPage() {
           if (mascotasModal?.mascotas) {
             void cargarFlagsCitasActivas(mascotasModal.mascotas);
           }
+          void cargarFlagsEliminacionCuidadores(cuidadores);
         }}
         addToast={addToast}
       />
@@ -1146,6 +1226,7 @@ export default function CuidadoresPage() {
           if (mascotasModal?.mascotas) {
             void cargarFlagsCitasActivas(mascotasModal.mascotas);
           }
+          void cargarFlagsEliminacionCuidadores(cuidadores);
         }}
         addToast={addToast}
       />

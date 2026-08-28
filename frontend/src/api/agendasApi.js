@@ -399,6 +399,42 @@ export function estadoPagoAgenda(cita) {
   return 'pendiente';
 }
 
+export function citaTieneCobroVigente(cita) {
+  const estado = cita?.cobro_estado;
+  if (estado === 'pendiente' || estado === 'pagado') return true;
+  return cita?.cobrada === true;
+}
+
+export function motivoNoCancelarAgenda(cita) {
+  if (cita?.cancelada === true) return 'Esta cita ya está cancelada.';
+  if (cita?.atendida === true) {
+    return 'No se puede cancelar una cita ya marcada como Mascota lista.';
+  }
+  return null;
+}
+
+export function puedeCancelarAgenda(cita) {
+  return motivoNoCancelarAgenda(cita) == null;
+}
+
+export function motivoNoReprogramarAgenda(cita) {
+  if (cita?.cancelada === true) return 'No se puede reprogramar una cita cancelada.';
+  if (cita?.atendida === true) {
+    return 'No se puede reprogramar una cita ya marcada como Mascota lista.';
+  }
+  if (cita?.cobro_estado === 'pagado') {
+    return 'No se puede reprogramar una cita con cobro pagado. Devuelve el pago o anula el cobro en Cobros primero.';
+  }
+  if (cita?.cobrada === true && cita?.cobro_estado !== 'pendiente') {
+    return 'No se puede reprogramar una cita cobrada. Anula el cobro en Cobros si necesitas corregirla.';
+  }
+  return null;
+}
+
+export function puedeReprogramarAgenda(cita) {
+  return motivoNoReprogramarAgenda(cita) == null;
+}
+
 /**
  * Vista activa: permanece visible si falta Mascota lista o el pago.
  * Se archiva solo con atendida=true Y cobro pagado.
@@ -630,14 +666,30 @@ async function assertAgendaEditable(idAgenda, idProfesional) {
   if (data.cancelada === true) {
     throw new Error('No se puede modificar una cita cancelada.');
   }
-  if (data.cobrada === true) {
+  if (data.atendida === true) {
+    throw new Error('No se puede modificar una cita ya marcada como Mascota lista.');
+  }
+
+  const { data: cobro, error: cobErr } = await supabase
+    .from('cobro')
+    .select('estado')
+    .eq('id_agenda', id)
+    .neq('estado', 'anulado')
+    .limit(1)
+    .maybeSingle();
+  throwIfError(cobErr, 'Error al verificar cobros de la cita');
+
+  if (cobro?.estado === 'pagado') {
+    throw new Error(
+      'No se puede reprogramar una cita con cobro pagado. Devuelve el pago o anula el cobro en Cobros primero.'
+    );
+  }
+  if (data.cobrada === true && cobro?.estado !== 'pendiente') {
     throw new Error(
       'No se puede modificar una cita cobrada. Anula el cobro en Cobros si necesitas corregirla.'
     );
   }
-  if (data.atendida === true) {
-    throw new Error('No se puede modificar una cita ya marcada como Mascota lista.');
-  }
+
   return data;
 }
 
@@ -657,28 +709,10 @@ async function assertAgendaCancelable(idAgenda, idProfesional) {
   if (data.cancelada === true) {
     throw new Error('Esta cita ya está cancelada');
   }
-  if (data.cobrada === true) {
-    throw new Error(
-      'No se puede cancelar una cita cobrada. Anula el cobro en Cobros primero.'
-    );
-  }
   if (data.atendida === true) {
     throw new Error('No se puede cancelar una cita ya marcada como Mascota lista.');
   }
 
-  const { data: vigente, error: vigErr } = await supabase
-    .from('cobro')
-    .select('id')
-    .eq('id_agenda', id)
-    .neq('estado', 'anulado')
-    .limit(1)
-    .maybeSingle();
-  throwIfError(vigErr, 'Error al verificar cobros de la cita');
-  if (vigente) {
-    throw new Error(
-      'No se puede cancelar la cita: tiene un cobro vigente. Anúlalo en Cobros primero.'
-    );
-  }
   return data;
 }
 

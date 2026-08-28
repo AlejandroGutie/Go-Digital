@@ -13,9 +13,14 @@ import {
   horaAMinutos,
   toTimeHHMM,
 } from '../utils/horarios';
+import { hoyLocalISO } from '../utils/format';
 
 const PROFESIONAL_COLUMNS =
   'id, nombre, telefono, hora_inicio_jornada, hora_fin_jornada';
+const AGENDA_PAGE_SIZE = 1000;
+
+export const MSG_PROFESIONAL_CITAS_FUTURAS =
+  'No se puede inactivar: tiene citas futuras sin cancelar.';
 
 function normalizeJornadaPayload(payload, { required = false } = {}) {
   const inicioRaw = payload.hora_inicio_jornada ?? payload.horaInicioJornada;
@@ -136,7 +141,69 @@ export async function updateProfesional(id, payload) {
   return successOk(data);
 }
 
+/** IDs de profesionales con citas futuras no canceladas. */
+export async function getIdsProfesionalesConCitasFuturas(idsProfesional = []) {
+  const ids = [...new Set((idsProfesional || []).map(Number).filter(Boolean))];
+  if (ids.length === 0) return successOk([]);
+
+  const unique = new Set();
+  const hoy = hoyLocalISO();
+  const BATCH = 100;
+
+  for (let i = 0; i < ids.length; i += BATCH) {
+    const slice = ids.slice(i, i + BATCH);
+    let from = 0;
+    for (;;) {
+      const { data, error } = await supabase
+        .from('agenda')
+        .select('id_profesional')
+        .in('id_profesional', slice)
+        .eq('cancelada', false)
+        .gte('fecha', hoy)
+        .range(from, from + AGENDA_PAGE_SIZE - 1);
+      throwIfError(error, 'Error al verificar citas futuras del profesional');
+      const rows = data ?? [];
+      for (const row of rows) {
+        unique.add(row.id_profesional);
+      }
+      if (rows.length < AGENDA_PAGE_SIZE) break;
+      from += AGENDA_PAGE_SIZE;
+    }
+  }
+
+  return successOk([...unique]);
+}
+
+/** Mapa id_profesional → 'citas_futuras' cuando no es inactivable. */
+export async function getMotivosProfesionalNoInactivar(idsProfesional = []) {
+  const res = await getIdsProfesionalesConCitasFuturas(idsProfesional);
+  const motivos = {};
+  for (const id of res?.data ?? []) {
+    motivos[id] = 'citas_futuras';
+  }
+  return successOk(motivos);
+}
+
+export function mensajeProfesionalNoInactivar(motivo) {
+  if (motivo === 'citas_futuras') return MSG_PROFESIONAL_CITAS_FUTURAS;
+  return null;
+}
+
+export async function assertProfesionalInactivable(id) {
+  const { count, error } = await supabase
+    .from('agenda')
+    .select('id', { count: 'exact', head: true })
+    .eq('id_profesional', Number(id))
+    .eq('cancelada', false)
+    .gte('fecha', hoyLocalISO());
+  throwIfError(error, 'Error al verificar citas futuras del profesional');
+  if ((count ?? 0) > 0) {
+    throw new Error(MSG_PROFESIONAL_CITAS_FUTURAS);
+  }
+}
+
 export async function deleteProfesional(id) {
+  await assertProfesionalInactivable(id);
   const { data, error } = await supabase
     .from('profesional')
     .update({ activo: false })

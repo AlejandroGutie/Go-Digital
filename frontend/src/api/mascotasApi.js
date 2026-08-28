@@ -10,6 +10,10 @@ import {
 import { hoyLocalISO, toDateOnly } from '../utils/format';
 
 const MASCOTA_COLUMNS = 'id, nombre, especie, raza, tamano, fecha_nacimiento';
+const COBRO_PAGE_SIZE = 1000;
+
+export const MSG_MASCOTA_COBROS =
+  'No se puede eliminar: tiene historial de cobros registrado.';
 
 function normalizeFechaNacimiento(valor) {
   const fecha = toDateOnly(valor);
@@ -144,13 +148,126 @@ export async function updateMascota(id, payload) {
   return successOk(data);
 }
 
+function isMissingRpcError(error) {
+  return (
+    error?.code === 'PGRST202' ||
+    /could not find the function|schema cache/i.test(error?.message || '')
+  );
+}
+
+/** Fallback cliente: cobros por id_mascota o por citas de la mascota. */
+async function mascotaTieneCobrosClient(id) {
+  const idNum = Number(id);
+  if (!idNum) return false;
+
+  const { data: direct, error: directErr } = await supabase
+    .from('cobro')
+    .select('id')
+    .eq('id_mascota', idNum)
+    .limit(1);
+  throwIfError(directErr, 'Error al verificar cobros de la mascota');
+  if ((direct ?? []).length > 0) return true;
+
+  const agendaIds = [];
+  let from = 0;
+  for (;;) {
+    const { data, error } = await supabase
+      .from('agenda')
+      .select('id')
+      .eq('id_mascota', idNum)
+      .range(from, from + COBRO_PAGE_SIZE - 1);
+    throwIfError(error, 'Error al verificar citas de la mascota');
+    const rows = data ?? [];
+    agendaIds.push(...rows.map((r) => r.id));
+    if (rows.length < COBRO_PAGE_SIZE) break;
+    from += COBRO_PAGE_SIZE;
+  }
+
+  for (let i = 0; i < agendaIds.length; i += 100) {
+    const slice = agendaIds.slice(i, i + 100);
+    const { data: viaAgenda, error: viaErr } = await supabase
+      .from('cobro')
+      .select('id')
+      .in('id_agenda', slice)
+      .limit(1);
+    throwIfError(viaErr, 'Error al verificar cobros de las citas');
+    if ((viaAgenda ?? []).length > 0) return true;
+  }
+
+  return false;
+}
+
+/** Alineado con FK real en BD (incluye cobros ligados vía agenda). */
+export async function mascotaPuedeEliminarse(id) {
+  const idNum = Number(id);
+  if (!idNum) return false;
+
+  const { data, error } = await supabase.rpc('mascota_puede_eliminarse', {
+    p_id_mascota: idNum,
+  });
+  if (!error) return data === true;
+  if (isMissingRpcError(error)) {
+    return !(await mascotaTieneCobrosClient(idNum));
+  }
+  throwIfError(error, 'Error al verificar si la mascota puede eliminarse');
+  return false;
+}
+
+/** Mapa id_mascota → 'cobros' cuando no es eliminable. */
+export async function getMotivosMascotaNoEliminar(idsMascota = []) {
+  const ids = [...new Set((idsMascota || []).map(Number).filter(Boolean))];
+  if (ids.length === 0) return successOk({});
+
+  const { data, error } = await supabase.rpc('get_mascotas_no_eliminables', {
+    p_ids: ids,
+  });
+
+  if (!error) {
+    const motivos = {};
+    for (const id of data ?? []) {
+      motivos[id] = 'cobros';
+    }
+    return successOk(motivos);
+  }
+
+  if (isMissingRpcError(error)) {
+    const motivos = {};
+    await Promise.all(
+      ids.map(async (id) => {
+        if (await mascotaTieneCobrosClient(id)) {
+          motivos[id] = 'cobros';
+        }
+      })
+    );
+    return successOk(motivos);
+  }
+
+  throwIfError(error, 'Error al verificar eliminación de mascotas');
+  return successOk({});
+}
+
+export function mensajeMascotaNoEliminar(motivo) {
+  if (motivo === 'cobros') return MSG_MASCOTA_COBROS;
+  return null;
+}
+
+export async function assertMascotaEliminable(id) {
+  if (!(await mascotaPuedeEliminarse(id))) {
+    throw new Error(MSG_MASCOTA_COBROS);
+  }
+}
+
 export async function deleteMascota(id) {
+  await assertMascotaEliminable(id);
   const { data, error } = await supabase
     .from('mascota')
     .delete()
     .eq('id', id)
     .select()
     .single();
+  if (error?.code === '23503') {
+    throw new Error(MSG_MASCOTA_COBROS);
+  }
   throwIfError(error, 'Error al eliminar la mascota');
   return successOk(data);
 }

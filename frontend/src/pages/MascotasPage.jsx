@@ -5,6 +5,10 @@ import {
   createMascota,
   updateMascota,
   deleteMascota,
+  getMotivosMascotaNoEliminar,
+  assertMascotaEliminable,
+  mensajeMascotaNoEliminar,
+  MSG_MASCOTA_COBROS,
 } from '../api/mascotasApi';
 import { normalizeListPayload, normalizeMeta } from '../api/normalize';
 import { useToast } from '../hooks/useToast';
@@ -78,6 +82,8 @@ const SUGGESTED_RAZAS = [
 
 const SUGGESTED_TAMANOS = ['Miniatura', 'Pequeño', 'Mediano', 'Grande', 'Gigante'];
 
+const MSG_MASCOTA_NO_ELIMINAR = MSG_MASCOTA_COBROS;
+
 export default function MascotasPage() {
   const [form, setForm] = useState(EMPTY_FORM);
   const [mascotas, setMascotas] = useState([]);
@@ -93,6 +99,7 @@ export default function MascotasPage() {
   const [inlineEditId, setInlineEditId] = useState(null);
   const [inlineDraft, setInlineDraft] = useState(EMPTY_FORM);
   const [deleteModalId, setDeleteModalId] = useState(null);
+  const [motivosNoEliminarMascota, setMotivosNoEliminarMascota] = useState(() => new Map());
   const [formOpen, setFormOpen] = useState(true);
 
   const pageRef = useRef(page);
@@ -115,8 +122,10 @@ export default function MascotasPage() {
     try {
       const res = await listMascotas(p, limit, search);
       if (fetchId !== fetchIdRef.current) return;
-      setMascotas(normalizeListPayload(res));
+      const rows = normalizeListPayload(res);
+      setMascotas(rows);
       setMeta(normalizeMeta(res, p, limit));
+      await cargarFlagsEliminacion(rows);
     } catch (e) {
       if (fetchId !== fetchIdRef.current) return;
       const msg =
@@ -125,11 +134,51 @@ export default function MascotasPage() {
       setLoadError(msg);
       setMascotas([]);
       setMeta(null);
+      setMotivosNoEliminarMascota(new Map());
       addToast(msg, 'error');
     } finally {
       if (fetchId === fetchIdRef.current) {
         setListLoading(false);
       }
+    }
+  }
+
+  async function cargarFlagsEliminacion(rows) {
+    try {
+      const res = await getMotivosMascotaNoEliminar((rows || []).map((m) => m.id));
+      const map = new Map(
+        Object.entries(res?.data ?? {}).map(([id, motivo]) => [Number(id), motivo])
+      );
+      setMotivosNoEliminarMascota(map);
+    } catch {
+      /* Mantener flags previos: evita habilitar eliminación si falla la verificación */
+    }
+  }
+
+  function motivoNoEliminarMascota(id) {
+    return motivosNoEliminarMascota.get(Number(id)) ?? null;
+  }
+
+  function mensajeNoEliminarMascota(id) {
+    return mensajeMascotaNoEliminar(motivoNoEliminarMascota(id));
+  }
+
+  function mascotaSePuedeEliminar(id) {
+    return !motivosNoEliminarMascota.has(Number(id));
+  }
+
+  function marcarMascotaNoEliminable(id, motivo = 'cobros') {
+    setMotivosNoEliminarMascota((prev) => new Map(prev).set(Number(id), motivo));
+  }
+
+  async function solicitarEliminarMascota(m) {
+    if (loading) return;
+    try {
+      await assertMascotaEliminable(m.id);
+      setDeleteModalId(m.id);
+    } catch (e) {
+      marcarMascotaNoEliminable(m.id);
+      addToast(e?.message || MSG_MASCOTA_NO_ELIMINAR, 'error');
     }
   }
 
@@ -249,6 +298,15 @@ export default function MascotasPage() {
   }
 
   async function confirmDelete() {
+    if (!deleteModalId) return;
+    try {
+      await assertMascotaEliminable(deleteModalId);
+    } catch (e) {
+      marcarMascotaNoEliminable(deleteModalId);
+      addToast(e?.message || MSG_MASCOTA_NO_ELIMINAR, 'error');
+      setDeleteModalId(null);
+      return;
+    }
     if (!tryLock()) return;
     setLoading(true);
     try {
@@ -260,6 +318,9 @@ export default function MascotasPage() {
       setPage(1);
       await refresh(1, '');
     } catch (e) {
+      if (e?.message === MSG_MASCOTA_COBROS || e?.message === MSG_MASCOTA_NO_ELIMINAR) {
+        marcarMascotaNoEliminable(deleteModalId);
+      }
       addToast(e?.message || 'Error al eliminar', 'error');
     } finally {
       setLoading(false);
@@ -558,9 +619,14 @@ export default function MascotasPage() {
                                 <Button
                                   size="sm"
                                   variant="ghost"
-                                  onClick={() => setDeleteModalId(m.id)}
-                                  disabled={loading}
+                                  onClick={() => solicitarEliminarMascota(m)}
+                                  disabled={loading || !mascotaSePuedeEliminar(m.id)}
                                   aria-label="Eliminar"
+                                  title={
+                                    mascotaSePuedeEliminar(m.id)
+                                      ? 'Eliminar mascota'
+                                      : mensajeNoEliminarMascota(m.id) || MSG_MASCOTA_NO_ELIMINAR
+                                  }
                                 >
                                   <Trash2 size={14} />
                                   Eliminar
@@ -598,8 +664,24 @@ export default function MascotasPage() {
         confirmLabel="Eliminar"
         loading={loading}
         danger
+        confirmDisabled={!deleteModalId || !mascotaSePuedeEliminar(deleteModalId)}
       >
-        ¿Eliminar la mascota <b>#{deleteModalId}</b>? Esta acción no se puede deshacer.
+        {deleteModalId && !mascotaSePuedeEliminar(deleteModalId) ? (
+          <p>{mensajeNoEliminarMascota(deleteModalId) || MSG_MASCOTA_NO_ELIMINAR}</p>
+        ) : (
+          <>
+            ¿Eliminar la mascota{' '}
+            <b>
+              {mascotas.find((m) => m.id === deleteModalId)?.nombre ?? `#${deleteModalId}`}
+            </b>
+            ? Esta acción no se puede deshacer.
+            {deleteModalId && mascotaSePuedeEliminar(deleteModalId) && (
+              <p style={{ marginTop: '0.75rem', marginBottom: 0 }}>
+                Si tiene citas sin cobros asociados, también se eliminarán.
+              </p>
+            )}
+          </>
+        )}
       </ConfirmSheet>
 
       <datalist id="listado-especies">

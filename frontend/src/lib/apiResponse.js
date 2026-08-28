@@ -34,6 +34,11 @@ export function throwIfError(error, fallbackMsg = 'Error en la operación') {
       'No tienes permiso para esta operación. Revisa las políticas RLS en Supabase.'
     );
   }
+  if (error.code === '23503') {
+    throw new Error(
+      'No se puede eliminar: existen registros relacionados que lo impiden.'
+    );
+  }
   throw new Error(error.message || fallbackMsg);
 }
 

@@ -11,6 +11,7 @@ export default function ConfirmSheet({
   cancelLabel = 'Cancelar',
   loading = false,
   danger = false,
+  confirmDisabled = false,
 }) {
   return (
     <Sheet
@@ -29,7 +30,7 @@ export default function ConfirmSheet({
           <Button
             variant={danger ? 'danger' : 'primary'}
             onClick={onConfirm}
-            disabled={loading}
+            disabled={loading || confirmDisabled}
           >
             {loading ? 'Procesando…' : confirmLabel}
           </Button>

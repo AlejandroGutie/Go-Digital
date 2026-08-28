@@ -21,6 +21,10 @@ import {
   marcarAgendaAtendida,
   debeMostrarEnVistaActiva,
   estadoPagoAgenda,
+  puedeCancelarAgenda,
+  motivoNoCancelarAgenda,
+  puedeReprogramarAgenda,
+  motivoNoReprogramarAgenda,
 } from '../api/agendasApi';
 import { getCuidadoresDeMascota, getMascotaById } from '../api/mascotasApi';
 import { getMascotasDeCuidador, listCuidadores } from '../api/cuidadoresApi';
@@ -462,11 +466,9 @@ export default function AgendasPage() {
   }
 
   async function abrirReprogramar(c) {
-    if (c?.cobrada === true) {
-      addToast(
-        'No se puede reprogramar una cita cobrada. Anula el cobro en Cobros si necesitas corregirla.',
-        'error'
-      );
+    const motivo = motivoNoReprogramarAgenda(c);
+    if (motivo) {
+      addToast(motivo, 'error');
       return;
     }
     const ids =
@@ -797,11 +799,9 @@ export default function AgendasPage() {
 
   async function handleReprogramar() {
     if (!editCita || !profSel) return;
-    if (editCita.cobrada === true) {
-      addToast(
-        'No se puede reprogramar una cita cobrada. Anula el cobro en Cobros si necesitas corregirla.',
-        'error'
-      );
+    const motivo = motivoNoReprogramarAgenda(editCita);
+    if (motivo) {
+      addToast(motivo, 'error');
       return;
     }
     const { id_mascota, id_tarifas, fecha: fechaEdit, hora_inicio, hora_fin, observacion_ingreso } =
@@ -922,13 +922,15 @@ export default function AgendasPage() {
         cancelada: true,
         observacion_cancelacion: observacionCancelacion.trim() || null,
       };
-      addToast('Cita cancelada. La franja quedó libre.', 'success');
+      addToast('Cita cancelada y cobro anulado. La franja quedó libre.', 'success');
       setCitas((prev) =>
         prev.map((c) =>
           String(c.id) === String(idAgenda)
             ? {
                 ...c,
                 cancelada: true,
+                cobrada: false,
+                cobro_estado: 'anulado',
                 observacion_cancelacion:
                   updated.observacion_cancelacion ??
                   (observacionCancelacion.trim() || null),
@@ -2203,13 +2205,12 @@ export default function AgendasPage() {
                                           loading ||
                                           whatsappBusy != null ||
                                           pagarBusyId != null ||
-                                          c.cobrada === true
+                                          !puedeReprogramarAgenda(c)
                                         }
                                         aria-label="Reprogramar"
                                         title={
-                                          c.cobrada
-                                            ? 'No se puede reprogramar una cita cobrada. Anula el cobro en Cobros si necesitas corregirla.'
-                                            : 'Reprogramar cita'
+                                          motivoNoReprogramarAgenda(c) ||
+                                          'Reprogramar cita'
                                         }
                                       >
                                         <CalendarClock size={14} />
@@ -2226,13 +2227,12 @@ export default function AgendasPage() {
                                           loading ||
                                           whatsappBusy != null ||
                                           pagarBusyId != null ||
-                                          c.cobrada === true
+                                          !puedeCancelarAgenda(c)
                                         }
                                         aria-label="Cancelar agenda"
                                         title={
-                                          c.cobrada
-                                            ? 'No se puede cancelar una cita cobrada. Anula el cobro en Cobros primero.'
-                                            : 'Cancelar agenda y liberar horario'
+                                          motivoNoCancelarAgenda(c) ||
+                                          'Cancelar agenda y liberar horario'
                                         }
                                       >
                                         <XCircle size={14} />
@@ -2596,8 +2596,8 @@ export default function AgendasPage() {
         }
       >
         <p style={{ margin: '0 0 14px', fontSize: '0.875rem', color: 'var(--color-purple-light)', lineHeight: 1.5 }}>
-          ¿Cancelar la cita <b>#{deleteModalId}</b>? El registro se conserva en historial y la
-          franja horaria quedará libre. Solo aplica a citas sin cobro vigente.
+          ¿Cancelar la cita <b>#{deleteModalId}</b>? El registro se conserva en historial, la franja
+          horaria quedará libre y el cobro asociado pasará a estado anulado.
         </p>
         <Field id="observacion-cancelacion" label="Observación de cancelación">
           <Textarea

@@ -14,6 +14,10 @@ import {
   createProfesional,
   updateProfesional,
   deleteProfesional,
+  getMotivosProfesionalNoInactivar,
+  assertProfesionalInactivable,
+  mensajeProfesionalNoInactivar,
+  MSG_PROFESIONAL_CITAS_FUTURAS,
 } from '../api/profesionalesApi';
 import { normalizeListPayload, normalizeMeta } from '../api/normalize';
 import { getAgendaDeProfesional } from '../api/agendasApi';
@@ -71,6 +75,9 @@ export default function ProfesionalesPage() {
   const [inlineEditId, setInlineEditId] = useState(null);
   const [inlineDraft, setInlineDraft] = useState(EMPTY_FORM);
   const [deleteModalId, setDeleteModalId] = useState(null);
+  const [motivosNoInactivarProfesional, setMotivosNoInactivarProfesional] = useState(
+    () => new Map()
+  );
   const [deleteTarifaId, setDeleteTarifaId] = useState(null);
   const [agendaModal, setAgendaModal] = useState(null);
   const [tarifasModal, setTarifasModal] = useState(null);
@@ -99,19 +106,61 @@ export default function ProfesionalesPage() {
     try {
       const res = await listProfesionales(p, limit, search);
       if (fetchId !== fetchIdRef.current) return;
-      setProfesionales(normalizeListPayload(res));
+      const rows = normalizeListPayload(res);
+      setProfesionales(rows);
       setMeta(normalizeMeta(res, p, limit));
+      await cargarFlagsInactivacion(rows);
     } catch (e) {
       if (fetchId !== fetchIdRef.current) return;
       const msg = e?.message || 'No se pudo cargar la lista (revisa la sesión o la conexión con el servidor).';
       setLoadError(msg);
       setProfesionales([]);
       setMeta(null);
+      setMotivosNoInactivarProfesional(new Map());
       addToast(msg, 'error');
     } finally {
       if (fetchId === fetchIdRef.current) {
         setListLoading(false);
       }
+    }
+  }
+
+  async function cargarFlagsInactivacion(rows) {
+    try {
+      const res = await getMotivosProfesionalNoInactivar((rows || []).map((p) => p.id));
+      const map = new Map(
+        Object.entries(res?.data ?? {}).map(([id, motivo]) => [Number(id), motivo])
+      );
+      setMotivosNoInactivarProfesional(map);
+    } catch {
+      /* Mantener flags previos si falla la verificación */
+    }
+  }
+
+  function motivoNoInactivarProfesional(id) {
+    return motivosNoInactivarProfesional.get(Number(id)) ?? null;
+  }
+
+  function mensajeNoInactivarProfesional(id) {
+    return mensajeProfesionalNoInactivar(motivoNoInactivarProfesional(id));
+  }
+
+  function profesionalSePuedeInactivar(id) {
+    return !motivosNoInactivarProfesional.has(Number(id));
+  }
+
+  function marcarProfesionalNoInactivable(id, motivo = 'citas_futuras') {
+    setMotivosNoInactivarProfesional((prev) => new Map(prev).set(Number(id), motivo));
+  }
+
+  async function solicitarInactivarProfesional(p) {
+    if (loading) return;
+    try {
+      await assertProfesionalInactivable(p.id);
+      setDeleteModalId(p.id);
+    } catch (e) {
+      marcarProfesionalNoInactivable(p.id);
+      addToast(e?.message || MSG_PROFESIONAL_CITAS_FUTURAS, 'error');
     }
   }
 
@@ -236,7 +285,7 @@ export default function ProfesionalesPage() {
       setTarifasModal((prev) => ({ ...prev, lista: res.data }));
       if (editTarifaId === deleteTarifaId) cancelEditTarifa();
       setDeleteTarifaId(null);
-      addToast('Tarifa eliminada', 'success');
+      addToast('Tarifa inactivada', 'success');
     } catch (e) {
       addToast(e?.message || 'Error al eliminar', 'error');
     } finally {
@@ -315,6 +364,15 @@ export default function ProfesionalesPage() {
   }
 
   async function confirmDelete() {
+    if (!deleteModalId) return;
+    try {
+      await assertProfesionalInactivable(deleteModalId);
+    } catch (e) {
+      marcarProfesionalNoInactivable(deleteModalId);
+      addToast(e?.message || MSG_PROFESIONAL_CITAS_FUTURAS, 'error');
+      setDeleteModalId(null);
+      return;
+    }
     if (!tryLock()) return;
     setLoading(true);
     try {
@@ -326,6 +384,9 @@ export default function ProfesionalesPage() {
       setPage(1);
       await refresh(1, '');
     } catch (e) {
+      if (e?.message === MSG_PROFESIONAL_CITAS_FUTURAS) {
+        marcarProfesionalNoInactivable(deleteModalId);
+      }
       addToast(e?.message || 'Error al inactivar el profesional', 'error');
     } finally {
       setLoading(false);
@@ -679,9 +740,15 @@ export default function ProfesionalesPage() {
                                 <Button
                                   size="sm"
                                   variant="ghost"
-                                  onClick={() => setDeleteModalId(p.id)}
-                                  disabled={loading}
+                                  onClick={() => solicitarInactivarProfesional(p)}
+                                  disabled={loading || !profesionalSePuedeInactivar(p.id)}
                                   aria-label="Inactivar"
+                                  title={
+                                    profesionalSePuedeInactivar(p.id)
+                                      ? 'Inactivar profesional'
+                                      : mensajeNoInactivarProfesional(p.id) ||
+                                        MSG_PROFESIONAL_CITAS_FUTURAS
+                                  }
                                 >
                                   <UserX size={14} />
                                   Inactivar
@@ -762,7 +829,7 @@ export default function ProfesionalesPage() {
           </Button>
         </div>
 
-        {tarifasModal?.lista.length === 0 ? (
+        {(tarifasModal?.lista || []).filter((t) => t.activo !== false).length === 0 ? (
           <EmptyState
             icon={<Tags size={24} />}
             title="No hay tarifas configuradas"
@@ -779,7 +846,9 @@ export default function ProfesionalesPage() {
                 </tr>
               </thead>
               <tbody>
-                {tarifasModal?.lista.map((t) => (
+                {tarifasModal?.lista
+                  .filter((t) => t.activo !== false)
+                  .map((t) => (
                   <tr key={t.id}>
                     {editTarifaId === t.id ? (
                       <>
@@ -843,7 +912,7 @@ export default function ProfesionalesPage() {
                             <Button
                               variant="ghost"
                               icon
-                              aria-label="Eliminar tarifa"
+                              aria-label="Inactivar tarifa"
                               onClick={() => setDeleteTarifaId(t.id)}
                               disabled={loading || editTarifaId != null}
                             >
@@ -916,20 +985,32 @@ export default function ProfesionalesPage() {
         confirmLabel="Inactivar"
         loading={loading}
         danger
+        confirmDisabled={!deleteModalId || !profesionalSePuedeInactivar(deleteModalId)}
       >
-        El profesional dejará de aparecer en la lista, pero sus datos se conservan.
+        {deleteModalId && !profesionalSePuedeInactivar(deleteModalId) ? (
+          <p>{mensajeNoInactivarProfesional(deleteModalId) || MSG_PROFESIONAL_CITAS_FUTURAS}</p>
+        ) : (
+          <>
+            ¿Inactivar al profesional{' '}
+            <b>
+              {profesionales.find((p) => p.id === deleteModalId)?.nombre ?? `#${deleteModalId}`}
+            </b>
+            ? Dejará de aparecer en la lista, pero sus datos se conservan.
+          </>
+        )}
       </ConfirmSheet>
 
       <ConfirmSheet
         open={deleteTarifaId != null}
         onClose={() => setDeleteTarifaId(null)}
         onConfirm={confirmDeleteTarifa}
-        title="Confirmar eliminación"
-        confirmLabel="Eliminar"
+        title="Confirmar inactivación"
+        confirmLabel="Inactivar"
         loading={loading}
         danger
       >
-        ¿Eliminar la tarifa <b>#{deleteTarifaId}</b>? Esta acción no se puede deshacer.
+        La tarifa <b>#{deleteTarifaId}</b> dejará de estar disponible para nuevas citas, pero se
+        conserva en el historial de cobros y agendas.
       </ConfirmSheet>
 
       <Toast toasts={toasts} removeToast={removeToast} />
