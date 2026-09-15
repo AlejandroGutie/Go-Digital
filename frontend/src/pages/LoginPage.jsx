@@ -28,7 +28,7 @@ export default function LoginPage() {
   }
 
   if (session) {
-    return <Navigate to="/mascotas" replace />;
+    return <Navigate to="/agendas" replace />;
   }
 
   const handleSubmit = async (e) => {

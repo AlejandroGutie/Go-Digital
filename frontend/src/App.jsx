@@ -100,7 +100,7 @@ export default function App() {
         <Routes>
           <Route path="/login" element={<LoginPage />} />
           <Route element={<ProtectedLayout />}>
-            <Route path="/" element={<Navigate to="/mascotas" replace />} />
+            <Route path="/" element={<Navigate to="/agendas" replace />} />
             <Route path="/mascotas" element={<MascotasPage />} />
             <Route path="/cuidadores" element={<CuidadoresPage />} />
             <Route path="/profesionales" element={<ProfesionalesPage />} />
@@ -108,7 +108,7 @@ export default function App() {
             <Route path="/agendas" element={<AgendasPage />} />
             <Route path="/cobros" element={<CobrosPage />} />
             <Route path="/informes" element={<InformesPage />} />
-            <Route path="*" element={<Navigate to="/mascotas" replace />} />
+            <Route path="*" element={<Navigate to="/agendas" replace />} />
           </Route>
         </Routes>
       </HashRouter>
