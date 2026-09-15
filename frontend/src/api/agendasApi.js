@@ -283,8 +283,8 @@ async function fetchAgendaRows(idProfesional, incluirAtendidas, { page, limit, f
       .from('agenda')
       .select(AGENDA_SELECT_MASCOTA_TARIFA, { count: 'exact' })
       .eq('id_profesional', idProf)
-      .order('fecha', { ascending: true })
-      .order('hora_inicio', { ascending: true })
+      .order('fecha', { ascending: false })
+      .order('hora_inicio', { ascending: false })
       .range(from, to);
 
     if (!incluirAtendidas) {
@@ -307,8 +307,8 @@ async function fetchAgendaRows(idProfesional, incluirAtendidas, { page, limit, f
       .from('agenda')
       .select(AGENDA_SELECT_MASCOTA_TARIFA)
       .eq('id_profesional', idProf)
-      .order('fecha', { ascending: true })
-      .order('hora_inicio', { ascending: true })
+      .order('fecha', { ascending: false })
+      .order('hora_inicio', { ascending: false })
       .range(from, from + AGENDA_PAGE_SIZE - 1);
 
     if (!incluirAtendidas) {
@@ -504,8 +504,8 @@ export async function getCitasActivasDeMascota(idMascota) {
       .eq('id_mascota', id)
       .eq('atendida', false)
       .eq('cancelada', false)
-      .order('fecha', { ascending: true })
-      .order('hora_inicio', { ascending: true })
+      .order('fecha', { ascending: false })
+      .order('hora_inicio', { ascending: false })
       .range(from, from + AGENDA_PAGE_SIZE - 1);
     throwIfError(error, 'Error al cargar las citas de la mascota');
     const rows = data ?? [];

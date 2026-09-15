@@ -2,9 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Banknote } from 'lucide-react';
 import {
   crearCitaYCobrar,
-  franjasSeSolapan,
   getAgendaDeProfesional,
-  horaAMinutos,
 } from '../../api/agendasApi';
 import { listProfesionales } from '../../api/profesionalesApi';
 import { listTarifas } from '../../api/tarifasApi';
@@ -12,6 +10,12 @@ import { normalizeListPayload } from '../../api/normalize';
 import { useMutationLock } from '../../hooks/useMutationLock';
 import { formatFecha, formatHora, toDateOnly } from '../../utils/format';
 import { confirmarAgendaPorWhatsApp } from '../../utils/confirmarAgendaWhatsApp';
+import {
+  citasDelDiaParaSlots,
+  encontrarCitaConflicto,
+  filtrarSlotsFinLibres,
+  slotOcupadoPorCitas,
+} from '../../utils/agendaConflictos';
 import Field, { DateInput, Input, Select, Textarea } from '../ui/Field';
 import Button from '../ui/Button';
 import Sheet from '../ui/Sheet';
@@ -21,10 +25,9 @@ import TarifaMultiSelect, {
 } from '../ui/TarifaMultiSelect';
 import HorarioSlotSelect from '../ui/HorarioSlotSelect';
 import {
-  DURACION_CITA_DEFAULT_MIN,
   generarBloquesHorarios,
+  horaAMinutos,
   jornadaDelProfesional,
-  sugerirHoraFin,
   toTimeHHMM,
 } from '../../utils/horarios';
 
@@ -128,12 +131,9 @@ export default function AgendarMascotaSheet({
 
   const citasDelDia = useMemo(() => {
     if (!form.fecha) return [];
-    const fechaNorm = toDateOnly(form.fecha);
-    return citasProf
-      .filter((c) => toDateOnly(c.fecha) === fechaNorm)
-      .sort(
-        (a, b) => (horaAMinutos(a.hora_inicio) ?? 0) - (horaAMinutos(b.hora_inicio) ?? 0)
-      );
+    return citasDelDiaParaSlots(citasProf, form.fecha).sort(
+      (a, b) => (horaAMinutos(a.hora_inicio) ?? 0) - (horaAMinutos(b.hora_inicio) ?? 0)
+    );
   }, [citasProf, form.fecha]);
 
   const slotsInicio = useMemo(() => {
@@ -141,34 +141,23 @@ export default function AgendarMascotaSheet({
       includeEnd: false,
     });
     if (!form.fecha) return base;
-    return base.filter((slot) => {
-      const m = horaAMinutos(slot);
-      if (m == null) return false;
-      return !citasDelDia.some((c) => {
-        const a = horaAMinutos(c.hora_inicio);
-        const b = horaAMinutos(c.hora_fin);
-        return a != null && b != null && m >= a && m < b;
-      });
-    });
+    return base.filter((slot) => !slotOcupadoPorCitas(slot, citasDelDia));
   }, [jornadaProf, form.fecha, citasDelDia]);
 
   const slotsFin = useMemo(() => {
     if (!form.hora_inicio) {
-      return generarBloquesHorarios(jornadaProf.inicio, jornadaProf.fin, 30, {
+      const base = generarBloquesHorarios(jornadaProf.inicio, jornadaProf.fin, 30, {
         includeEnd: true,
       }).filter((s) => s > jornadaProf.inicio);
+      return filtrarSlotsFinLibres(base, { citas: citasProf, fecha: form.fecha });
     }
     const despues = generarBloquesHorarios(form.hora_inicio, jornadaProf.fin, 30, {
       includeEnd: true,
     }).filter((s) => s > form.hora_inicio);
-    if (!form.fecha) return despues;
-    const fechaNorm = toDateOnly(form.fecha);
-    return despues.filter((fin) => {
-      return !citasProf.some(
-        (c) =>
-          toDateOnly(c.fecha) === fechaNorm &&
-          franjasSeSolapan(form.hora_inicio, fin, c.hora_inicio, c.hora_fin)
-      );
+    return filtrarSlotsFinLibres(despues, {
+      citas: citasProf,
+      fecha: form.fecha,
+      horaInicio: form.hora_inicio,
     });
   }, [jornadaProf, form.hora_inicio, form.fecha, citasProf]);
 
@@ -179,13 +168,11 @@ export default function AgendarMascotaSheet({
 
   const citaConflicto = useMemo(() => {
     if (horaFinInvalida || !form.fecha || !form.hora_inicio || !form.hora_fin) return null;
-    const fechaNorm = toDateOnly(form.fecha);
-    return (
-      citasProf.find(
-        (c) =>
-          toDateOnly(c.fecha) === fechaNorm &&
-          franjasSeSolapan(form.hora_inicio, form.hora_fin, c.hora_inicio, c.hora_fin)
-      ) || null
+    return encontrarCitaConflicto(
+      citasProf,
+      form.fecha,
+      form.hora_inicio,
+      form.hora_fin
     );
   }, [citasProf, form.fecha, form.hora_inicio, form.hora_fin, horaFinInvalida]);
 
@@ -209,26 +196,21 @@ export default function AgendarMascotaSheet({
         next.hora_inicio = '';
         next.hora_fin = '';
       }
+      if (key === 'fecha') {
+        next.hora_inicio = '';
+        next.hora_fin = '';
+      }
       return next;
     });
   }
 
   function onChangeHoraInicio(value) {
     const inicio = toTimeHHMM(value);
-    setForm((prev) => {
-      if (!inicio) {
-        return { ...prev, hora_inicio: '', hora_fin: '' };
-      }
-      const j = jornadaDelProfesional(
-        profesionales.find((p) => String(p.id) === String(prev.id_profesional))
-      );
-      const sugerida = sugerirHoraFin(inicio, j.fin, DURACION_CITA_DEFAULT_MIN);
-      return {
-        ...prev,
-        hora_inicio: inicio,
-        hora_fin: sugerida && sugerida > inicio ? sugerida : '',
-      };
-    });
+    setForm((prev) => ({
+      ...prev,
+      hora_inicio: inicio,
+      hora_fin: '',
+    }));
   }
 
   function buildPayload(fechaGuardar) {
@@ -278,11 +260,10 @@ export default function AgendarMascotaSheet({
       const profesional = profesionales.find(
         (p) => String(p.id) === String(form.id_profesional)
       );
-      const tarifaDescripcion = formatTarifasLabel(
-        (form.id_tarifas || [])
-          .map((id) => tarifasActivas.find((t) => String(t.id) === String(id)))
-          .filter(Boolean)
-      );
+      const tarifasSeleccionadas = (form.id_tarifas || [])
+        .map((id) => tarifasActivas.find((t) => String(t.id) === String(id)))
+        .filter(Boolean);
+      const tarifaDescripcion = formatTarifasLabel(tarifasSeleccionadas);
 
       addToast?.(
         esPendiente
@@ -303,11 +284,13 @@ export default function AgendarMascotaSheet({
             especie: mascota?.especie,
             raza: mascota?.raza,
             tamano: mascota?.tamano,
+            tarifas: tarifasSeleccionadas,
           },
           profesionalNombre: profesional?.nombre || '',
           mascotaFallback: mascota,
           tarifaDescripcion,
           tarifaValor: valor,
+          tarifas: tarifasSeleccionadas,
         });
         addToast?.('Se abrió WhatsApp con el mensaje de confirmación.', 'success');
       } catch (waErr) {

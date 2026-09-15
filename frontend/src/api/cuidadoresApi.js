@@ -14,7 +14,8 @@ export async function listCuidadores(page = 1, limit = 20, search = '') {
   let query = supabase
     .from('cuidador')
     .select('id, nombre, telefono, direccion, email', { count: 'exact' })
-    .order('id');
+    .order('created_at', { ascending: false })
+    .order('id', { ascending: false });
 
   const term = search?.trim();
   if (term) {

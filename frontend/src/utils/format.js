@@ -70,6 +70,57 @@ export function formatFechaCorta(iso) {
   return formatFecha(iso);
 }
 
+/**
+ * Fecha larga para mensajes a clientes (WhatsApp): "Martes 1 de septiembre de 2026".
+ * Usa calendario local (sin UTC) a partir de YYYY-MM-DD / dd/mm/yyyy.
+ * Si la fecha es inválida o vacía, no lanza: devuelve '' o el string original.
+ */
+export function formatFechaLecturaCliente(valor) {
+  if (valor == null || valor === '') return '';
+  try {
+    const only = toDateOnly(valor);
+    if (!only) {
+      const raw = String(valor).trim();
+      return raw;
+    }
+    const date = parseFechaLocal(only);
+    if (!date) return String(valor).trim();
+
+    const parts = new Intl.DateTimeFormat('es-CO', {
+      weekday: 'long',
+      day: 'numeric',
+      month: 'long',
+      year: 'numeric',
+    }).formatToParts(date);
+
+    const get = (type) => parts.find((p) => p.type === type)?.value || '';
+    const weekday = get('weekday');
+    const day = get('day');
+    const month = get('month');
+    const year = get('year');
+    if (!weekday || !day || !month || !year) {
+      return date
+        .toLocaleDateString('es-CO', {
+          weekday: 'long',
+          day: 'numeric',
+          month: 'long',
+          year: 'numeric',
+        })
+        .replace(/,/g, '')
+        .replace(/^\w/, (c) => c.toUpperCase());
+    }
+
+    const weekdayCap = weekday.charAt(0).toUpperCase() + weekday.slice(1);
+    return `${weekdayCap} ${day} de ${month} de ${year}`;
+  } catch {
+    try {
+      return String(valor).trim();
+    } catch {
+      return '';
+    }
+  }
+}
+
 /** Moneda COP (es-CO), formato único en UI y reportes. */
 export function formatMoneda(valor) {
   if (valor == null || valor === '') return '—';

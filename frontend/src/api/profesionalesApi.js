@@ -56,7 +56,8 @@ export async function listProfesionales(page = 1, limit = 20, search = '') {
     .from('profesional')
     .select(PROFESIONAL_COLUMNS, { count: 'exact' })
     .eq('activo', true)
-    .order('id');
+    .order('created_at', { ascending: false })
+    .order('id', { ascending: false });
 
   const term = search?.trim();
   if (term) {

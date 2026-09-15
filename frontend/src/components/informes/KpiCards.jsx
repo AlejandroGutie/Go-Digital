@@ -117,11 +117,12 @@ export function KpiCardsAgenda({ kpis }) {
 export function KpiCardsFidelizacion({ kpis }) {
   const k = kpis || {};
   const cards = [
-    { label: 'Cumpleaños / mesarios (7 días)', value: String(k.proximos_7 ?? 0), tone: 'solid' },
+    { label: 'Cumpleaños (7 días)', value: String(k.proximos_7 ?? 0), tone: 'solid' },
     { label: 'En 15 días', value: String(k.proximos_15 ?? 0), tone: 'outline' },
     { label: 'En 30 días', value: String(k.proximos_30 ?? 0), tone: 'outline' },
     { label: 'Hitos alcanzados', value: String(k.hitos_alcanzados ?? 0), tone: 'outline' },
     { label: 'A 1 visita del hito', value: String(k.hitos_por_alcanzar ?? 0), tone: 'outline' },
+    { label: 'Clientes nuevos', value: String(k.clientes_nuevos ?? 0), tone: 'outline' },
   ];
 
   return (

@@ -1,3 +1,5 @@
+import { generarMensajeAgendaWhatsApp } from './agendaPlantillas';
+
 /**
  * Normaliza un teléfono móvil colombiano para WhatsApp (solo dígitos, con prefijo 57).
  * Acepta: 3XXXXXXXXX (10 dígitos) o 573XXXXXXXXX (12 dígitos).
@@ -16,180 +18,27 @@ export function sanitizePhoneCO(telefono) {
   return '';
 }
 
-function line(label, value) {
-  const v = value == null || String(value).trim() === '' ? '-' : String(value).trim();
-  return `- ${label}: ${v}`;
-}
-
 /**
- * Mensaje de confirmación de agenda para WhatsApp (sin PDF).
+ * Mensaje de confirmación de agenda para WhatsApp.
+ * Usa plantilla editable (localStorage) con fallback al texto por defecto.
  * Sin emojis: en varios móviles el deeplink muestra triángulos/rombos negros.
- * Usa formato de texto plano compatible con WhatsApp (*negrita*).
  */
-export function buildWhatsAppConfirmMessage({
-  cuidadorNombre,
-  cuidadorTelefono,
-  mascotaNombre,
-  mascotaEspecie,
-  mascotaRaza,
-  mascotaTamano,
-  profesionalNombre,
-  fechaLabel,
-  horaInicioLabel,
-  horaFinLabel,
-  tarifaDescripcion,
-  valorLabel,
-}) {
-  const nombre = cuidadorNombre?.trim() || 'cliente';
-  const horaRango =
-    horaInicioLabel && horaFinLabel
-      ? `${horaInicioLabel} - ${horaFinLabel}`
-      : horaInicioLabel || horaFinLabel || '-';
-
-  const detalleMascota = [mascotaEspecie, mascotaRaza, mascotaTamano]
-    .filter(Boolean)
-    .join(' / ');
-
-  const tarifaTexto =
-    [tarifaDescripcion, valorLabel].filter(Boolean).join(' - ') || '-';
-
-  const lines = [
-    `*¡Hola, ${nombre}!*`,
-    '',
-    'Tu agenda ha sido confirmada con éxito.',
-    'Aquí tienes los detalles de tu reserva:',
-    '',
-    '*AGENDA*',
-    line('Fecha', fechaLabel),
-    line('Hora', horaRango),
-    line('Tarifa', tarifaTexto),
-    '',
-    '*MASCOTA*',
-    line('Nombre', mascotaNombre || '-'),
-  ];
-
-  if (detalleMascota) {
-    lines.push(line('Detalle', detalleMascota));
-  }
-
-  lines.push(
-    '',
-    '*PROFESIONAL*',
-    line('Nombre', profesionalNombre || ''),
-    '',
-    'Quedamos atentos a cualquier inquietud.',
-    '¡Nos vemos pronto!'
-  );
-
-  return lines.join('\n');
+export function buildWhatsAppConfirmMessage(payload) {
+  return generarMensajeAgendaWhatsApp('confirmacion', payload);
 }
 
 /**
  * Mensaje de cita reprogramada para WhatsApp.
- * Misma estructura que la confirmación, con texto explícito de reprogramación.
  */
-export function buildWhatsAppReprogramadaMessage({
-  cuidadorNombre,
-  mascotaNombre,
-  mascotaEspecie,
-  mascotaRaza,
-  mascotaTamano,
-  profesionalNombre,
-  fechaLabel,
-  horaInicioLabel,
-  horaFinLabel,
-  tarifaDescripcion,
-  valorLabel,
-}) {
-  const nombre = cuidadorNombre?.trim() || 'cliente';
-  const horaRango =
-    horaInicioLabel && horaFinLabel
-      ? `${horaInicioLabel} - ${horaFinLabel}`
-      : horaInicioLabel || horaFinLabel || '-';
-
-  const detalleMascota = [mascotaEspecie, mascotaRaza, mascotaTamano]
-    .filter(Boolean)
-    .join(' / ');
-
-  const tarifaTexto =
-    [tarifaDescripcion, valorLabel].filter(Boolean).join(' - ') || '-';
-
-  const lines = [
-    `*¡Hola, ${nombre}!*`,
-    '',
-    'Tu cita ha sido *reprogramada* con éxito.',
-    'Estos son los nuevos datos de tu reserva:',
-    '',
-    '*NUEVA AGENDA*',
-    line('Fecha', fechaLabel),
-    line('Hora', horaRango),
-    line('Tarifa', tarifaTexto),
-    '',
-    '*MASCOTA*',
-    line('Nombre', mascotaNombre || '-'),
-  ];
-
-  if (detalleMascota) {
-    lines.push(line('Detalle', detalleMascota));
-  }
-
-  lines.push(
-    '',
-    '*PROFESIONAL*',
-    line('Nombre', profesionalNombre || ''),
-    '',
-    'Quedamos atentos a cualquier inquietud.',
-    '¡Te esperamos!'
-  );
-
-  return lines.join('\n');
+export function buildWhatsAppReprogramadaMessage(payload) {
+  return generarMensajeAgendaWhatsApp('reprogramada', payload);
 }
 
 /**
  * Aviso de "mascota lista" para recogida o entrega a domicilio.
- * Sin emojis (compatibilidad con deeplink WhatsApp en móviles).
  */
-export function buildWhatsAppMascotaListaMessage({
-  cuidadorNombre,
-  mascotaNombre,
-  profesionalNombre,
-  fechaLabel,
-  horaFinLabel,
-  tarifaDescripcion,
-}) {
-  const nombre = cuidadorNombre?.trim() || 'cliente';
-  const mascota = mascotaNombre?.trim() || 'tu mascota';
-  const profesional = profesionalNombre?.trim() || '-';
-  const fecha = fechaLabel || '-';
-
-  const lines = [
-    `*¡Hola, ${nombre}!*`,
-    '',
-    `¡Grandes noticias! *${mascota}* ya ha terminado su sesión y está listo(a) para ser recogido(a) o entregado(a) en domicilio, según lo acordado.`,
-    '',
-    '*DETALLES DEL SERVICIO*',
-    line('Mascota', mascota),
-    line('Atendido por', profesional),
-    line('Fecha', fecha),
-  ];
-
-  if (horaFinLabel) {
-    lines.push(line('Hora de fin', horaFinLabel));
-  }
-  if (tarifaDescripcion) {
-    lines.push(line('Servicio', tarifaDescripcion));
-  }
-
-  lines.push(
-    '',
-    '*INDICACIONES*',
-    '- Si la recogida es en el salón, puedes pasar cuando te sea conveniente.',
-    '- Si acordaron entrega a domicilio, te contactaremos o confirma la dirección y franja para coordinar.',
-    '',
-    '¡Te esperamos pronto para reencontrarte con tu peludito!'
-  );
-
-  return lines.join('\n');
+export function buildWhatsAppMascotaListaMessage(payload) {
+  return generarMensajeAgendaWhatsApp('mascota_lista', payload);
 }
 
 /**

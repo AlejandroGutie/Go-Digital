@@ -1,10 +1,12 @@
 import { useEffect, useState } from 'react';
-import { MessageCircle, PawPrint, Wallet } from 'lucide-react';
+import { CalendarClock, MessageCircle, PawPrint, Wallet } from 'lucide-react';
 import {
   getCitasActivasDeMascota,
   marcarAgendaAtendida,
   debeMostrarEnVistaActiva,
   estadoPagoAgenda,
+  puedeReprogramarAgenda,
+  motivoNoReprogramarAgenda,
 } from '../../api/agendasApi';
 import { createCobro, updateCobro } from '../../api/cobrosApi';
 import { listTarifas } from '../../api/tarifasApi';
@@ -13,6 +15,7 @@ import { normalizeListPayload } from '../../api/normalize';
 import { useMutationLock } from '../../hooks/useMutationLock';
 import {
   formatFecha,
+  formatFechaLecturaCliente,
   formatHora,
   formatMoneda,
   hoyLocalISO,
@@ -26,6 +29,7 @@ import {
 } from '../../utils/whatsapp';
 import EmptyState from '../EmptyState';
 import CobroFormSheet from '../cobros/CobroFormSheet';
+import ReprogramarCitaSheet from './ReprogramarCitaSheet';
 import { formatTarifasLabel, totalTarifasSeleccionadas } from '../ui/TarifaMultiSelect';
 import Button from '../ui/Button';
 import Sheet from '../ui/Sheet';
@@ -103,6 +107,7 @@ export default function CitasMascotaAccionesSheet({
   const [cobroForm, setCobroForm] = useState(emptyCobroForm());
   const [cobroTarifas, setCobroTarifas] = useState([]);
   const [cobroLoading, setCobroLoading] = useState(false);
+  const [reprogramarCita, setReprogramarCita] = useState(null);
   const { tryLock, unlock } = useMutationLock();
 
   useEffect(() => {
@@ -111,6 +116,7 @@ export default function CitasMascotaAccionesSheet({
       setCobroOpen(false);
       setCobroForm(emptyCobroForm());
       setPagarBusyId(null);
+      setReprogramarCita(null);
       return undefined;
     }
 
@@ -177,14 +183,17 @@ export default function CitasMascotaAccionesSheet({
         mascotaRaza: mascotaData?.raza || cita.raza || mascota?.raza || '',
         mascotaTamano: mascotaData?.tamano || cita.tamano || mascota?.tamano || '',
         profesionalNombre: cita.profesional_nombre || '',
-        fechaLabel: formatFecha(cita.fecha),
+        fechaLabel: formatFechaLecturaCliente(cita.fecha),
         horaInicioLabel: formatHora(cita.hora_inicio),
         horaFinLabel: formatHora(cita.hora_fin),
         tarifaDescripcion: cita.tarifa_descripcion || '',
+        tarifaValor: cita.tarifa_valor,
         valorLabel:
           cita.tarifa_valor != null && cita.tarifa_valor !== ''
             ? formatMoneda(cita.tarifa_valor)
             : '',
+        tarifas: Array.isArray(cita.tarifas) ? cita.tarifas : [],
+        cita,
       });
 
       openWhatsAppChat(phone, message);
@@ -223,7 +232,7 @@ export default function CitasMascotaAccionesSheet({
           cuidadorNombre: cuidador.nombre,
           mascotaNombre: mascotaData?.nombre || cita.mascota_nombre || mascota?.nombre || '',
           profesionalNombre: cita.profesional_nombre || '',
-          fechaLabel: formatFecha(cita.fecha),
+          fechaLabel: formatFechaLecturaCliente(cita.fecha),
           horaFinLabel: formatHora(cita.hora_fin),
           tarifaDescripcion: cita.tarifa_descripcion || '',
         });
@@ -250,6 +259,25 @@ export default function CitasMascotaAccionesSheet({
       setWhatsappBusy(null);
       unlock();
     }
+  }
+
+  async function handleAbrirReprogramar(cita) {
+    const motivo = motivoNoReprogramarAgenda(cita);
+    if (motivo) {
+      addToast?.(motivo, 'error');
+      return;
+    }
+    setReprogramarCita(cita);
+  }
+
+  function handleReprogramada(updated) {
+    if (!updated?.id) return;
+    setCitas((prev) =>
+      prev
+        .map((c) => (String(c.id) === String(updated.id) ? { ...c, ...updated } : c))
+        .filter(debeMostrarEnVistaActiva)
+    );
+    onCitasChanged?.();
   }
 
   /** Legacy: cita sin cobro → abre formulario para crear cobro pagado. */
@@ -407,16 +435,16 @@ export default function CitasMascotaAccionesSheet({
     <>
       <Sheet
         open={open}
-        onClose={() => !cobroLoading && onClose?.()}
+        onClose={() => !cobroLoading && !reprogramarCita && onClose?.()}
         title={mascota ? `Citas de ${mascota.nombre}` : 'Gestionar citas'}
         description="Citas activas de la mascota. Se archivan solo cuando están pagadas y marcadas como Mascota lista."
-        dismissible={!cobroLoading && !whatsappBusy && pagarBusyId == null}
+        dismissible={!cobroLoading && !whatsappBusy && pagarBusyId == null && !reprogramarCita}
         stackLevel={1}
         footer={
           <Button
             variant="ghost"
             onClick={onClose}
-            disabled={cobroLoading || pagarBusyId != null}
+            disabled={cobroLoading || pagarBusyId != null || !!reprogramarCita}
           >
             Cerrar
           </Button>
@@ -443,6 +471,12 @@ export default function CitasMascotaAccionesSheet({
                 {citas.map((c) => {
                   const pago = estadoPagoCita(c);
                   const pendientePago = pago === 'pendiente';
+                  const puedeReprog = puedeReprogramarAgenda(c);
+                  const busyRow =
+                    whatsappBusy != null ||
+                    cobroLoading ||
+                    pagarBusyId != null ||
+                    !!reprogramarCita;
                   return (
                     <tr key={c.id}>
                       <td style={{ color: 'var(--color-purple-light)' }}>
@@ -472,11 +506,7 @@ export default function CitasMascotaAccionesSheet({
                             size="sm"
                             variant="ghost"
                             onClick={() => handleConfirmarWhatsApp(c)}
-                            disabled={
-                              whatsappBusy != null ||
-                              cobroLoading ||
-                              pagarBusyId != null
-                            }
+                            disabled={busyRow}
                             style={{ color: '#128C7E' }}
                           >
                             <MessageCircle size={14} />
@@ -487,13 +517,22 @@ export default function CitasMascotaAccionesSheet({
                           <Button
                             size="sm"
                             variant="ghost"
-                            onClick={() => handleMascotaLista(c)}
-                            disabled={
-                              whatsappBusy != null ||
-                              cobroLoading ||
-                              pagarBusyId != null ||
-                              c.atendida === true
+                            onClick={() => handleAbrirReprogramar(c)}
+                            disabled={busyRow || !puedeReprog}
+                            title={
+                              puedeReprog
+                                ? 'Cambiar fecha, hora o tarifas de la cita'
+                                : motivoNoReprogramarAgenda(c) || 'No se puede reprogramar'
                             }
+                          >
+                            <CalendarClock size={14} />
+                            Reprogramar
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => handleMascotaLista(c)}
+                            disabled={busyRow || c.atendida === true}
                             title={
                               c.atendida === true
                                 ? 'Esta cita ya está marcada como Mascota lista'
@@ -511,12 +550,7 @@ export default function CitasMascotaAccionesSheet({
                               size="sm"
                               variant="ghost"
                               onClick={() => handlePagar(c)}
-                              disabled={
-                                whatsappBusy != null ||
-                                cobroLoading ||
-                                cobroOpen ||
-                                pagarBusyId != null
-                              }
+                              disabled={busyRow || cobroOpen}
                               title="Marcar el cobro como pagado"
                             >
                               <Wallet size={14} />
@@ -551,6 +585,16 @@ export default function CitasMascotaAccionesSheet({
         onTarifasChange={handleCobroTarifasChange}
         onFieldChange={setCobroForm}
         lockAgendaContext
+        stackLevel={2}
+      />
+
+      <ReprogramarCitaSheet
+        open={!!reprogramarCita}
+        onClose={() => setReprogramarCita(null)}
+        cita={reprogramarCita}
+        mascota={mascota}
+        addToast={addToast}
+        onSuccess={handleReprogramada}
         stackLevel={2}
       />
     </>

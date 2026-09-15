@@ -115,6 +115,8 @@ export async function listCobros(params = {}) {
       '*, profesional(nombre), mascota(nombre), cobro_detalle(id, id_tarifa, descripcion, valor)',
       { count: 'exact' }
     )
+    .order('fecha_cobro', { ascending: false })
+    .order('created_at', { ascending: false })
     .order('id', { ascending: false });
 
   if (params.estado) {

@@ -2,12 +2,14 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertTriangle,
   Cake,
-  HeartHandshake,
   MessageCircle,
   Settings2,
+  Sparkles,
   Trophy,
+  UserPlus,
 } from 'lucide-react';
 import {
+  getFidelizacionClientesNuevos,
   getInformeFidelizacion,
   listContactosFidelizacion,
   marcarContactoFidelizacion,
@@ -33,10 +35,17 @@ import {
   markFidelizacionEnviadoLocal,
   PLANTILLA_CUMPLE_DEFAULT,
   PLANTILLA_HITO_DEFAULT,
+  PLANTILLA_NUEVO_DEFAULT,
   saveFidelizacionTemplates,
 } from '../../utils/fidelizacion';
 
 const TODOS_PROF_LABEL = 'Todos los profesionales';
+
+const SECCIONES_FIDELIZACION = [
+  { id: 'cumpleanos', label: 'Cumpleaños', Icon: Cake },
+  { id: 'hitos', label: 'Hitos de visitas', Icon: Trophy },
+  { id: 'nuevos', label: 'Clientes nuevos', Icon: UserPlus },
+];
 
 const DIAS_LABEL = {
   7: 'Esta semana (7 días)',
@@ -79,9 +88,11 @@ export default function InformesFidelizacionTab({ profesionales, addToast }) {
   const buscadorMascotaRef = useRef(null);
   const [cumpleanos, setCumpleanos] = useState([]);
   const [hitos, setHitos] = useState([]);
+  const [clientesNuevos, setClientesNuevos] = useState([]);
   const [enviados, setEnviados] = useState({});
   const [listLoading, setListLoading] = useState(true);
   const [loadError, setLoadError] = useState(null);
+  const [seccion, setSeccion] = useState('cumpleanos');
   const [draft, setDraft] = useState(null);
   const [mensaje, setMensaje] = useState('');
   const [sending, setSending] = useState(false);
@@ -138,17 +149,22 @@ export default function InformesFidelizacionTab({ profesionales, addToast }) {
     setListLoading(true);
     setLoadError(null);
     try {
-      const [res, contactos] = await Promise.all([
+      const [res, contactos, resNuevos] = await Promise.all([
         getInformeFidelizacion({
           dias_ventana: 30,
           id_profesional: profId || undefined,
         }),
         listContactosFidelizacion(),
+        getFidelizacionClientesNuevos(),
       ]);
       if (reqId !== fetchIdRef.current) return;
       if (res?.status === 'error') throw new Error(res.message || 'Error al generar fidelización');
+      if (resNuevos?.status === 'error') {
+        throw new Error(resNuevos.message || 'Error al cargar clientes nuevos');
+      }
       setCumpleanos(res.data?.cumpleanos || []);
       setHitos(res.data?.hitos || []);
+      setClientesNuevos(resNuevos?.data || []);
       mergeEnviados(contactos?.data || []);
       if (res?.warning) notify(res.warning, 'info');
     } catch (e) {
@@ -157,6 +173,7 @@ export default function InformesFidelizacionTab({ profesionales, addToast }) {
       setLoadError(msg);
       setCumpleanos([]);
       setHitos([]);
+      setClientesNuevos([]);
       notify(msg, 'error');
     } finally {
       if (reqId === fetchIdRef.current) setListLoading(false);
@@ -176,8 +193,9 @@ export default function InformesFidelizacionTab({ profesionales, addToast }) {
       proximos_30: cumpleanos.length,
       hitos_alcanzados: hitos.filter((r) => r.estado_hito === 'alcanzado').length,
       hitos_por_alcanzar: hitos.filter((r) => r.estado_hito === 'por_alcanzar').length,
+      clientes_nuevos: clientesNuevos.length,
     };
-  }, [cumpleanos, hitos]);
+  }, [cumpleanos, hitos, clientesNuevos]);
 
   const q = searchTerm.trim().toLowerCase();
 
@@ -198,7 +216,7 @@ export default function InformesFidelizacionTab({ profesionales, addToast }) {
 
   const opcionesBuscar = useMemo(() => {
     const map = new Map();
-    for (const r of [...cumpleanos, ...hitos]) {
+    for (const r of [...cumpleanos, ...hitos, ...clientesNuevos]) {
       const id = r.id_mascota;
       if (!id || map.has(id)) continue;
       map.set(id, {
@@ -212,7 +230,7 @@ export default function InformesFidelizacionTab({ profesionales, addToast }) {
     return [...map.values()].sort((a, b) =>
       String(a.nombre).localeCompare(String(b.nombre), 'es')
     );
-  }, [cumpleanos, hitos]);
+  }, [cumpleanos, hitos, clientesNuevos]);
 
   const opcionesBuscarFiltradas = useMemo(() => {
     if (!q) return opcionesBuscar;
@@ -245,6 +263,17 @@ export default function InformesFidelizacionTab({ profesionales, addToast }) {
     });
   }, [hitos, estadoMsg, enviados, q]);
 
+  const nuevosFiltrados = useMemo(() => {
+    return clientesNuevos.filter((r) => {
+      const enviado = rowEnviado(enviados, 'nuevo', r);
+      if (estadoMsg === 'pendiente' && enviado) return false;
+      if (estadoMsg === 'enviado' && !enviado) return false;
+      if (!q) return true;
+      const blob = `${r.mascota_nombre} ${r.especie} ${r.raza} ${r.cuidador_nombre} ${r.cuidador_telefono}`.toLowerCase();
+      return blob.includes(q);
+    });
+  }, [clientesNuevos, estadoMsg, enviados, q]);
+
   const pagCumple = useClientTablePagination(
     cumpleFiltrados,
     `${diasVentana}|${estadoMsg}|${idProfesional}|${q}|c`
@@ -253,9 +282,14 @@ export default function InformesFidelizacionTab({ profesionales, addToast }) {
     hitosFiltrados,
     `${estadoMsg}|${idProfesional}|${q}|h`
   );
+  const pagNuevos = useClientTablePagination(
+    nuevosFiltrados,
+    `${estadoMsg}|${q}|n`
+  );
 
   function abrirWhatsApp(kind, row) {
-    const tipo = kind === 'hito' ? 'hito' : row.tipo_evento;
+    const tipo =
+      kind === 'hito' ? 'hito' : kind === 'nuevo' ? 'nuevo' : 'cumpleanos';
     setDraft({ kind, tipo, row });
     setMensaje(generarMensajeWhatsApp({ tipo, row, templates }));
   }
@@ -306,6 +340,7 @@ export default function InformesFidelizacionTab({ profesionales, addToast }) {
     const next = saveFidelizacionTemplates({
       cumpleanos: PLANTILLA_CUMPLE_DEFAULT,
       hito: PLANTILLA_HITO_DEFAULT,
+      nuevo: PLANTILLA_NUEVO_DEFAULT,
     });
     setTemplates(next);
   }
@@ -313,19 +348,37 @@ export default function InformesFidelizacionTab({ profesionales, addToast }) {
   return (
     <>
       <div className="ui-card ui-card--filters">
-        <div className="ui-card__section-title">Filtros de fidelización</div>
-        <div className="ui-chips">
-          {FIDELIZACION_DIAS_OPTIONS.map((d) => (
+        <div className="ui-card__section-title">Sección</div>
+        <div className="ui-chips" style={{ marginBottom: 14 }} role="tablist" aria-label="Secciones de fidelización">
+          {SECCIONES_FIDELIZACION.map(({ id, label, Icon }) => (
             <button
-              key={d}
+              key={id}
               type="button"
-              className={`ui-chip${diasVentana === d ? ' ui-chip--active' : ''}`}
-              onClick={() => setDiasVentana(d)}
+              role="tab"
+              aria-selected={seccion === id}
+              className={`ui-chip${seccion === id ? ' ui-chip--active' : ''}`}
+              onClick={() => setSeccion(id)}
             >
-              {DIAS_LABEL[d]}
+              <Icon size={14} style={{ marginRight: 6, verticalAlign: '-2px' }} />
+              {label}
             </button>
           ))}
         </div>
+        <div className="ui-card__section-title">Filtros de fidelización</div>
+        {seccion === 'cumpleanos' ? (
+          <div className="ui-chips">
+            {FIDELIZACION_DIAS_OPTIONS.map((d) => (
+              <button
+                key={d}
+                type="button"
+                className={`ui-chip${diasVentana === d ? ' ui-chip--active' : ''}`}
+                onClick={() => setDiasVentana(d)}
+              >
+                {DIAS_LABEL[d]}
+              </button>
+            ))}
+          </div>
+        ) : null}
         <div className="fields-row fields-row--end">
           <Field label="Mensaje WhatsApp">
             <Select
@@ -349,6 +402,7 @@ export default function InformesFidelizacionTab({ profesionales, addToast }) {
                 aria-autocomplete="list"
                 placeholder="Buscar por nombre o teléfono…"
                 value={busquedaProf}
+                disabled={seccion === 'nuevos'}
                 onChange={(e) => {
                   setBusquedaProf(e.target.value);
                   setListaProfAbierta(true);
@@ -522,19 +576,56 @@ export default function InformesFidelizacionTab({ profesionales, addToast }) {
 
       {!listLoading && !loadError ? <KpiCardsFidelizacion kpis={kpis} /> : null}
 
-      {!listLoading && !loadError && cumpleanos.length === 0 && hitos.length === 0 ? (
+      {!listLoading &&
+      !loadError &&
+      seccion === 'cumpleanos' &&
+      cumpleanos.length === 0 &&
+      !searchTerm &&
+      !estadoMsg ? (
         <div className="ui-card" style={{ padding: '32px 20px' }}>
           <EmptyState
-            icon={<HeartHandshake size={28} />}
-            title="Sin oportunidades de fidelización"
-            description="No hay cumpleaños/mesarios en los próximos 30 días ni mascotas en un hito de 5 visitas. Completa fechas de nacimiento y marca citas como Mascota lista."
+            icon={<Cake size={28} />}
+            title="Sin cumpleaños próximos"
+            description="No hay cumpleaños anuales en los próximos 30 días. Completa fechas de nacimiento en Mascotas."
           />
         </div>
       ) : null}
 
-      {!listLoading && (cumpleanos.length > 0 || cumpleFiltrados.length > 0 || searchTerm || estadoMsg) ? (
+      {!listLoading &&
+      !loadError &&
+      seccion === 'hitos' &&
+      hitos.length === 0 &&
+      !searchTerm &&
+      !estadoMsg ? (
+        <div className="ui-card" style={{ padding: '32px 20px' }}>
+          <EmptyState
+            icon={<Trophy size={28} />}
+            title="Sin hitos de visitas"
+            description="No hay mascotas en un hito de 5 visitas. Marca citas como Mascota lista para acumular servicios."
+          />
+        </div>
+      ) : null}
+
+      {!listLoading &&
+      !loadError &&
+      seccion === 'nuevos' &&
+      clientesNuevos.length === 0 &&
+      !searchTerm &&
+      !estadoMsg ? (
+        <div className="ui-card" style={{ padding: '32px 20px' }}>
+          <EmptyState
+            icon={<Sparkles size={28} />}
+            title="Sin clientes nuevos pendientes"
+            description="Todas las mascotas registradas ya tienen al menos una cita o cobro, o aún no hay registros nuevos."
+          />
+        </div>
+      ) : null}
+
+      {!listLoading &&
+      seccion === 'cumpleanos' &&
+      (cumpleanos.length > 0 || cumpleFiltrados.length > 0 || searchTerm || estadoMsg) ? (
         <div className="ui-card ui-card--flush" style={{ marginBottom: 24 }}>
-          <div className="ui-card__head">Próximos cumpleaños / mesarios</div>
+          <div className="ui-card__head">Próximos cumpleaños</div>
           <div style={{ padding: '12px 16px 0' }}>
             <div className="ui-toolbar" style={{ marginBottom: 12 }}>
               <PageSizeSelect
@@ -644,7 +735,9 @@ export default function InformesFidelizacionTab({ profesionales, addToast }) {
         </div>
       ) : null}
 
-      {!listLoading && (hitos.length > 0 || hitosFiltrados.length > 0 || searchTerm || estadoMsg) ? (
+      {!listLoading &&
+      seccion === 'hitos' &&
+      (hitos.length > 0 || hitosFiltrados.length > 0 || searchTerm || estadoMsg) ? (
         <div className="ui-card ui-card--flush" style={{ marginBottom: 24 }}>
           <div className="ui-card__head">Hitos de fidelidad (múltiplos de 5 visitas)</div>
           <p style={{ margin: 0, padding: '8px 16px 0', fontSize: 13, color: 'var(--color-purple-light)' }}>
@@ -779,10 +872,125 @@ export default function InformesFidelizacionTab({ profesionales, addToast }) {
         </div>
       ) : null}
 
+      {!listLoading &&
+      seccion === 'nuevos' &&
+      (clientesNuevos.length > 0 || nuevosFiltrados.length > 0 || searchTerm || estadoMsg) ? (
+        <div className="ui-card ui-card--flush" style={{ marginBottom: 24 }}>
+          <div className="ui-card__head">Clientes nuevos (sin citas ni cobros)</div>
+          <p style={{ margin: 0, padding: '8px 16px 0', fontSize: 13, color: 'var(--color-purple-light)' }}>
+            Mascotas registradas que aún no tienen historial de agenda ni cobros. Ideal para invitar a la
+            primera visita.
+          </p>
+          <div style={{ padding: '12px 16px 0' }}>
+            <div className="ui-toolbar" style={{ marginBottom: 12 }}>
+              <PageSizeSelect
+                value={pagNuevos.itemsPerPage}
+                onChange={pagNuevos.handlePageSizeChange}
+                id="fid-nuevos-page-size"
+              />
+              <span className="ui-toolbar__meta">
+                {pagNuevos.total} resultado{pagNuevos.total !== 1 ? 's' : ''}
+              </span>
+            </div>
+          </div>
+          <div className="table-scroll">
+            {pagNuevos.total === 0 ? (
+              <div style={{ padding: '8px 16px 16px' }}>
+                <EmptyState
+                  icon={<UserPlus size={24} />}
+                  title="Sin resultados en este filtro"
+                  description="Quita el filtro de mensaje enviado o la búsqueda para ver todos los clientes nuevos."
+                />
+              </div>
+            ) : (
+              <table className={TABLE_STICKY_COLS_1}>
+                <thead>
+                  <tr>
+                    <th>Cuidador</th>
+                    <th>WhatsApp</th>
+                    <th>Mascota</th>
+                    <th>Especie</th>
+                    <th>Raza</th>
+                    <th>Registro</th>
+                    <th>Estado</th>
+                    <th>Acción</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {pagNuevos.pageRows.map((r) => {
+                    const enviado = rowEnviado(enviados, 'nuevo', r);
+                    const phoneOk = Boolean(sanitizePhoneCO(r.cuidador_telefono));
+                    return (
+                      <tr key={`nuevo-${r.id_mascota}`}>
+                        <td>
+                          <strong>{cellOrDash(r.cuidador_nombre)}</strong>
+                        </td>
+                        <td>{cellOrDash(r.cuidador_telefono)}</td>
+                        <td>
+                          <strong>{r.mascota_nombre}</strong>
+                        </td>
+                        <td>{cellOrDash(r.especie)}</td>
+                        <td>{cellOrDash(r.raza)}</td>
+                        <td>{formatFecha(r.fecha_registro)}</td>
+                        <td>
+                          <span
+                            className="ui-badge"
+                            style={
+                              enviado
+                                ? { background: 'var(--color-entorno)', color: 'var(--color-white)' }
+                                : {
+                                    background: 'var(--color-white)',
+                                    color: 'var(--color-entorno)',
+                                    border: '1px solid var(--color-purple-light)',
+                                  }
+                            }
+                          >
+                            {enviado ? 'Enviado' : 'Pendiente'}
+                          </span>
+                        </td>
+                        <td>
+                          <Button
+                            size="sm"
+                            variant="primary"
+                            disabled={!phoneOk}
+                            title={
+                              phoneOk
+                                ? 'Enviar bienvenida por WhatsApp'
+                                : 'Teléfono de cuidador no válido'
+                            }
+                            onClick={() => abrirWhatsApp('nuevo', r)}
+                          >
+                            <MessageCircle size={14} />
+                            WhatsApp
+                          </Button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            )}
+          </div>
+          <div style={{ padding: '12px 16px 16px' }}>
+            <TablePagination
+              page={pagNuevos.page}
+              pages={pagNuevos.pages}
+              total={pagNuevos.total}
+              itemsPerPage={pagNuevos.itemsPerPage}
+              onPageChange={pagNuevos.goToPage}
+            />
+          </div>
+        </div>
+      ) : null}
+
       <Sheet
         open={Boolean(draft)}
         onClose={() => !sending && setDraft(null)}
-        title="Enviar promoción / regalo por WhatsApp"
+        title={
+          draft?.tipo === 'nuevo'
+            ? 'Enviar bienvenida por WhatsApp'
+            : 'Enviar promoción / regalo por WhatsApp'
+        }
         description={
           draft?.row
             ? `${draft.row.mascota_nombre} · ${draft.row.cuidador_nombre || 'Sin cuidador'}`
@@ -814,7 +1022,7 @@ export default function InformesFidelizacionTab({ profesionales, addToast }) {
         open={plantillasOpen}
         onClose={() => setPlantillasOpen(false)}
         title="Plantillas de fidelización"
-        description="Usa {cuidador}, {mascota}, {negocio}, {obsequio}, {servicios}, {tipo_evento}, {fecha_evento}."
+        description="Usa {cuidador}, {nombre_cuidador}, {mascota}, {nombre_mascota}, {negocio}, {obsequio}, {fecha_registro}, {fecha_evento}, {edad}, {especie}, {raza}."
         size="lg"
         footer={
           <>
@@ -841,7 +1049,7 @@ export default function InformesFidelizacionTab({ profesionales, addToast }) {
             onChange={(e) => setTemplates((p) => ({ ...p, obsequio: e.target.value }))}
           />
         </Field>
-        <Field id="fid-tpl-cumple" label="Plantilla cumpleaños / mesario">
+        <Field id="fid-tpl-cumple" label="Plantilla de cumpleaños">
           <Textarea
             id="fid-tpl-cumple"
             rows={8}
@@ -855,6 +1063,14 @@ export default function InformesFidelizacionTab({ profesionales, addToast }) {
             rows={8}
             value={templates.hito || ''}
             onChange={(e) => setTemplates((p) => ({ ...p, hito: e.target.value }))}
+          />
+        </Field>
+        <Field id="fid-tpl-nuevo" label="Plantilla clientes nuevos (bienvenida)">
+          <Textarea
+            id="fid-tpl-nuevo"
+            rows={8}
+            value={templates.nuevo || ''}
+            onChange={(e) => setTemplates((p) => ({ ...p, nuevo: e.target.value }))}
           />
         </Field>
       </Sheet>

@@ -26,7 +26,8 @@ export async function listTarifas(idProfesional, options = {}) {
         .from('tarifa')
         .select('*')
         .eq('id_profesional', idProf)
-        .order('id')
+        .order('created_at', { ascending: false })
+        .order('id', { ascending: false })
         .range(from, from + PAGE - 1);
       throwIfError(error, 'Error al listar tarifas');
       const rows = data ?? [];
@@ -42,7 +43,8 @@ export async function listTarifas(idProfesional, options = {}) {
     .from('tarifa')
     .select('*', { count: 'exact' })
     .eq('id_profesional', idProf)
-    .order('id')
+    .order('created_at', { ascending: false })
+    .order('id', { ascending: false })
     .range(from, to);
   throwIfError(error, 'Error al listar tarifas');
   return successList(data ?? [], count, p, l);

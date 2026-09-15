@@ -31,7 +31,8 @@ export async function listMascotas(page = 1, limit = 20, search = '') {
   let query = supabase
     .from('mascota')
     .select(MASCOTA_COLUMNS, { count: 'exact' })
-    .order('id');
+    .order('created_at', { ascending: false })
+    .order('id', { ascending: false });
 
   const term = search?.trim();
   if (term) {
@@ -58,7 +59,8 @@ export async function listMascotasConCuidadores(page = 1, limit = 20, search = '
       `${MASCOTA_COLUMNS}, cuidador_mascota(cuidador(id, nombre))`,
       { count: 'exact' }
     )
-    .order('id');
+    .order('created_at', { ascending: false })
+    .order('id', { ascending: false });
 
   const term = search?.trim();
   if (term) {

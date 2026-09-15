@@ -11,8 +11,9 @@ import {
 import {
   claveContactoCumple,
   claveContactoHito,
+  claveContactoNuevo,
   eventoProximidadNacimiento,
-  formatEdadFidelizacion,
+  formatEdadAniosCumple,
   hitoDesdeServicios,
 } from '../utils/fidelizacion';
 
@@ -539,23 +540,29 @@ function pickCuidadorFromLinks(links) {
 }
 
 function mapCumpleRow(raw) {
-  const tipo = raw.tipo_evento === 'mesario' ? 'mesario' : 'cumpleanos';
+  if (!raw || raw.tipo_evento === 'mesario') return null;
   const proxima = toDateOnly(raw.proxima_fecha);
+  const fechaNac = toDateOnly(raw.fecha_nacimiento);
+  if (!proxima || !fechaNac) return null;
+  const edadLabel =
+    formatEdadAniosCumple(fechaNac, proxima) ||
+    (raw.edad_label && !/mes/i.test(String(raw.edad_label)) ? raw.edad_label : '');
+  if (!edadLabel) return null;
   return {
     id_mascota: raw.id_mascota,
     mascota_nombre: raw.mascota_nombre,
     especie: raw.especie || '',
     raza: raw.raza || '',
-    fecha_nacimiento: toDateOnly(raw.fecha_nacimiento),
-    edad_label: raw.edad_label || '',
-    tipo_evento: tipo,
+    fecha_nacimiento: fechaNac,
+    edad_label: edadLabel,
+    tipo_evento: 'cumpleanos',
     proxima_fecha: proxima,
     dias_restantes: Number(raw.dias_restantes) || 0,
     servicios_atendidos: Number(raw.servicios_atendidos) || 0,
     id_cuidador: raw.id_cuidador ?? null,
     cuidador_nombre: raw.cuidador_nombre ?? null,
     cuidador_telefono: raw.cuidador_telefono ?? null,
-    clave_contacto: `${tipo}:${proxima}`,
+    clave_contacto: `cumpleanos:${proxima}`,
   };
 }
 
@@ -668,14 +675,17 @@ async function getInformeFidelizacionFallback(params) {
 
     const evento = eventoProximidadNacimiento(m.fecha_nacimiento, { hoy, diasVentana });
     if (evento) {
-      const row = {
-        ...base,
-        servicios_atendidos: total,
-        edad_label: formatEdadFidelizacion(m.fecha_nacimiento, hoy),
-        ...evento,
-      };
-      row.clave_contacto = claveContactoCumple(row);
-      cumpleanos.push(row);
+      const edad_label = formatEdadAniosCumple(m.fecha_nacimiento, evento.proxima_fecha);
+      if (edad_label) {
+        const row = {
+          ...base,
+          servicios_atendidos: total,
+          edad_label,
+          ...evento,
+        };
+        row.clave_contacto = claveContactoCumple(row);
+        cumpleanos.push(row);
+      }
     }
 
     let hitoRow = null;
@@ -736,7 +746,7 @@ async function getInformeFidelizacionFallback(params) {
 }
 
 /**
- * Oportunidades de fidelización: próximos cumpleaños/mesarios e hitos de visitas.
+ * Oportunidades de fidelización: próximos cumpleaños anuales e hitos de visitas.
  * No modifica getDashboardInformes ni getAgendaInforme.
  */
 export async function getInformeFidelizacion(params = {}) {
@@ -750,7 +760,7 @@ export async function getInformeFidelizacion(params = {}) {
     return {
       status: 'success',
       data: {
-        cumpleanos: (data.cumpleanos || []).map(mapCumpleRow),
+        cumpleanos: (data.cumpleanos || []).map(mapCumpleRow).filter(Boolean),
         hitos: (data.hitos || []).map(mapHitoRow),
       },
       source: 'rpc',
@@ -788,6 +798,116 @@ export async function marcarContactoFidelizacion({ id_mascota, tipo, clave }) {
   if (error && isMissingTableError(error)) {
     return { status: 'success', source: 'local' };
   }
+  // CHECK antiguo sin tipo 'nuevo': conservar envío local sin romper UX
+  if (
+    error &&
+    tipo === 'nuevo' &&
+    /check constraint|fidelizacion_contacto_tipo/i.test(error.message || '')
+  ) {
+    return { status: 'success', source: 'local' };
+  }
   throwIfError(error, 'Error al registrar el contacto de fidelización');
   return { status: 'success', source: 'db' };
+}
+
+function mapClienteNuevoRow(raw) {
+  const id = Number(raw.id_mascota ?? raw.id);
+  if (!id) return null;
+  const fechaRegistro = toDateOnly(raw.fecha_registro || raw.created_at) || null;
+  const row = {
+    id_mascota: id,
+    mascota_nombre: raw.mascota_nombre || raw.nombre || '',
+    especie: raw.especie || '',
+    raza: raw.raza || '',
+    fecha_registro: fechaRegistro,
+    id_cuidador: raw.id_cuidador ?? null,
+    cuidador_nombre: raw.cuidador_nombre ?? null,
+    cuidador_telefono: raw.cuidador_telefono ?? null,
+    tipo_evento: 'nuevo',
+  };
+  row.clave_contacto = claveContactoNuevo(row);
+  return row;
+}
+
+async function getFidelizacionClientesNuevosFallback() {
+  const [mascotas, agendas, cobros] = await Promise.all([
+    fetchAllRows(
+      () =>
+        supabase
+          .from('mascota')
+          .select(
+            `id, nombre, especie, raza, created_at,
+             cuidador_mascota(activo, fecha_inicio, cuidador(id, nombre, telefono))`
+          )
+          .order('created_at', { ascending: false }),
+      'Error al cargar mascotas nuevas'
+    ),
+    fetchAllRows(
+      () => supabase.from('agenda').select('id_mascota'),
+      'Error al cargar agendas para clientes nuevos'
+    ),
+    fetchAllRows(
+      () =>
+        supabase
+          .from('cobro')
+          .select('id_mascota')
+          .neq('estado', 'anulado'),
+      'Error al cargar cobros para clientes nuevos'
+    ),
+  ]);
+
+  const conServicio = new Set();
+  for (const a of agendas || []) {
+    if (a?.id_mascota != null) conServicio.add(Number(a.id_mascota));
+  }
+  for (const c of cobros || []) {
+    if (c?.id_mascota != null) conServicio.add(Number(c.id_mascota));
+  }
+
+  const rows = [];
+  for (const m of mascotas || []) {
+    const id = Number(m.id);
+    if (!id || conServicio.has(id)) continue;
+    const cuidador = pickCuidadorFromLinks(m.cuidador_mascota);
+    const mapped = mapClienteNuevoRow({
+      id_mascota: id,
+      mascota_nombre: m.nombre,
+      especie: m.especie,
+      raza: m.raza,
+      fecha_registro: m.created_at,
+      ...cuidador,
+    });
+    if (mapped) rows.push(mapped);
+  }
+
+  rows.sort((a, b) => {
+    const fa = a.fecha_registro || '';
+    const fb = b.fecha_registro || '';
+    if (fa !== fb) return fb.localeCompare(fa);
+    return String(a.mascota_nombre || '').localeCompare(String(b.mascota_nombre || ''), 'es');
+  });
+
+  return rows;
+}
+
+/**
+ * Mascotas registradas sin ninguna cita ni cobro histórico (clientes nuevos).
+ */
+export async function getFidelizacionClientesNuevos() {
+  const { data, error } = await supabase.rpc('get_fidelizacion_clientes_nuevos');
+  if (!error && data) {
+    const list = Array.isArray(data)
+      ? data
+      : data.clientes_nuevos || data.rows || [];
+    return {
+      status: 'success',
+      data: (Array.isArray(list) ? list : []).map(mapClienteNuevoRow).filter(Boolean),
+      source: 'rpc',
+    };
+  }
+  if (error && !isMissingRpcError(error)) {
+    throwIfError(error, error.message || 'Error al cargar clientes nuevos');
+  }
+  const fallback = await getFidelizacionClientesNuevosFallback();
+  return { status: 'success', data: fallback, source: 'client' };
 }

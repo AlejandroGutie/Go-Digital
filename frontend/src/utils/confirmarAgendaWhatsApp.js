@@ -1,6 +1,6 @@
 import { getCuidadoresDeMascota, getMascotaById } from '../api/mascotasApi';
 import { normalizeListPayload } from '../api/normalize';
-import { formatFecha, formatHora, formatMoneda } from './format';
+import { formatFechaLecturaCliente, formatHora, formatMoneda } from './format';
 import {
   buildWhatsAppConfirmMessage,
   buildWhatsAppReprogramadaMessage,
@@ -58,6 +58,7 @@ export async function confirmarAgendaPorWhatsApp({
   mascotaFallback = null,
   tarifaDescripcion = '',
   tarifaValor = null,
+  tarifas = null,
   tipo = 'confirmacion',
 } = {}) {
   if (!cita) throw new Error('Cita inválida');
@@ -74,6 +75,13 @@ export async function confirmarAgendaPorWhatsApp({
         ? cita.tarifa_valor
         : null;
 
+  const tarifasList =
+    Array.isArray(tarifas) && tarifas.length
+      ? tarifas
+      : Array.isArray(cita.tarifas) && cita.tarifas.length
+        ? cita.tarifas
+        : null;
+
   const payload = {
     cuidadorNombre: cuidador.nombre,
     mascotaNombre:
@@ -84,11 +92,14 @@ export async function confirmarAgendaPorWhatsApp({
     mascotaTamano:
       mascotaData?.tamano || cita.tamano || mascotaFallback?.tamano || '',
     profesionalNombre: profesionalNombre || cita.profesional_nombre || '',
-    fechaLabel: formatFecha(cita.fecha),
+    fechaLabel: formatFechaLecturaCliente(cita.fecha),
     horaInicioLabel: formatHora(cita.hora_inicio),
     horaFinLabel: formatHora(cita.hora_fin),
     tarifaDescripcion: tarifaDescripcion || cita.tarifa_descripcion || '',
+    tarifaValor: valor,
     valorLabel: valor != null && valor !== '' ? formatMoneda(valor) : '',
+    tarifas: tarifasList,
+    cita,
   };
 
   const message =

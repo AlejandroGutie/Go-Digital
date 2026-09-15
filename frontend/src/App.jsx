@@ -31,11 +31,11 @@ import CobrosPage from './pages/CobrosPage';
 import InformesPage from './pages/InformesPage';
 
 const NAV_ITEMS = [
-  { to: '/mascotas', label: 'Mascotas', icon: PawPrint },
+  { to: '/agendas', label: 'Agendas', icon: CalendarDays },
   { to: '/cuidadores', label: 'Cuidadores', icon: Users },
+  { to: '/mascotas', label: 'Mascotas', icon: PawPrint },
   { to: '/asignacion', label: 'Asignación', icon: Link2 },
   { to: '/profesionales', label: 'Profesionales', icon: Stethoscope },
-  { to: '/agendas', label: 'Agendas', icon: CalendarDays },
   { to: '/cobros', label: 'Cobros', icon: Wallet },
   { to: '/informes', label: 'Informes', icon: BarChart3 },
 ];

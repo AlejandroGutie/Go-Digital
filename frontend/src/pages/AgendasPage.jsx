@@ -7,6 +7,7 @@ import {
   MessageCircle,
   PawPrint,
   Search,
+  Settings2,
   Stethoscope,
   Wallet,
   X,
@@ -34,7 +35,7 @@ import { normalizeListPayload } from '../api/normalize';
 import { useToast } from '../hooks/useToast';
 import { useMutationLock } from '../hooks/useMutationLock';
 import { Toast } from '../components/Toast';
-import { formatFecha, formatHora, formatMoneda, hoyLocalISO, toDateOnly } from '../utils/format';
+import { formatFecha, formatFechaLecturaCliente, formatHora, formatMoneda, hoyLocalISO, toDateOnly } from '../utils/format';
 import {
   buildWhatsAppMascotaListaMessage,
   openWhatsAppChat,
@@ -59,13 +60,22 @@ import TarifaMultiSelect, {
 import HorarioSlotSelect from '../components/ui/HorarioSlotSelect';
 import { useClientTablePagination } from '../hooks/useClientTablePagination';
 import {
-  DURACION_CITA_DEFAULT_MIN,
   generarBloquesHorarios,
   horaAMinutos as horaAMinutosUtil,
   jornadaDelProfesional,
-  sugerirHoraFin,
   toTimeHHMM,
 } from '../utils/horarios';
+import {
+  citasDelDiaParaSlots,
+  encontrarCitaConflicto,
+  filtrarSlotsFinLibres,
+  slotOcupadoPorCitas,
+} from '../utils/agendaConflictos';
+import {
+  loadAgendaPlantillas,
+  resetAgendaPlantillas,
+  saveAgendaPlantillas,
+} from '../utils/agendaPlantillas';
 import '../index.css';
 import { TABLE_STICKY_COLS_2 } from '../lib/tableSticky';
 
@@ -113,49 +123,6 @@ function toTimeInputValue(hora) {
   return toTimeHHMM(hora);
 }
 
-/** True si el instante `slot` cae dentro de [inicio, fin) de alguna cita activa del día. */
-function slotOcupadoPorCitas(slot, citasDelDia, excludeId = null) {
-  const m = horaAMinutos(slot);
-  if (m == null) return false;
-  return (citasDelDia || []).some((c) => {
-    if (c.cancelada === true || c.atendida === true) return false;
-    if (excludeId != null && String(c.id) === String(excludeId)) return false;
-    const a = horaAMinutos(c.hora_inicio);
-    const b = horaAMinutos(c.hora_fin);
-    if (a == null || b == null) return false;
-    return m >= a && m < b;
-  });
-}
-
-/**
- * Dos franjas se solapan si comparten minutos (inicio inclusivo, fin exclusivo).
- * Ej.: 10:00–11:00 y 11:00–12:00 NO se solapan; 10:00–11:00 y 10:30–11:30 SÍ.
- */
-function franjasSeSolapan(inicioA, finA, inicioB, finB) {
-  const a0 = horaAMinutos(inicioA);
-  const a1 = horaAMinutos(finA);
-  const b0 = horaAMinutos(inicioB);
-  const b1 = horaAMinutos(finB);
-  if ([a0, a1, b0, b1].some((v) => v == null)) return false;
-  return a0 < b1 && b0 < a1;
-}
-
-/** Busca conflicto de franja; ignora canceladas/atendidas. `excludeId` para reprogramar. */
-function encontrarCitaConflicto(citas, fecha, horaInicio, horaFin, excludeId = null) {
-  if (!fecha || !horaInicio || !horaFin) return null;
-  const fechaNorm = toDateOnly(fecha);
-  return (
-    citas.find(
-      (c) =>
-        c.cancelada !== true &&
-        c.atendida !== true &&
-        (excludeId == null || String(c.id) !== String(excludeId)) &&
-        toDateOnly(c.fecha) === fechaNorm &&
-        franjasSeSolapan(horaInicio, horaFin, c.hora_inicio, c.hora_fin)
-    ) || null
-  );
-}
-
 function filtrarMascotasLocal(lista, search) {
   const q = String(search || '')
     .trim()
@@ -187,6 +154,8 @@ export default function AgendasPage() {
   const [cobroObservacion, setCobroObservacion] = useState('');
   const [tarifas, setTarifas] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [plantillasOpen, setPlantillasOpen] = useState(false);
+  const [agendaTemplates, setAgendaTemplates] = useState(() => loadAgendaPlantillas());
   const [whatsappBusy, setWhatsappBusy] = useState(null); // { id, kind: 'confirm'|'lista' }
   const [pagarBusyId, setPagarBusyId] = useState(null);
   const [initLoading, setInitLoading] = useState(true);
@@ -733,11 +702,10 @@ export default function AgendasPage() {
       const agendaCreada = resCreate?.data?.agenda || resCreate?.agenda || null;
       const mascotaSel =
         mascotas.find((m) => String(m.id) === String(mascotaId)) || null;
-      const tarifaDescripcion = formatTarifasLabel(
-        idTarifas
-          .map((id) => tarifas.find((t) => String(t.id) === String(id)))
-          .filter(Boolean)
-      );
+      const tarifasSeleccionadas = idTarifas
+        .map((id) => tarifas.find((t) => String(t.id) === String(id)))
+        .filter(Boolean);
+      const tarifaDescripcion = formatTarifasLabel(tarifasSeleccionadas);
 
       addToast(
         esPendiente
@@ -758,6 +726,7 @@ export default function AgendasPage() {
           especie: mascotaSel?.especie,
           raza: mascotaSel?.raza,
           tamano: mascotaSel?.tamano,
+          tarifas: tarifasSeleccionadas,
         };
         whatsappCancelRef.current = await confirmarAgendaPorWhatsApp({
           cita: citaWa,
@@ -765,6 +734,7 @@ export default function AgendasPage() {
           mascotaFallback: mascotaSel,
           tarifaDescripcion,
           tarifaValor: valor,
+          tarifas: tarifasSeleccionadas,
         });
         addToast('Se abrió WhatsApp con el mensaje de confirmación.', 'success');
       } catch (waErr) {
@@ -849,7 +819,7 @@ export default function AgendasPage() {
         editMascotas.find((m) => String(m.id) === String(id_mascota)) ||
         mascotas.find((m) => String(m.id) === String(id_mascota)) ||
         null;
-      const { tarifaDescripcion, tarifaValor } = (() => {
+      const { tarifaDescripcion, tarifaValor, tarifas: tarifasMsg } = (() => {
         const fromEdit = id_tarifas
           .map((id) =>
             (tarifasParaEditar.length ? tarifasParaEditar : tarifas).find(
@@ -859,6 +829,7 @@ export default function AgendasPage() {
           .filter(Boolean);
         if (fromEdit.length) {
           return {
+            tarifas: fromEdit,
             tarifaDescripcion: formatTarifasLabel(fromEdit),
             tarifaValor: sumTarifasValor(fromEdit, id_tarifas),
           };
@@ -885,11 +856,13 @@ export default function AgendasPage() {
             especie: mascotaSel?.especie || editCita.especie,
             raza: mascotaSel?.raza || editCita.raza,
             tamano: mascotaSel?.tamano || editCita.tamano,
+            tarifas: tarifasMsg,
           },
           profesionalNombre: profSel?.nombre || '',
           mascotaFallback: mascotaSel,
           tarifaDescripcion,
           tarifaValor,
+          tarifas: tarifasMsg,
           tipo: 'reprogramada',
         });
         addToast('Se abrió WhatsApp con el aviso de reprogramación.', 'success');
@@ -968,6 +941,7 @@ export default function AgendasPage() {
     if (Array.isArray(cita.tarifas) && cita.tarifas.length) {
       const idTarifas = cita.tarifas.map((t) => String(t.id));
       return {
+        tarifas: cita.tarifas,
         tarifaDescripcion: formatTarifasLabel(cita.tarifas),
         tarifaValor: sumTarifasValor(cita.tarifas, idTarifas),
         idTarifas,
@@ -984,12 +958,14 @@ export default function AgendasPage() {
       .filter(Boolean);
     if (fromList.length) {
       return {
+        tarifas: fromList,
         tarifaDescripcion: formatTarifasLabel(fromList),
         tarifaValor: sumTarifasValor(fromList, ids),
         idTarifas: ids,
       };
     }
     return {
+      tarifas: [],
       tarifaDescripcion: cita.tarifa_descripcion || '',
       tarifaValor: cita.tarifa_valor,
       idTarifas: ids,
@@ -1001,12 +977,14 @@ export default function AgendasPage() {
     setWhatsappBusy({ id: cita.id, kind: 'confirm' });
     try {
       whatsappCancelRef.current?.cancel?.();
-      const { tarifaDescripcion, tarifaValor } = resolverTarifaCita(cita);
+      const { tarifaDescripcion, tarifaValor, tarifas: tarifasMsg } =
+        resolverTarifaCita(cita);
       whatsappCancelRef.current = await confirmarAgendaPorWhatsApp({
         cita,
         profesionalNombre: profSel?.nombre || '',
         tarifaDescripcion,
         tarifaValor,
+        tarifas: tarifasMsg,
       });
       addToast('Se abrió WhatsApp con el mensaje de confirmación.', 'success');
     } catch (e) {
@@ -1048,7 +1026,7 @@ export default function AgendasPage() {
           cuidadorNombre: cuidador.nombre,
           mascotaNombre,
           profesionalNombre: profSel?.nombre || '',
-          fechaLabel: formatFecha(cita.fecha),
+          fechaLabel: formatFechaLecturaCliente(cita.fecha),
           horaFinLabel: formatHora(cita.hora_fin),
           tarifaDescripcion,
         });
@@ -1303,95 +1281,77 @@ export default function AgendasPage() {
       includeEnd: false,
     });
     if (!fecha) return base;
-    return base.filter((slot) => !slotOcupadoPorCitas(slot, citasDelDia));
-  }, [jornadaProf, fecha, citasDelDia]);
+    const ocupadas = citasDelDiaParaSlots(citas, fecha);
+    return base.filter((slot) => !slotOcupadoPorCitas(slot, ocupadas));
+  }, [jornadaProf, fecha, citas]);
 
   const slotsFinAgenda = useMemo(() => {
     if (!horaInicio) {
-      return generarBloquesHorarios(jornadaProf.inicio, jornadaProf.fin, 30, {
+      const base = generarBloquesHorarios(jornadaProf.inicio, jornadaProf.fin, 30, {
         includeEnd: true,
       }).filter((s) => s > jornadaProf.inicio);
+      return filtrarSlotsFinLibres(base, { citas, fecha });
     }
     const despues = generarBloquesHorarios(horaInicio, jornadaProf.fin, 30, {
       includeEnd: true,
     }).filter((s) => s > horaInicio);
-    if (!fecha) return despues;
-    return despues.filter((fin) => {
-      if (encontrarCitaConflicto(citas, fecha, horaInicio, fin)) return false;
-      // fin exacto de otra cita es OK (inicio exclusivo); solo bloquear si el slot
-      // intermedio está ocupado — franjasSeSolapan ya cubre el rango.
-      return true;
+    return filtrarSlotsFinLibres(despues, {
+      citas,
+      fecha,
+      horaInicio,
     });
   }, [jornadaProf, horaInicio, fecha, citas]);
 
   const editCitasDelDiaSlots = useMemo(() => {
     if (!editForm.fecha) return [];
-    return citas.filter((c) => toDateOnly(c.fecha) === toDateOnly(editForm.fecha));
-  }, [citas, editForm.fecha]);
+    return citasDelDiaParaSlots(citas, editForm.fecha, editCita?.id);
+  }, [citas, editForm.fecha, editCita?.id]);
 
   const slotsInicioEdit = useMemo(() => {
     const base = generarBloquesHorarios(jornadaProf.inicio, jornadaProf.fin, 30, {
       includeEnd: false,
     });
     if (!editForm.fecha) return base;
-    return base.filter(
-      (slot) => !slotOcupadoPorCitas(slot, editCitasDelDiaSlots, editCita?.id)
-    );
-  }, [jornadaProf, editForm.fecha, editCitasDelDiaSlots, editCita?.id]);
+    return base.filter((slot) => !slotOcupadoPorCitas(slot, editCitasDelDiaSlots));
+  }, [jornadaProf, editForm.fecha, editCitasDelDiaSlots]);
 
   const slotsFinEdit = useMemo(() => {
     const inicio = editForm.hora_inicio;
     if (!inicio) {
-      return generarBloquesHorarios(jornadaProf.inicio, jornadaProf.fin, 30, {
+      const base = generarBloquesHorarios(jornadaProf.inicio, jornadaProf.fin, 30, {
         includeEnd: true,
       }).filter((s) => s > jornadaProf.inicio);
+      return filtrarSlotsFinLibres(base, {
+        citas,
+        fecha: editForm.fecha,
+        excludeId: editCita?.id,
+      });
     }
     const despues = generarBloquesHorarios(inicio, jornadaProf.fin, 30, {
       includeEnd: true,
     }).filter((s) => s > inicio);
-    if (!editForm.fecha) return despues;
-    return despues.filter(
-      (fin) =>
-        !encontrarCitaConflicto(citas, editForm.fecha, inicio, fin, editCita?.id)
-    );
+    return filtrarSlotsFinLibres(despues, {
+      citas,
+      fecha: editForm.fecha,
+      horaInicio: inicio,
+      excludeId: editCita?.id,
+    });
   }, [jornadaProf, editForm.hora_inicio, editForm.fecha, citas, editCita?.id]);
 
   function onChangeHoraInicioCrear(value) {
     const inicio = toTimeHHMM(value);
     setHoraInicio(inicio);
-    if (!inicio) {
-      setHoraFin('');
-      return;
-    }
-    const sugerida = sugerirHoraFin(
-      inicio,
-      jornadaProf.fin,
-      DURACION_CITA_DEFAULT_MIN
-    );
-    if (sugerida && sugerida > inicio) {
-      setHoraFin(sugerida);
-    } else {
-      setHoraFin('');
-    }
+    // Selección explícita de fin: no autocompletar duración fija.
+    setHoraFin('');
   }
 
   function onChangeHoraInicioEdit(value) {
     const inicio = toTimeHHMM(value);
-    setEditForm((prev) => {
-      if (!inicio) {
-        return { ...prev, hora_inicio: '', hora_fin: '' };
-      }
-      const sugerida = sugerirHoraFin(
-        inicio,
-        jornadaProf.fin,
-        DURACION_CITA_DEFAULT_MIN
-      );
-      return {
-        ...prev,
-        hora_inicio: inicio,
-        hora_fin: sugerida && sugerida > inicio ? sugerida : '',
-      };
-    });
+    setEditForm((prev) => ({
+      ...prev,
+      hora_inicio: inicio,
+      hora_fin: '',
+    }));
   }
 
   const citasFiltradas = useMemo(() => {
@@ -1547,6 +1507,20 @@ export default function AgendasPage() {
                         void abrirListaProfesionales();
                       }}
                     />
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      size="sm"
+                      onClick={() => {
+                        setAgendaTemplates(loadAgendaPlantillas());
+                        setPlantillasOpen(true);
+                      }}
+                      disabled={loading}
+                      title="Editar plantillas de WhatsApp"
+                    >
+                      <Settings2 size={16} />
+                      Plantillas
+                    </Button>
                     {(profSel || busquedaProf) && (
                       <Button
                         type="button"
@@ -1788,7 +1762,11 @@ export default function AgendasPage() {
                         <Field label="Fecha">
                           <DateInput
                             value={fecha}
-                            onChange={(e) => setFecha(e.target.value)}
+                            onChange={(e) => {
+                              setFecha(e.target.value);
+                              setHoraInicio('');
+                              setHoraFin('');
+                            }}
                             disabled={loading}
                             style={franjaOcupada ? inputErrorStyle : undefined}
                           />
@@ -2449,7 +2427,14 @@ export default function AgendasPage() {
               <Field label="Fecha" required>
                 <DateInput
                   value={editForm.fecha}
-                  onChange={(e) => setEditForm((prev) => ({ ...prev, fecha: e.target.value }))}
+                  onChange={(e) =>
+                    setEditForm((prev) => ({
+                      ...prev,
+                      fecha: e.target.value,
+                      hora_inicio: '',
+                      hora_fin: '',
+                    }))
+                  }
                   disabled={loading}
                   style={editFranjaOcupada ? inputErrorStyle : undefined}
                 />
@@ -2609,6 +2594,84 @@ export default function AgendasPage() {
             rows={3}
           />
         </Field>
+      </Sheet>
+
+      <Sheet
+        open={plantillasOpen}
+        onClose={() => setPlantillasOpen(false)}
+        title="Plantillas de WhatsApp (Agendas)"
+        description="Usa {cuidador}, {mascota}, {fecha}, {hora}, {hora_inicio}, {hora_fin}, {profesional}, {desglose_tarifas}, {valor_total}, {servicios}, {tarifa}, {valor}, {servicio}, {detalle}, {negocio}."
+        size="lg"
+        footer={
+          <>
+            <Button
+              variant="ghost"
+              onClick={() => {
+                setAgendaTemplates(resetAgendaPlantillas());
+                addToast('Plantillas restauradas a los textos por defecto.', 'success');
+              }}
+            >
+              Restaurar textos
+            </Button>
+            <Button
+              variant="primary"
+              onClick={() => {
+                const next = saveAgendaPlantillas(agendaTemplates);
+                setAgendaTemplates(next);
+                setPlantillasOpen(false);
+                addToast('Plantillas de agenda guardadas.', 'success');
+              }}
+            >
+              Guardar
+            </Button>
+          </>
+        }
+      >
+        <Field id="agenda-tpl-negocio" label="Nombre del negocio">
+          <Input
+            id="agenda-tpl-negocio"
+            value={agendaTemplates.negocio || ''}
+            onChange={(e) =>
+              setAgendaTemplates((p) => ({ ...p, negocio: e.target.value }))
+            }
+          />
+        </Field>
+        <Field id="agenda-tpl-confirmacion" label="Plantilla confirmación de cita">
+          <Textarea
+            id="agenda-tpl-confirmacion"
+            rows={8}
+            value={agendaTemplates.confirmacion || ''}
+            onChange={(e) =>
+              setAgendaTemplates((p) => ({ ...p, confirmacion: e.target.value }))
+            }
+          />
+        </Field>
+        <Field id="agenda-tpl-reprogramada" label="Plantilla reprogramación de cita">
+          <Textarea
+            id="agenda-tpl-reprogramada"
+            rows={8}
+            value={agendaTemplates.reprogramada || ''}
+            onChange={(e) =>
+              setAgendaTemplates((p) => ({ ...p, reprogramada: e.target.value }))
+            }
+          />
+        </Field>
+        <Field id="agenda-tpl-lista" label="Plantilla mascota lista / cita atendida">
+          <Textarea
+            id="agenda-tpl-lista"
+            rows={8}
+            value={agendaTemplates.mascota_lista || ''}
+            onChange={(e) =>
+              setAgendaTemplates((p) => ({ ...p, mascota_lista: e.target.value }))
+            }
+          />
+        </Field>
+        <p style={{ margin: '8px 0 0', fontSize: 12, color: 'var(--color-purple-light)' }}>
+          Si dejas un campo vacío, al guardar se usará el texto por defecto. También puedes
+          usar alias: {'{nombre_cuidador}'}, {'{nombre_mascota}'}, {'{nombre_profesional}'}.
+          En confirmación/reprogramación: {'{desglose_tarifas}'} lista cada servicio con
+          precio y {'{valor_total}'} muestra el total.
+        </p>
       </Sheet>
 
       <Toast toasts={toasts} removeToast={removeToast} />
