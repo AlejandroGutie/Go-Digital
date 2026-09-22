@@ -42,7 +42,7 @@ import AgendarMascotaSheet from '../components/agendas/AgendarMascotaSheet';
 import CitasMascotaAccionesSheet from '../components/agendas/CitasMascotaAccionesSheet';
 import { formatFecha, hoyLocalISO, toDateOnly } from '../utils/format';
 import '../index.css';
-import { TABLE_STICKY_COLS_2 } from '../lib/tableSticky';
+import { TABLE_STICKY_COLS_1 } from '../lib/tableSticky';
 
 const EMPTY_FORM = { nombre: '', telefono: '', direccion: '', email: '' };
 const EMPTY_MASCOTA_FORM = {
@@ -718,10 +718,10 @@ export default function CuidadoresPage() {
           ) : (
             <>
               <div className="ui-table-wrap table-scroll">
-                <table className={TABLE_STICKY_COLS_2}>
+                <table className={TABLE_STICKY_COLS_1}>
                   <thead>
                     <tr>
-                      {['ID', 'Nombre', 'Email', 'Teléfono', 'Dirección', 'Acciones'].map((h) => (
+                      {['Nombre', 'Email', 'Teléfono', 'Dirección', 'Acciones'].map((h) => (
                         <th key={h}>{h}</th>
                       ))}
                     </tr>
@@ -729,7 +729,6 @@ export default function CuidadoresPage() {
                   <tbody>
                     {cuidadores.map((c) => (
                       <tr key={c.id}>
-                        <td className="ui-num">{c.id}</td>
                         {inlineEditId === c.id ? (
                           <>
                             <td>
@@ -907,10 +906,10 @@ export default function CuidadoresPage() {
           />
         ) : (
           <div className="ui-table-wrap table-scroll">
-            <table className={TABLE_STICKY_COLS_2}>
+            <table className={TABLE_STICKY_COLS_1}>
               <thead>
                 <tr>
-                  {['ID', 'Nombre', 'Especie', 'Raza', 'Tamaño', 'Fecha de Nacimiento', ''].map(
+                  {['Nombre', 'Especie', 'Raza', 'Tamaño', 'Fecha de Nacimiento', ''].map(
                     (th) => (
                       <th key={th || 'acciones'}>{th}</th>
                     )
@@ -920,7 +919,6 @@ export default function CuidadoresPage() {
               <tbody>
                 {mascotasModal?.mascotas.map((m) => (
                   <tr key={m.id}>
-                    <td className="ui-num">{m.id}</td>
                     <td>{m.nombre}</td>
                     <td>{m.especie}</td>
                     <td>{m.raza}</td>

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { formatFecha, toDateOnly } from '../../utils/format';
 
 export default function Field({
@@ -27,9 +27,24 @@ export function Input({ className = '', ...rest }) {
   return <input className={`ui-input ${className}`.trim()} {...rest} />;
 }
 
+/** iOS/iPadOS: showPicker() no abre type=date; hace falta el overlay nativo. */
+function prefersNativeDateOverlay() {
+  if (typeof navigator === 'undefined') return false;
+  const ua = navigator.userAgent || '';
+  if (/iPad|iPhone|iPod/i.test(ua)) return true;
+  // iPadOS desktop UA
+  if (navigator.platform === 'MacIntel' && (navigator.maxTouchPoints || 0) > 1) {
+    return true;
+  }
+  return false;
+}
+
 /**
  * Campo de fecha con visualización/entrada dd/mm/yyyy.
  * El value y onChange usan ISO YYYY-MM-DD (misma API que input type="date").
+ *
+ * En Android/desktop el calendario se abre con showPicker() diferido para que
+ * el mismo toque de apertura no seleccione un día y cierre el control.
  */
 export function DateInput({
   className = '',
@@ -48,6 +63,11 @@ export function DateInput({
   const maxIso = toDateOnly(max) || undefined;
   const minIso = toDateOnly(min) || undefined;
   const [text, setText] = useState(isoValue ? formatFecha(isoValue) : '');
+  const pickerRef = useRef(null);
+  const suppressChangeUntilRef = useRef(0);
+  const isoValueRef = useRef(isoValue);
+  isoValueRef.current = isoValue;
+  const useOverlay = prefersNativeDateOverlay();
 
   useEffect(() => {
     const next = isoValue ? formatFecha(isoValue) : '';
@@ -98,10 +118,58 @@ export function DateInput({
     }
   }
 
+  function restorePickerDomValue(el) {
+    if (!el) return;
+    el.value = isoValueRef.current || '';
+  }
+
   function handlePickerChange(e) {
-    const iso = toDateOnly(e.target.value);
+    const el = e.target;
+    const iso = toDateOnly(el.value) || '';
+    const prev = isoValueRef.current || '';
+
+    // Cambio espurio al abrir (p. ej. vacío → hoy en Android) o mismo valor al cerrar.
+    if (Date.now() < suppressChangeUntilRef.current) {
+      restorePickerDomValue(el);
+      return;
+    }
+    if (iso === prev) return;
+
     setText(iso ? formatFecha(iso) : '');
     emit(iso);
+  }
+
+  function launchNativePicker() {
+    const el = pickerRef.current;
+    if (!el || disabled) return;
+
+    // Ventana corta: ignora onChange disparado al abrir, no al elegir el usuario.
+    suppressChangeUntilRef.current = Date.now() + 350;
+
+    const run = () => {
+      try {
+        if (typeof el.showPicker === 'function') {
+          el.showPicker();
+          return;
+        }
+      } catch {
+        /* fall through */
+      }
+      try {
+        el.focus({ preventScroll: true });
+        el.click();
+      } catch {
+        /* ignore */
+      }
+    };
+
+    // Diferir tras pointerup/click para que el dedo ya no esté sobre el día del calendario.
+    window.setTimeout(run, 50);
+  }
+
+  function handleOpenPointerDown(e) {
+    // Evita que el text input robe el foco y el teclado tape el picker en móvil.
+    e.preventDefault();
   }
 
   return (
@@ -123,21 +191,50 @@ export function DateInput({
         aria-label={rest['aria-label']}
         {...rest}
       />
-      {/*
-        Cubre el ícono del calendario. El toque/clic directo en type="date"
-        abre el picker nativo (necesario en iOS; showPicker no soporta date ahí).
-      */}
-      <input
-        type="date"
-        className="ui-date-input__picker"
-        value={isoValue}
-        onChange={handlePickerChange}
-        max={maxIso}
-        min={minIso}
-        disabled={disabled}
-        tabIndex={-1}
-        aria-label="Abrir calendario"
-      />
+      {useOverlay ? (
+        /*
+          iOS: el toque debe caer en type="date" (showPicker no abre date).
+          El indicador cubre solo el ícono; no diferimos showPicker.
+        */
+        <input
+          ref={pickerRef}
+          type="date"
+          className="ui-date-input__picker"
+          value={isoValue}
+          onChange={handlePickerChange}
+          onFocus={() => {
+            suppressChangeUntilRef.current = Date.now() + 350;
+          }}
+          max={maxIso}
+          min={minIso}
+          disabled={disabled}
+          tabIndex={-1}
+          aria-label="Abrir calendario"
+        />
+      ) : (
+        <>
+          <input
+            ref={pickerRef}
+            type="date"
+            className="ui-date-input__picker ui-date-input__picker--sr"
+            value={isoValue}
+            onChange={handlePickerChange}
+            max={maxIso}
+            min={minIso}
+            disabled={disabled}
+            tabIndex={-1}
+            aria-hidden="true"
+          />
+          <button
+            type="button"
+            className="ui-date-input__open"
+            disabled={disabled}
+            aria-label="Abrir calendario"
+            onPointerDown={handleOpenPointerDown}
+            onClick={launchNativePicker}
+          />
+        </>
+      )}
     </div>
   );
 }

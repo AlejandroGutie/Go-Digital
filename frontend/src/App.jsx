@@ -7,6 +7,7 @@ import {
   Navigate,
   Outlet,
 } from 'react-router-dom';
+import { useEffect } from 'react';
 import {
   PawPrint,
   Users,
@@ -22,6 +23,7 @@ import ProtectedRoute from './components/ProtectedRoute';
 import Button from './components/ui/Button';
 import UserBrandBadge from './components/ui/UserBrandBadge';
 import { AuthProvider, useAuth } from './context/AuthContext';
+import { enableTableDragScroll } from './lib/tableDragScroll';
 import LoginPage from './pages/LoginPage';
 import MascotasPage from './pages/MascotasPage';
 import CuidadoresPage from './pages/CuidadoresPage';
@@ -95,6 +97,8 @@ function ProtectedLayout() {
 }
 
 export default function App() {
+  useEffect(() => enableTableDragScroll(document), []);
+
   return (
     <ErrorBoundary>
       <AuthProvider>

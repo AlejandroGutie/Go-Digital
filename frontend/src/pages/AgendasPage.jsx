@@ -71,7 +71,7 @@ import {
 } from '../utils/agendaConflictos';
 import { loadAgendaPlantillas } from '../utils/agendaPlantillas';
 import '../index.css';
-import { TABLE_STICKY_COLS_2 } from '../lib/tableSticky';
+import { TABLE_STICKY_COLS_1 } from '../lib/tableSticky';
 import {
   emptyCobroForm,
   formatTarifaLabel,
@@ -1398,11 +1398,10 @@ export default function AgendasPage() {
                     ) : (
                       <>
                         <div className="ui-table-wrap table-scroll">
-                          <table className={TABLE_STICKY_COLS_2}>
+                          <table className={TABLE_STICKY_COLS_1}>
                             <thead>
                               <tr>
                                 {[
-                                  'ID',
                                   'Mascota',
                                   'Especie',
                                   'Raza',
@@ -1420,7 +1419,6 @@ export default function AgendasPage() {
                             <tbody>
                               {citasPageRows.map((c) => (
                                 <tr key={c.id}>
-                                  <td className="ui-num">{c.id}</td>
                                   <td>{c.mascota_nombre}</td>
                                   <td>{c.especie || '—'}</td>
                                   <td>{c.raza}</td>

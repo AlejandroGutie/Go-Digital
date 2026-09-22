@@ -47,7 +47,7 @@ import {
   toTimeHHMM,
 } from '../utils/horarios';
 import '../index.css';
-import { TABLE_STICKY_COLS_2 } from '../lib/tableSticky';
+import { TABLE_STICKY_COLS_1 } from '../lib/tableSticky';
 
 const EMPTY_FORM = {
   nombre: '',
@@ -589,10 +589,10 @@ export default function ProfesionalesPage() {
           ) : (
             <>
               <div className="ui-table-wrap table-scroll">
-                <table className={TABLE_STICKY_COLS_2}>
+                <table className={TABLE_STICKY_COLS_1}>
                   <thead>
                     <tr>
-                      {['ID', 'Nombre', 'Teléfono', 'Jornada', 'Acciones'].map((h) => (
+                      {['Nombre', 'Teléfono', 'Jornada', 'Acciones'].map((h) => (
                         <th key={h}>{h}</th>
                       ))}
                     </tr>
@@ -600,7 +600,6 @@ export default function ProfesionalesPage() {
                   <tbody>
                     {profesionales.map((p) => (
                       <tr key={p.id}>
-                        <td className="ui-num">{p.id}</td>
                         {inlineEditId === p.id ? (
                           <>
                             <td>
@@ -954,7 +953,7 @@ export default function ProfesionalesPage() {
             <table className="ui-table">
               <thead>
                 <tr>
-                  {['ID', 'Mascota', 'Especie', 'Raza', 'Fecha', 'Inicio', 'Fin'].map((h) => (
+                  {['Mascota', 'Especie', 'Raza', 'Fecha', 'Inicio', 'Fin'].map((h) => (
                     <th key={h}>{h}</th>
                   ))}
                 </tr>
@@ -962,7 +961,6 @@ export default function ProfesionalesPage() {
               <tbody>
                 {agendaModal?.citas.map((c) => (
                   <tr key={c.id}>
-                    <td className="ui-num">{c.id}</td>
                     <td>{c.mascota_nombre}</td>
                     <td>{c.especie || '—'}</td>
                     <td>{c.raza}</td>

@@ -7,15 +7,19 @@ let sheetScrollLocks = 0;
 let prevHtmlOverflow = '';
 let prevBodyOverflow = '';
 let prevBodyOverscroll = '';
+let prevBodyTouchAction = '';
 
 function lockPageScroll() {
   if (sheetScrollLocks === 0) {
     prevHtmlOverflow = document.documentElement.style.overflow;
     prevBodyOverflow = document.body.style.overflow;
     prevBodyOverscroll = document.body.style.overscrollBehavior;
+    prevBodyTouchAction = document.body.style.touchAction;
     document.documentElement.style.overflow = 'hidden';
     document.body.style.overflow = 'hidden';
     document.body.style.overscrollBehavior = 'none';
+    // Evita que el fondo “tire” el gestos en Android; el sheet gestiona su scroll.
+    document.body.style.touchAction = 'none';
   }
   sheetScrollLocks += 1;
 }
@@ -26,16 +30,32 @@ function unlockPageScroll() {
     document.documentElement.style.overflow = prevHtmlOverflow;
     document.body.style.overflow = prevBodyOverflow;
     document.body.style.overscrollBehavior = prevBodyOverscroll;
+    document.body.style.touchAction = prevBodyTouchAction;
   }
 }
 
+/** Zonas donde el scroll táctil nativo debe permitirse dentro del sheet. */
 function isInsideSheetScroll(target) {
-  return !!target?.closest?.('.ui-sheet-body, .ui-combo__list, .table-scroll');
+  return !!target?.closest?.(
+    [
+      '.ui-sheet-body',
+      '.ui-sheet-panel',
+      '.ui-combo__list',
+      '.table-scroll',
+      '.ui-table-wrap',
+      'textarea',
+      'select',
+      '[contenteditable="true"]',
+    ].join(', ')
+  );
 }
 
 /**
  * Bottom sheet on mobile, centered dialog on desktop.
  * Preserves children content; only presentation layer.
+ *
+ * Nota Android: no usar touch-action:none en el root del sheet ni
+ * preventDefault agresivo sobre touchmove dentro del panel — bloquea el scroll.
  */
 export default function Sheet({
   open,
@@ -56,6 +76,8 @@ export default function Sheet({
       if (e.key === 'Escape' && dismissible) onClose?.();
     };
 
+    // Solo bloquear scroll del documento detrás del sheet (backdrop / fuera del panel).
+    // Dentro del panel dejamos el scroll nativo (crítico en Chrome Android).
     const onWheel = (e) => {
       if (!isInsideSheetScroll(e.target)) e.preventDefault();
     };

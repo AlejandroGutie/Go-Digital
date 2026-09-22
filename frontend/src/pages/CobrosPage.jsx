@@ -29,7 +29,7 @@ import TablePagination, {
 import CobroFormSheet from '../components/cobros/CobroFormSheet';
 import { totalTarifasSeleccionadas } from '../components/ui/TarifaMultiSelect';
 import '../index.css';
-import { TABLE_STICKY_COLS_2 } from '../lib/tableSticky';
+import { TABLE_STICKY_COLS_1 } from '../lib/tableSticky';
 
 const EMPTY_FILTROS = { estado: '', id_profesional: '', fecha_desde: '', fecha_hasta: '' };
 
@@ -809,10 +809,10 @@ export default function CobrosPage() {
           ) : (
             <>
               <div className="ui-table-wrap table-scroll">
-                <table className={TABLE_STICKY_COLS_2}>
+                <table className={TABLE_STICKY_COLS_1}>
                   <thead>
                     <tr>
-                      {['ID', 'Mascota', 'Profesional', 'Fecha', 'Valor', 'Estado', 'Método', 'Acciones'].map((h) => (
+                      {['Mascota', 'Profesional', 'Fecha', 'Valor', 'Estado', 'Método', 'Acciones'].map((h) => (
                         <th key={h}>{h}</th>
                       ))}
                     </tr>
@@ -820,7 +820,6 @@ export default function CobrosPage() {
                   <tbody>
                     {cobros.map((c) => (
                       <tr key={c.id}>
-                        <td className="ui-num">{c.id}</td>
                         <td>{c.mascota_nombre}</td>
                         <td>{c.profesional_nombre}</td>
                         <td>{formatFecha(c.fecha_cobro)}</td>

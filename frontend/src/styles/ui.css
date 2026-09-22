@@ -169,12 +169,13 @@
   }
 }
 
-/* Forms */
+/* Forms — permitir scroll táctil del documento/padre en Android */
 .ui-form {
   display: flex;
   flex-direction: column;
   gap: 16px;
-  overscroll-behavior: contain;
+  overscroll-behavior: auto;
+  touch-action: pan-y;
 }
 
 .ui-form-grid {
@@ -276,9 +277,9 @@
 }
 
 /*
- * El input type="date" cubre el ícono del calendario.
+ * El input type="date" cubre el ícono del calendario (modo iOS/overlay).
  * El gesto del usuario cae en el control nativo → abre el picker
- * (incluye Safari iOS, donde showPicker no funciona para date).
+ * (Safari iOS no soporta showPicker para date).
  */
 .ui-date-input__picker {
   position: absolute;
@@ -301,6 +302,46 @@
   appearance: none;
   color: transparent;
   background: transparent;
+}
+
+/* Android/desktop: input nativo fuera del hit-target; abre un botón + showPicker diferido */
+.ui-date-input__picker--sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  border: 0;
+  opacity: 0;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  pointer-events: none;
+  inset: auto;
+  right: 0;
+  top: 0;
+}
+
+.ui-date-input__open {
+  position: absolute;
+  top: 0;
+  right: 0;
+  z-index: 3;
+  box-sizing: border-box;
+  width: 2.75rem;
+  min-width: 2.75rem;
+  max-width: 2.75rem;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.ui-date-input__open:disabled {
+  cursor: not-allowed;
+  pointer-events: none;
 }
 
 .ui-date-input__picker::-webkit-calendar-picker-indicator {
@@ -510,6 +551,27 @@
   border: 1px solid var(--border-subtle);
   background: var(--color-white);
   box-shadow: var(--shadow-sm);
+}
+
+/* Cursor de “agarrar” cuando hay desborde horizontal (mouse) */
+.ui-table-wrap,
+.table-scroll {
+  cursor: grab;
+}
+
+.ui-table-wrap.is-drag-scrolling,
+.table-scroll.is-drag-scrolling {
+  cursor: grabbing;
+  user-select: none;
+  scroll-behavior: auto;
+  -webkit-user-select: none;
+}
+
+.ui-table-wrap.is-drag-scrolling *,
+.table-scroll.is-drag-scrolling * {
+  cursor: grabbing;
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 .ui-table {
@@ -844,7 +906,8 @@
   padding: 0;
   overflow: hidden;
   overscroll-behavior: none;
-  touch-action: none;
+  /* NO touch-action:none aquí: en Chrome Android bloquea scroll de hijos */
+  touch-action: manipulation;
 }
 
 .ui-sheet-root--stack-1 {
@@ -873,7 +936,7 @@
   max-height: min(92dvh, 900px);
   height: auto;
   overflow: hidden;
-  overscroll-behavior: none;
+  overscroll-behavior: contain;
   touch-action: auto;
   display: flex;
   flex-direction: column;
@@ -922,8 +985,10 @@
 
 .ui-sheet-body {
   padding: 16px 20px;
-  flex: 0 1 auto;
+  /* flex-grow para ocupar espacio restante; min-height:0 habilita overflow en flex */
+  flex: 1 1 auto;
   min-height: 0;
+  max-height: 100%;
   overflow-x: hidden;
   overflow-y: auto;
   overscroll-behavior: contain;
