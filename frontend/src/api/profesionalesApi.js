@@ -18,6 +18,7 @@ import { hoyLocalISO } from '../utils/format';
 const PROFESIONAL_COLUMNS =
   'id, nombre, telefono, hora_inicio_jornada, hora_fin_jornada';
 const AGENDA_PAGE_SIZE = 1000;
+const MAX_AGENDA_FETCH_PAGES = 5;
 
 export const MSG_PROFESIONAL_CITAS_FUTURAS =
   'No se puede inactivar: tiene citas futuras sin cancelar.';
@@ -151,7 +152,13 @@ export async function getIdsProfesionalesConCitasFuturas(idsProfesional = []) {
   for (let i = 0; i < ids.length; i += BATCH) {
     const slice = ids.slice(i, i + BATCH);
     let from = 0;
+    let pages = 0;
     for (;;) {
+      if (pages >= MAX_AGENDA_FETCH_PAGES) {
+        throw new Error(
+          `Error al verificar citas futuras del profesional: demasiadas citas (tope ${MAX_AGENDA_FETCH_PAGES * AGENDA_PAGE_SIZE}).`
+        );
+      }
       const { data, error } = await supabase
         .from('agenda')
         .select('id_profesional')
@@ -161,6 +168,7 @@ export async function getIdsProfesionalesConCitasFuturas(idsProfesional = []) {
         .range(from, from + AGENDA_PAGE_SIZE - 1);
       throwIfError(error, 'Error al verificar citas futuras del profesional');
       const rows = data ?? [];
+      pages += 1;
       for (const row of rows) {
         unique.add(row.id_profesional);
       }

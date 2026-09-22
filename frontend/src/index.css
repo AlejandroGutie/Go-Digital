@@ -281,52 +281,6 @@ body {
 
   /* Nav kit (.ui-nav) maneja layout; no forzar order sobre hijos */
 
-  /* ── Layouts de dos columnas (Agendas, Asignación) ─────────── */
-  main div[style*="260px 1fr"],
-  main div[style*="260px 1fr;"] {
-    display: flex !important;
-    flex-direction: column !important;
-    grid-template-columns: 1fr !important;
-    gap: 16px !important;
-    width: 100% !important;
-    align-items: stretch !important;
-  }
-
-  main div[style*="260px 1fr"] > div,
-  main div[style*="260px 1fr;"] > div {
-    width: 100% !important;
-    max-width: 100% !important;
-    min-width: 0 !important;
-  }
-
-  /* ── Formularios (grid label + campo) ─────────────────────── */
-  main form[style*="120px 1fr"],
-  main form[style*="120px 1fr;"] {
-    display: flex !important;
-    flex-direction: column !important;
-    grid-template-columns: 1fr !important;
-    gap: 12px !important;
-    max-width: 100% !important;
-    width: 100% !important;
-  }
-
-  main form label {
-    display: block !important;
-    width: 100% !important;
-    margin-bottom: 0 !important;
-  }
-
-  main form [style*="grid-column: 2"],
-  main form [style*="grid-column:2"] {
-    grid-column: auto !important;
-    width: 100% !important;
-  }
-
-  main form button[type="submit"] {
-    width: 100% !important;
-    min-height: 44px !important;
-  }
-
   /* ── Inputs, selects y textareas ──────────────────────────── */
   main input:not([type="checkbox"]):not([type="radio"]):not(.ui-date-input__picker),
   main select,
@@ -454,7 +408,7 @@ body {
     white-space: nowrap !important;
   }
 
-  /* Filas de búsqueda / filtros (legado por atributos style) */
+  /* Filas inline aún usadas (p. ej. tarifas en Profesionales) */
   main div[style*="margin-bottom: 16px"][style*="display: flex"],
   main div[style*="margin-bottom: 20px"][style*="display: flex"] {
     flex-direction: column !important;
@@ -477,19 +431,7 @@ body {
     min-width: 0 !important;
   }
 
-  /* Cabeceras de página (título + botón acción) */
-  main > div > div[style*="justify-content: space-between"]:first-of-type {
-    flex-direction: column !important;
-    align-items: stretch !important;
-    gap: 12px !important;
-  }
-
-  main > div > div[style*="justify-content: space-between"]:first-of-type button {
-    width: 100% !important;
-    min-height: 44px !important;
-  }
-
-  /* Formularios de agenda / asignación (select + botón) */
+  /* Formularios con select + botón */
   main div:has(> select):has(> button) {
     flex-direction: column !important;
     align-items: stretch !important;
@@ -502,7 +444,7 @@ body {
     min-height: 44px !important;
   }
 
-  /* Fila de agendar con fecha/hora */
+  /* Filas con flex-wrap inline (p. ej. tarifas) */
   main div[style*="flex-wrap: wrap"],
   main div[style*="flex-wrap:wrap"] {
     flex-direction: column !important;
@@ -527,28 +469,17 @@ body {
     box-sizing: border-box !important;
   }
 
-  /* ── Informes: tarjetas de métricas en una columna ────────── */
-  main div[style*="minmax(180px"],
-  main div[style*="minmax(180px,"] {
+  /* KPI cards (minmax 160px en Informes) */
+  main div[style*="minmax(160px"] {
     grid-template-columns: 1fr !important;
     gap: 16px !important;
-    margin-bottom: 24px !important;
   }
 
-  main div[style*="minmax(180px"] > div,
-  main div[style*="minmax(180px,"] > div {
+  main div[style*="minmax(160px"] > div {
     width: 100% !important;
   }
 
-  /* Filtros de fecha en informes — ya cubierto por .fields-row / flex-wrap */
-
-  /* ── Grids de modales (2 columnas → 1) ────────────────────── */
-  main div[style*="1fr 1fr"] {
-    grid-template-columns: 1fr !important;
-    gap: 12px !important;
-  }
-
-  /* ── Tablas: preferir .table-scroll; fallback genérico ───── */
+  /* ── Tablas ───────────────────────────────────────────────── */
   main table {
     max-width: 100%;
   }
@@ -562,52 +493,6 @@ body {
   main td[style*="display: flex"] button,
   main td[style*="display:flex"] button {
     min-height: 36px !important;
-  }
-
-  /* ── Paginación ───────────────────────────────────────────── */
-  main div[style*="margin-top: 16px"][style*="display: flex"],
-  main div[style*="margin-top: 16px"][style*="display:flex"] {
-    flex-wrap: wrap !important;
-    justify-content: center !important;
-    gap: 8px !important;
-  }
-
-  main div[style*="margin-top: 16px"][style*="display: flex"] span,
-  main div[style*="margin-top: 16px"][style*="display:flex"] span {
-    width: 100% !important;
-    text-align: center !important;
-    font-size: 13px !important;
-  }
-
-  /* ── Modales ──────────────────────────────────────────────── */
-  main div[style*="position: fixed"] {
-    padding: 16px !important;
-    align-items: flex-end !important;
-  }
-
-  main div[style*="position: fixed"] > div {
-    width: 100% !important;
-    max-width: 100% !important;
-    max-height: 90vh !important;
-    overflow-y: auto !important;
-    border-radius: 12px 12px 0 0 !important;
-  }
-
-  /* ── Encabezados de panel (profesional/cuidador seleccionado) ─ */
-  main div[style*="justify-content: space-between"][style*="margin-bottom: 16px"] {
-    flex-direction: column !important;
-    align-items: flex-start !important;
-    gap: 8px !important;
-  }
-
-  /* ── Login ────────────────────────────────────────────────── */
-  #root div[style*="min-height: 100vh"] {
-    padding: 16px !important;
-  }
-
-  #root div[style*="min-height: 100vh"] > div {
-    max-width: 100% !important;
-    padding: 24px 20px !important;
   }
 }
 

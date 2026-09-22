@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useNavigate, Navigate } from 'react-router-dom';
+import { useNavigate, Navigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../hooks/useToast';
 import { Toast } from '../components/Toast';
@@ -7,14 +7,17 @@ import Field, { Input } from '../components/ui/Field';
 import Button from '../components/ui/Button';
 import clientLogo from '../assets/logo-pelu-eli.png';
 import goDigitalLogo from '../assets/LogoGo-Digital.png';
+import { safeReturnPath } from '../utils/authRedirect';
 import '../index.css';
 
 export default function LoginPage() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [submitting, setSubmitting] = useState(false);
-  const { login, session, loading } = useAuth();
+  const { login, session, loading, authError, refreshSession } = useAuth();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const returnTo = safeReturnPath(searchParams.get('returnUrl'));
   const { toasts, addToast, removeToast } = useToast();
 
   if (loading) {
@@ -28,7 +31,7 @@ export default function LoginPage() {
   }
 
   if (session) {
-    return <Navigate to="/agendas" replace />;
+    return <Navigate to={returnTo} replace />;
   }
 
   const handleSubmit = async (e) => {
@@ -36,7 +39,7 @@ export default function LoginPage() {
     setSubmitting(true);
     try {
       await login(email, password);
-      navigate('/', { replace: true });
+      navigate(returnTo, { replace: true });
     } catch (err) {
       addToast(err.message || 'Error de autenticación', 'error');
     } finally {
@@ -63,6 +66,26 @@ export default function LoginPage() {
         <p className="ui-page-subtitle" style={{ textAlign: 'center', marginBottom: 24 }}>
           Ingresa con tu correo y contraseña.
         </p>
+
+        {authError ? (
+          <div
+            role="alert"
+            style={{
+              marginBottom: 16,
+              padding: '12px 14px',
+              borderRadius: 12,
+              border: '1px solid rgba(185, 28, 28, 0.25)',
+              background: 'rgba(254, 226, 226, 0.65)',
+              color: '#7f1d1d',
+              fontSize: '0.875rem',
+            }}
+          >
+            <p style={{ margin: '0 0 10px' }}>{authError}</p>
+            <Button variant="secondary" size="sm" type="button" onClick={() => refreshSession()}>
+              Reintentar sesión
+            </Button>
+          </div>
+        ) : null}
 
         <form className="ui-form" onSubmit={handleSubmit}>
           <Field id="login-email" label="Correo" required>

@@ -7,6 +7,16 @@ import {
 import { toDateOnly } from '../utils/format';
 
 const AGENDA_PAGE_SIZE = 1000;
+/** Tope de seguridad: evita paginar sin límite en validaciones / cargas de agenda. */
+const MAX_AGENDA_FETCH_PAGES = 5;
+
+function throwIfAgendaFetchCap(pages, context) {
+  if (pages >= MAX_AGENDA_FETCH_PAGES) {
+    throw new Error(
+      `${context}: demasiadas citas para cargar de una vez (tope ${MAX_AGENDA_FETCH_PAGES * AGENDA_PAGE_SIZE}).`
+    );
+  }
+}
 
 const AGENDA_TARIFA_EMBED =
   'agenda_tarifa(id_tarifa, tarifa(id, descripcion, valor))';
@@ -121,7 +131,7 @@ function isMissingRpcError(error) {
 
 function throwMissingRpc(nombreRpc) {
   throw new Error(
-    `Falta la función ${nombreRpc} en Supabase. Ejecuta las migraciones pendientes (multi-tarifas / cancelación / sync_agenda_tarifas).`
+    `Falta la función ${nombreRpc} en Supabase. Ejecuta las migraciones pendientes (multi-tarifas / cancelación / reprogramar_agenda_atomico / sync_agenda_tarifas).`
   );
 }
 
@@ -194,7 +204,9 @@ async function assertSinSolape({
   excludeId = null,
 }) {
   let from = 0;
+  let pages = 0;
   for (;;) {
+    throwIfAgendaFetchCap(pages, 'Error al validar disponibilidad de agenda');
     const { data, error } = await supabase
       .from('agenda')
       .select('id, hora_inicio, hora_fin')
@@ -207,6 +219,7 @@ async function assertSinSolape({
     throwIfError(error, 'Error al validar disponibilidad de agenda');
 
     const rows = data ?? [];
+    pages += 1;
     for (const row of rows) {
       if (excludeId != null && String(row.id) === String(excludeId)) continue;
       if (franjasSeSolapan(hora_inicio, hora_fin, row.hora_inicio, row.hora_fin)) {
@@ -221,7 +234,9 @@ async function assertSinSolape({
   if (!idMasc) return;
 
   from = 0;
+  pages = 0;
   for (;;) {
+    throwIfAgendaFetchCap(pages, 'Error al validar disponibilidad de la mascota');
     const { data, error } = await supabase
       .from('agenda')
       .select('id, hora_inicio, hora_fin, id_profesional')
@@ -234,6 +249,7 @@ async function assertSinSolape({
     throwIfError(error, 'Error al validar disponibilidad de la mascota');
 
     const rows = data ?? [];
+    pages += 1;
     for (const row of rows) {
       if (excludeId != null && String(row.id) === String(excludeId)) continue;
       if (Number(row.id_profesional) === Number(idProfesional)) continue;
@@ -295,7 +311,9 @@ async function fetchAgendaRows(idProfesional, incluirAtendidas, { page, limit, f
   // Carga completa paginada (UI de Agendas / conflictos del día)
   const all = [];
   let from = 0;
+  let pages = 0;
   for (;;) {
+    throwIfAgendaFetchCap(pages, 'Error al cargar la agenda');
     let query = supabase
       .from('agenda')
       .select(AGENDA_SELECT_MASCOTA_TARIFA)
@@ -315,6 +333,7 @@ async function fetchAgendaRows(idProfesional, incluirAtendidas, { page, limit, f
     throwIfError(error, 'Error al cargar la agenda');
     const rows = data ?? [];
     all.push(...rows);
+    pages += 1;
     if (rows.length < AGENDA_PAGE_SIZE) break;
     from += AGENDA_PAGE_SIZE;
   }
@@ -333,7 +352,9 @@ export async function getIdsMascotasConCitaActiva(idsMascota = []) {
   for (let i = 0; i < ids.length; i += BATCH) {
     const slice = ids.slice(i, i + BATCH);
     let from = 0;
+    let pages = 0;
     for (;;) {
+      throwIfAgendaFetchCap(pages, 'Error al consultar citas activas');
       const { data, error } = await supabase
         .from('agenda')
         .select('id, id_mascota, atendida, cobrada')
@@ -342,6 +363,7 @@ export async function getIdsMascotasConCitaActiva(idsMascota = []) {
         .range(from, from + AGENDA_PAGE_SIZE - 1);
       throwIfError(error, 'Error al consultar citas activas');
       const rows = data ?? [];
+      pages += 1;
       const mapped = await attachCobrosVigentes(
         rows.map((r) => ({
           id: r.id,
@@ -490,7 +512,9 @@ export async function getCitasActivasDeMascota(idMascota) {
   }
   const all = [];
   let from = 0;
+  let pages = 0;
   for (;;) {
+    throwIfAgendaFetchCap(pages, 'Error al cargar las citas de la mascota');
     const { data, error } = await supabase
       .from('agenda')
       .select(AGENDA_SELECT)
@@ -503,6 +527,7 @@ export async function getCitasActivasDeMascota(idMascota) {
     throwIfError(error, 'Error al cargar las citas de la mascota');
     const rows = data ?? [];
     all.push(...rows);
+    pages += 1;
     if (rows.length < AGENDA_PAGE_SIZE) break;
     from += AGENDA_PAGE_SIZE;
   }
@@ -823,6 +848,7 @@ export async function actualizarCitaAgenda(idProfesional, idAgenda, payload) {
   const id = Number(idAgenda);
   if (!idProf || !id) throw new Error('Cita inválida');
 
+  // Prechecks UX (solape / editable); la atomicidad real está en el RPC.
   await assertAgendaEditable(id, idProf);
 
   const { id_mascota, id_tarifa, id_tarifas, fecha, hora_inicio, hora_fin, observacion_ingreso } =
@@ -839,27 +865,37 @@ export async function actualizarCitaAgenda(idProfesional, idAgenda, payload) {
     excludeId: id,
   });
 
-  const { data, error } = await supabase
-    .from('agenda')
-    .update({
-      id_mascota,
-      id_tarifa,
-      fecha,
-      hora_inicio,
-      hora_fin,
-      observacion_ingreso,
-    })
-    .eq('id', id)
-    .eq('id_profesional', idProf)
-    .select()
-    .maybeSingle();
-  throwIfError(error, 'Error al reprogramar la cita');
-  if (!data) {
-    throw new Error('Cita no encontrada');
+  const { data: rpcData, error: rpcError } = await supabase.rpc(
+    'reprogramar_agenda_atomico',
+    {
+      p_id_agenda: id,
+      p_id_profesional: idProf,
+      p_id_mascota: id_mascota,
+      p_id_tarifas: id_tarifas,
+      p_fecha: fecha,
+      p_hora_inicio: hora_inicio,
+      p_hora_fin: hora_fin,
+      p_observacion_ingreso: observacion_ingreso,
+    }
+  );
+
+  if (!rpcError && rpcData) {
+    const agenda = rpcData.agenda ?? rpcData;
+    const syncedTarifas = Array.isArray(rpcData.id_tarifas)
+      ? rpcData.id_tarifas.map(Number).filter((n) => n && !Number.isNaN(n))
+      : id_tarifas;
+    return successOk({
+      ...agenda,
+      id_tarifas: syncedTarifas.length > 0 ? syncedTarifas : id_tarifas,
+      id_tarifa: agenda.id_tarifa ?? syncedTarifas[0] ?? id_tarifa,
+    });
   }
 
-  await syncAgendaTarifasClient(id, id_tarifas);
-  return successOk({ ...data, id_tarifas, id_tarifa });
+  if (isMissingRpcError(rpcError)) {
+    throwMissingRpc('reprogramar_agenda_atomico');
+  }
+  throwIfError(rpcError, rpcError?.message || 'Error al reprogramar la cita');
+  throw new Error('Error al reprogramar la cita');
 }
 
 export async function cancelarAgenda(idProfesional, idAgenda, observacionCancelacion = '') {

@@ -1,4 +1,5 @@
 import { useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
 import Button from './Button';
 
@@ -76,7 +77,7 @@ export default function Sheet({
 
   if (!open) return null;
 
-  return (
+  return createPortal(
     <div
       className={`ui-sheet-root${stackLevel > 0 ? ` ui-sheet-root--stack-${stackLevel}` : ''}`}
       role="dialog"
@@ -112,6 +113,7 @@ export default function Sheet({
         <div className="ui-sheet-body">{children}</div>
         {footer ? <div className="ui-sheet-footer">{footer}</div> : null}
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }

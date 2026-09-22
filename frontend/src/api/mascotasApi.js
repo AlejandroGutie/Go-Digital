@@ -12,6 +12,7 @@ import { hoyLocalISO, toDateOnly } from '../utils/format';
 
 const MASCOTA_COLUMNS = 'id, nombre, especie, raza, tamano, fecha_nacimiento';
 const COBRO_PAGE_SIZE = 1000;
+const MAX_AGENDA_FETCH_PAGES = 5;
 
 export const MSG_MASCOTA_COBROS =
   'No se puede eliminar: tiene historial de cobros registrado.';
@@ -169,7 +170,13 @@ async function mascotaTieneCobrosClient(id) {
 
   const agendaIds = [];
   let from = 0;
+  let pages = 0;
   for (;;) {
+    if (pages >= MAX_AGENDA_FETCH_PAGES) {
+      throw new Error(
+        `Error al verificar citas de la mascota: demasiadas citas (tope ${MAX_AGENDA_FETCH_PAGES * COBRO_PAGE_SIZE}).`
+      );
+    }
     const { data, error } = await supabase
       .from('agenda')
       .select('id')
@@ -178,6 +185,7 @@ async function mascotaTieneCobrosClient(id) {
     throwIfError(error, 'Error al verificar citas de la mascota');
     const rows = data ?? [];
     agendaIds.push(...rows.map((r) => r.id));
+    pages += 1;
     if (rows.length < COBRO_PAGE_SIZE) break;
     from += COBRO_PAGE_SIZE;
   }
@@ -252,7 +260,13 @@ export async function getMotivosMascotaNoEliminar(idsMascota = []) {
     const agendaIds = [];
     const agendaToMascota = new Map();
     let from = 0;
+    let pages = 0;
     for (;;) {
+      if (pages >= MAX_AGENDA_FETCH_PAGES) {
+        throw new Error(
+          `Error al verificar citas de mascotas: demasiadas citas (tope ${MAX_AGENDA_FETCH_PAGES * COBRO_PAGE_SIZE}).`
+        );
+      }
       const { data, error: agErr } = await supabase
         .from('agenda')
         .select('id, id_mascota')
@@ -260,6 +274,7 @@ export async function getMotivosMascotaNoEliminar(idsMascota = []) {
         .range(from, from + COBRO_PAGE_SIZE - 1);
       throwIfError(agErr, 'Error al verificar citas de mascotas');
       const rows = data ?? [];
+      pages += 1;
       for (const r of rows) {
         agendaIds.push(r.id);
         agendaToMascota.set(Number(r.id), Number(r.id_mascota));

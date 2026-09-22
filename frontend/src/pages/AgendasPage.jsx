@@ -13,29 +13,25 @@ import {
   X,
   XCircle,
 } from 'lucide-react';
-import { listProfesionales } from '../api/profesionalesApi';
 import {
   getAgendaDeProfesional,
   crearCitaYCobrar,
-  actualizarCitaAgenda,
   cancelarAgenda,
   marcarAgendaAtendida,
   debeMostrarEnVistaActiva,
-  estadoPagoAgenda,
   puedeCancelarAgenda,
   motivoNoCancelarAgenda,
   puedeReprogramarAgenda,
   motivoNoReprogramarAgenda,
 } from '../api/agendasApi';
-import { getCuidadoresDeMascota, getMascotaById } from '../api/mascotasApi';
-import { getMascotasDeCuidador, listCuidadores } from '../api/cuidadoresApi';
 import { listTarifas } from '../api/tarifasApi';
 import { createCobro, updateCobro } from '../api/cobrosApi';
 import { normalizeListPayload } from '../api/normalize';
 import { useToast } from '../hooks/useToast';
 import { useMutationLock } from '../hooks/useMutationLock';
+import { useAgendasCatalog } from '../hooks/useAgendasCatalog';
 import { Toast } from '../components/Toast';
-import { formatFecha, formatFechaLecturaCliente, formatHora, formatMoneda, hoyLocalISO, toDateOnly } from '../utils/format';
+import { formatFecha, formatFechaLecturaCliente, formatHora, hoyLocalISO, toDateOnly } from '../utils/format';
 import {
   buildWhatsAppMascotaListaMessage,
   openWhatsAppChat,
@@ -49,9 +45,11 @@ import PageHeader from '../components/ui/PageHeader';
 import Field, { DateInput, Input, Select, Textarea } from '../components/ui/Field';
 import Button from '../components/ui/Button';
 import Skeleton from '../components/ui/Skeleton';
-import Sheet from '../components/ui/Sheet';
 import TablePagination, { PageSizeSelect } from '../components/ui/TablePagination';
 import CobroFormSheet from '../components/cobros/CobroFormSheet';
+import AgendasReprogramarSheet from '../components/agendas/AgendasReprogramarSheet';
+import AgendasCancelarSheet from '../components/agendas/AgendasCancelarSheet';
+import AgendasPlantillasSheet from '../components/agendas/AgendasPlantillasSheet';
 import TarifaMultiSelect, {
   formatTarifasLabel,
   sumTarifasValor,
@@ -71,80 +69,66 @@ import {
   filtrarSlotsFinLibres,
   slotOcupadoPorCitas,
 } from '../utils/agendaConflictos';
-import {
-  loadAgendaPlantillas,
-  resetAgendaPlantillas,
-  saveAgendaPlantillas,
-} from '../utils/agendaPlantillas';
+import { loadAgendaPlantillas } from '../utils/agendaPlantillas';
 import '../index.css';
 import { TABLE_STICKY_COLS_2 } from '../lib/tableSticky';
-
-const LIST_LIMIT = 500;
-
-function emptyCobroForm() {
-  return {
-    id_profesional: '',
-    id_agenda: '',
-    id_mascota: '',
-    id_tarifa: '',
-    id_tarifas: [],
-    valor: '',
-    metodo_pago: '',
-    observacion: '',
-    fecha_cobro: hoyLocalISO(),
-    profesional_nombre: '',
-    agenda_label: '',
-  };
-}
-
-function formatTarifaLabel(c) {
-  if (Array.isArray(c?.tarifas) && c.tarifas.length) {
-    return formatTarifasLabel(c.tarifas);
-  }
-  if (!c?.id_tarifa && c?.tarifa_descripcion == null && c?.tarifa_valor == null) {
-    return '—';
-  }
-  const desc = c.tarifa_descripcion || 'Tarifa';
-  if (c.tarifa_valor == null || c.tarifa_valor === '') return desc;
-  return `${desc} · ${formatMoneda(c.tarifa_valor)}`;
-}
-
-/** Estado de pago UI (alias local sobre helper de API). */
-function estadoPagoCita(cita) {
-  return estadoPagoAgenda(cita);
-}
+import {
+  emptyCobroForm,
+  formatTarifaLabel,
+  estadoPagoCita,
+  resolverTarifaCita as resolverTarifaCitaHelper,
+  AGENDA_INPUT_ERROR_STYLE,
+} from './agendas/agendaPageHelpers';
 
 /** Convierte "HH:MM" o "HH:MM:SS" a minutos desde medianoche. */
 function horaAMinutos(hora) {
   return horaAMinutosUtil(hora);
 }
 
-function toTimeInputValue(hora) {
-  return toTimeHHMM(hora);
-}
-
-function filtrarMascotasLocal(lista, search) {
-  const q = String(search || '')
-    .trim()
-    .toLowerCase();
-  if (!q) return lista;
-  return lista.filter((m) => {
-    const haystack = [m.nombre, m.especie, m.raza, m.tamano]
-      .filter(Boolean)
-      .join(' ')
-      .toLowerCase();
-    return haystack.includes(q);
-  });
-}
-
 export default function AgendasPage() {
-  const [profesionales, setProfesionales] = useState([]);
-  const [cuidadores, setCuidadores] = useState([]);
-  const [mascotas, setMascotas] = useState([]);
-  const [profSel, setProfSel] = useState(null);
+  const { toasts, addToast, removeToast } = useToast();
+  const { tryLock, unlock } = useMutationLock();
+
+  const {
+    profesionales,
+    mascotas,
+    setMascotas,
+    initLoading,
+    initError,
+    busquedaProf,
+    setBusquedaProf,
+    listaAbierta,
+    setListaAbierta,
+    busquedaCuidador,
+    setBusquedaCuidador,
+    listaCuidadoresAbierta,
+    setListaCuidadoresAbierta,
+    busquedaMascota,
+    setBusquedaMascota,
+    listaMascotasAbierta,
+    setListaMascotasAbierta,
+    profSel,
+    setProfSel,
+    cuidadorSel,
+    setCuidadorSel,
+    mascotaId,
+    setMascotaId,
+    buscadorRef,
+    buscadorCuidadorRef,
+    buscadorMascotaRef,
+    profesionalesFiltrados,
+    cuidadoresFiltrados,
+    mascotasFiltradas,
+    limpiarMascotaSeleccion,
+    limpiarCuidadorSeleccion,
+    seleccionarCuidador,
+    seleccionarMascota,
+    abrirListaCuidadoresCrear,
+    abrirListaMascotasCrear,
+    abrirListaProfesionales,
+  } = useAgendasCatalog({ addToast });
+
   const [citas, setCitas] = useState([]);
-  const [cuidadorSel, setCuidadorSel] = useState(null);
-  const [mascotaId, setMascotaId] = useState('');
   const [fecha, setFecha] = useState('');
   const [horaInicio, setHoraInicio] = useState('');
   const [horaFin, setHoraFin] = useState('');
@@ -158,99 +142,17 @@ export default function AgendasPage() {
   const [agendaTemplates, setAgendaTemplates] = useState(() => loadAgendaPlantillas());
   const [whatsappBusy, setWhatsappBusy] = useState(null); // { id, kind: 'confirm'|'lista' }
   const [pagarBusyId, setPagarBusyId] = useState(null);
-  const [initLoading, setInitLoading] = useState(true);
-  const [initError, setInitError] = useState(null);
-  const [busquedaProf, setBusquedaProf] = useState('');
-  const [listaAbierta, setListaAbierta] = useState(false);
-  const [busquedaCuidador, setBusquedaCuidador] = useState('');
-  const [listaCuidadoresAbierta, setListaCuidadoresAbierta] = useState(false);
-  const [busquedaMascota, setBusquedaMascota] = useState('');
-  const [listaMascotasAbierta, setListaMascotasAbierta] = useState(false);
   const [filtroTabla, setFiltroTabla] = useState('');
   const [mostrarCanceladas, setMostrarCanceladas] = useState(false);
-  const [editCita, setEditCita] = useState(null);
-  const [editForm, setEditForm] = useState({
-    id_mascota: '',
-    id_tarifas: [],
-    fecha: '',
-    hora_inicio: '',
-    hora_fin: '',
-    observacion_ingreso: '',
-  });
-  const [editCuidadorSel, setEditCuidadorSel] = useState(null);
-  const [editBusquedaCuidador, setEditBusquedaCuidador] = useState('');
-  const [editListaCuidadoresAbierta, setEditListaCuidadoresAbierta] = useState(false);
-  const [editBusquedaMascota, setEditBusquedaMascota] = useState('');
-  const [editListaMascotasAbierta, setEditListaMascotasAbierta] = useState(false);
-  const [editMascotas, setEditMascotas] = useState([]);
+  const [reprogramCita, setReprogramCita] = useState(null);
   const [deleteModalId, setDeleteModalId] = useState(null);
   const [observacionCancelacion, setObservacionCancelacion] = useState('');
   const [cobroModalOpen, setCobroModalOpen] = useState(false);
   const [cobroForm, setCobroForm] = useState(() => emptyCobroForm());
   const [cobroMascotaNombre, setCobroMascotaNombre] = useState('');
   const [cobroTarifas, setCobroTarifas] = useState([]);
-  const { toasts, addToast, removeToast } = useToast();
-  const { tryLock, unlock } = useMutationLock();
-  const buscadorRef = useRef(null);
-  const buscadorCuidadorRef = useRef(null);
-  const buscadorMascotaRef = useRef(null);
-  const editBuscadorCuidadorRef = useRef(null);
-  const editBuscadorMascotaRef = useRef(null);
-  const cuidadorSearchReq = useRef(0);
-  const mascotasCuidadorReq = useRef(0);
-  const profesionalSearchReq = useRef(0);
   const profesionalAgendaReq = useRef(0);
   const whatsappCancelRef = useRef(null);
-
-  async function cargarCuidadores(search = '') {
-    const reqId = ++cuidadorSearchReq.current;
-    const res = await listCuidadores(1, LIST_LIMIT, search);
-    if (reqId !== cuidadorSearchReq.current) return;
-    setCuidadores(normalizeListPayload(res));
-  }
-
-  async function cargarMascotasDeCuidador(idCuidador, { paraEdicion = false } = {}) {
-    const reqId = ++mascotasCuidadorReq.current;
-    const res = await getMascotasDeCuidador(idCuidador);
-    if (reqId !== mascotasCuidadorReq.current) return [];
-    const rows = normalizeListPayload(res).filter(
-      (m) => m?.id != null && m.activo !== false
-    );
-    if (paraEdicion) setEditMascotas(rows);
-    else setMascotas(rows);
-    return rows;
-  }
-
-  async function cargarProfesionales(search = '') {
-    const reqId = ++profesionalSearchReq.current;
-    const res = await listProfesionales(1, LIST_LIMIT, search);
-    if (reqId !== profesionalSearchReq.current) return;
-    setProfesionales(normalizeListPayload(res));
-  }
-
-  useEffect(() => {
-    async function init() {
-      setInitLoading(true);
-      setInitError(null);
-      try {
-        const [resProf, resCuid] = await Promise.all([
-          listProfesionales(1, LIST_LIMIT),
-          listCuidadores(1, LIST_LIMIT),
-        ]);
-        setProfesionales(normalizeListPayload(resProf));
-        setCuidadores(normalizeListPayload(resCuid));
-      } catch (e) {
-        const msg =
-          e?.message ||
-          'No se pudieron cargar profesionales o cuidadores (sesión, red o permisos de base de datos).';
-        setInitError(msg);
-        addToast(msg, 'error');
-      } finally {
-        setInitLoading(false);
-      }
-    }
-    init();
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     return () => {
@@ -285,301 +187,32 @@ export default function AgendasPage() {
     return () => document.removeEventListener('visibilitychange', onVisibility);
   }, [profSel?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Actualiza profesionales al buscar (incluye recién creados)
-  useEffect(() => {
-    if (profSel) return undefined;
-    const q = busquedaProf.trim();
-    const timer = setTimeout(() => {
-      cargarProfesionales(q).catch((e) => {
-        addToast(e?.message || 'No se pudo actualizar el listado de profesionales', 'error');
-      });
-    }, 300);
-    return () => clearTimeout(timer);
-  }, [busquedaProf, profSel]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Actualiza cuidadores al buscar (crear / reprogramar)
-  useEffect(() => {
-    if (!profSel) return undefined;
-    if (cuidadorSel && !editCita) return undefined;
-    if (editCuidadorSel && editCita) return undefined;
-    const q = editCita ? editBusquedaCuidador.trim() : busquedaCuidador.trim();
-    const timer = setTimeout(() => {
-      cargarCuidadores(q).catch((e) => {
-        addToast(e?.message || 'No se pudo actualizar el listado de cuidadores', 'error');
-      });
-    }, 300);
-    return () => clearTimeout(timer);
-  }, [
-    busquedaCuidador,
-    editBusquedaCuidador,
-    profSel,
-    cuidadorSel,
-    editCuidadorSel,
-    editCita,
-  ]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  useEffect(() => {
-    function handleClickOutside(e) {
-      if (buscadorRef.current && !buscadorRef.current.contains(e.target)) {
-        setListaAbierta(false);
-      }
-      if (buscadorCuidadorRef.current && !buscadorCuidadorRef.current.contains(e.target)) {
-        setListaCuidadoresAbierta(false);
-      }
-      if (buscadorMascotaRef.current && !buscadorMascotaRef.current.contains(e.target)) {
-        setListaMascotasAbierta(false);
-      }
-      if (
-        editBuscadorCuidadorRef.current &&
-        !editBuscadorCuidadorRef.current.contains(e.target)
-      ) {
-        setEditListaCuidadoresAbierta(false);
-      }
-      if (
-        editBuscadorMascotaRef.current &&
-        !editBuscadorMascotaRef.current.contains(e.target)
-      ) {
-        setEditListaMascotasAbierta(false);
-      }
-    }
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, []);
-
-  // El listado de profesionales/cuidadores ya viene filtrado por el servidor.
-  const profesionalesFiltrados = profesionales;
-  const cuidadoresFiltrados = cuidadores;
-  const mascotasFiltradas = useMemo(
-    () => filtrarMascotasLocal(mascotas, mascotaId ? '' : busquedaMascota),
-    [mascotas, busquedaMascota, mascotaId]
-  );
-  const editMascotasFiltradas = useMemo(
-    () =>
-      filtrarMascotasLocal(
-        editMascotas,
-        editForm.id_mascota ? '' : editBusquedaMascota
-      ),
-    [editMascotas, editBusquedaMascota, editForm.id_mascota]
-  );
-
-  function limpiarMascotaSeleccion() {
-    setMascotaId('');
-    setBusquedaMascota('');
-    setListaMascotasAbierta(false);
-  }
-
-  function limpiarCuidadorSeleccion() {
-    setCuidadorSel(null);
-    setBusquedaCuidador('');
-    setListaCuidadoresAbierta(false);
-    setMascotas([]);
-    limpiarMascotaSeleccion();
-  }
-
-  async function seleccionarCuidador(c) {
-    setCuidadorSel(c);
-    setBusquedaCuidador(c.nombre || '');
-    setListaCuidadoresAbierta(false);
-    limpiarMascotaSeleccion();
-    try {
-      await cargarMascotasDeCuidador(c.id);
-    } catch (e) {
-      setMascotas([]);
-      addToast(e?.message || 'No se pudieron cargar las mascotas del cuidador', 'error');
-    }
-  }
-
-  function seleccionarMascota(m) {
-    setMascotaId(String(m.id));
-    setBusquedaMascota(m.nombre || '');
-    setListaMascotasAbierta(false);
-  }
-
-  async function seleccionarCuidadorEdit(c) {
-    setEditCuidadorSel(c);
-    setEditBusquedaCuidador(c.nombre || '');
-    setEditListaCuidadoresAbierta(false);
-    setEditForm((prev) => ({ ...prev, id_mascota: '' }));
-    setEditBusquedaMascota('');
-    setEditListaMascotasAbierta(false);
-    try {
-      await cargarMascotasDeCuidador(c.id, { paraEdicion: true });
-    } catch (e) {
-      setEditMascotas([]);
-      addToast(e?.message || 'No se pudieron cargar las mascotas del cuidador', 'error');
-    }
-  }
-
-  function seleccionarMascotaEdit(m) {
-    setEditForm((prev) => ({ ...prev, id_mascota: String(m.id) }));
-    setEditBusquedaMascota(m.nombre || '');
-    setEditListaMascotasAbierta(false);
-  }
-
   function cerrarReprogramar() {
-    setEditCita(null);
-    setEditForm({
-      id_mascota: '',
-      id_tarifas: [],
-      fecha: '',
-      hora_inicio: '',
-      hora_fin: '',
-      observacion_ingreso: '',
-    });
-    setEditCuidadorSel(null);
-    setEditBusquedaCuidador('');
-    setEditListaCuidadoresAbierta(false);
-    setEditBusquedaMascota('');
-    setEditListaMascotasAbierta(false);
-    setEditMascotas([]);
+    setReprogramCita(null);
   }
 
-  async function abrirReprogramar(c) {
+  function abrirReprogramar(c) {
     const motivo = motivoNoReprogramarAgenda(c);
     if (motivo) {
       addToast(motivo, 'error');
       return;
     }
-    const ids =
-      Array.isArray(c.id_tarifas) && c.id_tarifas.length
-        ? c.id_tarifas.map(String)
-        : c.id_tarifa != null
-          ? [String(c.id_tarifa)]
-          : [];
-    setEditCita(c);
-    setEditForm({
-      id_mascota: String(c.id_mascota || ''),
-      id_tarifas: ids,
-      fecha: toDateOnly(c.fecha),
-      hora_inicio: toTimeInputValue(c.hora_inicio),
-      hora_fin: toTimeInputValue(c.hora_fin),
-      observacion_ingreso: c.observacion_ingreso || '',
-    });
-    setEditBusquedaMascota(c.mascota_nombre || '');
-    setEditListaMascotasAbierta(false);
-    setEditListaCuidadoresAbierta(false);
-
-    try {
-      const [resCuidadores, resDetalle] = await Promise.all([
-        c.id_mascota ? getCuidadoresDeMascota(c.id_mascota) : Promise.resolve(null),
-        c.id_mascota ? getMascotaById(c.id_mascota).catch(() => null) : Promise.resolve(null),
-      ]);
-      await cargarCuidadores('').catch(() => {});
-      const cuidadoresMascota = normalizeListPayload(resCuidadores);
-      const cuidadorPref =
-        cuidadoresMascota.find((x) => x.activo !== false && x.id) ||
-        cuidadoresMascota.find((x) => x.id) ||
-        null;
-      const mascotaDetalle =
-        resDetalle?.data?.[0] || resDetalle?.data || null;
-
-      if (cuidadorPref?.id) {
-        setEditCuidadorSel(cuidadorPref);
-        setEditBusquedaCuidador(cuidadorPref.nombre || '');
-        const rows = await cargarMascotasDeCuidador(cuidadorPref.id, {
-          paraEdicion: true,
-        });
-        const sigueVinculada = rows.some(
-          (m) => String(m.id) === String(c.id_mascota)
-        );
-        if (!sigueVinculada && c.id_mascota) {
-          setEditMascotas((prev) => [
-            {
-              id: c.id_mascota,
-              nombre:
-                mascotaDetalle?.nombre || c.mascota_nombre || 'Mascota',
-              especie: mascotaDetalle?.especie || c.especie || null,
-              raza: mascotaDetalle?.raza || c.raza || null,
-              tamano: mascotaDetalle?.tamano || c.tamano || null,
-              activo: true,
-            },
-            ...prev.filter((m) => String(m.id) !== String(c.id_mascota)),
-          ]);
-        }
-      } else {
-        setEditCuidadorSel(null);
-        setEditBusquedaCuidador('');
-        setEditMascotas(
-          c.id_mascota
-            ? [
-                {
-                  id: c.id_mascota,
-                  nombre:
-                    mascotaDetalle?.nombre || c.mascota_nombre || 'Mascota',
-                  especie: mascotaDetalle?.especie || c.especie || null,
-                  raza: mascotaDetalle?.raza || c.raza || null,
-                  tamano: mascotaDetalle?.tamano || c.tamano || null,
-                  activo: true,
-                },
-              ]
-            : []
-        );
-      }
-    } catch (e) {
-      addToast(e?.message || 'No se pudo precargar cuidador/mascotas', 'error');
-      setEditCuidadorSel(null);
-      setEditBusquedaCuidador('');
-      setEditMascotas(
-        c.id_mascota
-          ? [
-              {
-                id: c.id_mascota,
-                nombre: c.mascota_nombre || 'Mascota',
-                especie: c.especie || null,
-                raza: c.raza || null,
-                tamano: c.tamano || null,
-                activo: true,
-              },
-            ]
-          : []
-      );
-    }
+    setReprogramCita(c);
   }
 
-  async function abrirListaCuidadoresCrear() {
-    setListaCuidadoresAbierta(true);
-    if (cuidadorSel) return;
-    try {
-      await cargarCuidadores(busquedaCuidador.trim());
-    } catch (e) {
-      addToast(e?.message || 'No se pudo actualizar el listado de cuidadores', 'error');
-    }
-  }
-
-  async function abrirListaMascotasCrear() {
-    if (!cuidadorSel) {
-      setListaMascotasAbierta(false);
+  async function onReprogramSuccess() {
+    if (!profSel?.id) {
+      cerrarReprogramar();
       return;
     }
-    setListaMascotasAbierta(true);
-  }
-
-  async function abrirListaProfesionales() {
-    setListaAbierta(true);
-    if (profSel) return;
     try {
-      await cargarProfesionales(busquedaProf.trim());
+      const res = await getAgendaDeProfesional(profSel.id);
+      setCitas(normalizeListPayload(res));
     } catch (e) {
-      addToast(e?.message || 'No se pudo actualizar el listado de profesionales', 'error');
+      addToast(e?.message || 'Error al refrescar la agenda', 'error');
+    } finally {
+      cerrarReprogramar();
     }
-  }
-
-  async function abrirListaCuidadoresEdit() {
-    setEditListaCuidadoresAbierta(true);
-    if (editCuidadorSel) return;
-    try {
-      await cargarCuidadores(editBusquedaCuidador.trim());
-    } catch (e) {
-      addToast(e?.message || 'No se pudo actualizar el listado de cuidadores', 'error');
-    }
-  }
-
-  async function abrirListaMascotasEdit() {
-    if (!editCuidadorSel && editMascotas.length === 0) {
-      setEditListaMascotasAbierta(false);
-      return;
-    }
-    setEditListaMascotasAbierta(true);
   }
 
   async function seleccionarProfesional(p) {
@@ -767,123 +400,6 @@ export default function AgendasPage() {
     await handleAgendarConCobro('pagado');
   }
 
-  async function handleReprogramar() {
-    if (!editCita || !profSel) return;
-    const motivo = motivoNoReprogramarAgenda(editCita);
-    if (motivo) {
-      addToast(motivo, 'error');
-      return;
-    }
-    const { id_mascota, id_tarifas, fecha: fechaEdit, hora_inicio, hora_fin, observacion_ingreso } =
-      editForm;
-    if (!id_mascota || !id_tarifas?.length || !fechaEdit || !hora_inicio || !hora_fin) {
-      addToast('Mascota, tarifa(s), fecha, hora de inicio y hora final son requeridas', 'error');
-      return;
-    }
-    const fechaGuardar = toDateOnly(fechaEdit);
-    if (!fechaGuardar) {
-      addToast('Fecha inválida', 'error');
-      return;
-    }
-    if (horaAMinutos(hora_fin) <= horaAMinutos(hora_inicio)) {
-      addToast('La hora final debe ser posterior a la hora de inicio', 'error');
-      return;
-    }
-    const conflicto = encontrarCitaConflicto(
-      citas,
-      fechaGuardar,
-      hora_inicio,
-      hora_fin,
-      editCita.id
-    );
-    if (conflicto) {
-      addToast(
-        `Cita ocupada: ${formatFecha(conflicto.fecha)} · ${formatHora(conflicto.hora_inicio)} – ${formatHora(conflicto.hora_fin)} (${conflicto.mascota_nombre || 'otra mascota'})`,
-        'error'
-      );
-      return;
-    }
-    if (!tryLock()) return;
-    setLoading(true);
-    try {
-      await actualizarCitaAgenda(profSel.id, editCita.id, {
-        id_mascota: Number(id_mascota),
-        id_tarifas: id_tarifas.map(Number),
-        fecha: fechaGuardar,
-        hora_inicio,
-        hora_fin,
-        observacion_ingreso,
-      });
-
-      const mascotaSel =
-        editMascotas.find((m) => String(m.id) === String(id_mascota)) ||
-        mascotas.find((m) => String(m.id) === String(id_mascota)) ||
-        null;
-      const { tarifaDescripcion, tarifaValor, tarifas: tarifasMsg } = (() => {
-        const fromEdit = id_tarifas
-          .map((id) =>
-            (tarifasParaEditar.length ? tarifasParaEditar : tarifas).find(
-              (t) => String(t.id) === String(id)
-            )
-          )
-          .filter(Boolean);
-        if (fromEdit.length) {
-          return {
-            tarifas: fromEdit,
-            tarifaDescripcion: formatTarifasLabel(fromEdit),
-            tarifaValor: sumTarifasValor(fromEdit, id_tarifas),
-          };
-        }
-        return resolverTarifaCita({
-          ...editCita,
-          id_tarifas,
-          id_tarifa: id_tarifas[0],
-        });
-      })();
-
-      addToast('Cita reprogramada correctamente.', 'success');
-
-      try {
-        whatsappCancelRef.current?.cancel?.();
-        whatsappCancelRef.current = await confirmarAgendaPorWhatsApp({
-          cita: {
-            id: editCita.id,
-            id_mascota: Number(id_mascota),
-            fecha: fechaGuardar,
-            hora_inicio,
-            hora_fin,
-            mascota_nombre: mascotaSel?.nombre || editCita.mascota_nombre,
-            especie: mascotaSel?.especie || editCita.especie,
-            raza: mascotaSel?.raza || editCita.raza,
-            tamano: mascotaSel?.tamano || editCita.tamano,
-            tarifas: tarifasMsg,
-          },
-          profesionalNombre: profSel?.nombre || '',
-          mascotaFallback: mascotaSel,
-          tarifaDescripcion,
-          tarifaValor,
-          tarifas: tarifasMsg,
-          tipo: 'reprogramada',
-        });
-        addToast('Se abrió WhatsApp con el aviso de reprogramación.', 'success');
-      } catch (waErr) {
-        addToast(
-          `No se abrió WhatsApp: ${waErr?.message || 'sin cuidador/teléfono válido'}`,
-          'error'
-        );
-      }
-
-      cerrarReprogramar();
-      const res = await getAgendaDeProfesional(profSel.id);
-      setCitas(normalizeListPayload(res));
-    } catch (e) {
-      addToast(e?.message || 'Error al reprogramar la cita', 'error');
-    } finally {
-      setLoading(false);
-      unlock();
-    }
-  }
-
   async function confirmCancelarAgenda() {
     if (deleteModalId == null || !profSel?.id) return;
     if (!tryLock()) return;
@@ -911,7 +427,7 @@ export default function AgendasPage() {
             : c
         )
       );
-      if (editCita?.id === idAgenda) cerrarReprogramar();
+      if (reprogramCita?.id === idAgenda) cerrarReprogramar();
       setDeleteModalId(null);
       setObservacionCancelacion('');
     } catch (e) {
@@ -938,38 +454,7 @@ export default function AgendasPage() {
   }
 
   function resolverTarifaCita(cita) {
-    if (Array.isArray(cita.tarifas) && cita.tarifas.length) {
-      const idTarifas = cita.tarifas.map((t) => String(t.id));
-      return {
-        tarifas: cita.tarifas,
-        tarifaDescripcion: formatTarifasLabel(cita.tarifas),
-        tarifaValor: sumTarifasValor(cita.tarifas, idTarifas),
-        idTarifas,
-      };
-    }
-    const ids =
-      Array.isArray(cita.id_tarifas) && cita.id_tarifas.length
-        ? cita.id_tarifas.map(String)
-        : cita.id_tarifa != null
-          ? [String(cita.id_tarifa)]
-          : [];
-    const fromList = ids
-      .map((id) => tarifas.find((t) => String(t.id) === String(id)))
-      .filter(Boolean);
-    if (fromList.length) {
-      return {
-        tarifas: fromList,
-        tarifaDescripcion: formatTarifasLabel(fromList),
-        tarifaValor: sumTarifasValor(fromList, ids),
-        idTarifas: ids,
-      };
-    }
-    return {
-      tarifas: [],
-      tarifaDescripcion: cita.tarifa_descripcion || '',
-      tarifaValor: cita.tarifa_valor,
-      idTarifas: ids,
-    };
+    return resolverTarifaCitaHelper(cita, tarifas);
   }
 
   async function handleConfirmarWhatsApp(cita) {
@@ -1014,7 +499,9 @@ export default function AgendasPage() {
           )
           .filter(debeMostrarEnVistaActiva)
       );
-      if (editCita != null && String(editCita.id) === String(cita.id)) cerrarReprogramar();
+      if (reprogramCita != null && String(reprogramCita.id) === String(cita.id)) {
+        cerrarReprogramar();
+      }
 
       let whatsappOk = false;
       try {
@@ -1238,28 +725,6 @@ export default function AgendasPage() {
 
   const franjaOcupada = !!citaConflicto;
 
-  const editHoraFinInvalida =
-    !!editForm.hora_inicio &&
-    !!editForm.hora_fin &&
-    horaAMinutos(editForm.hora_fin) <= horaAMinutos(editForm.hora_inicio);
-
-  const editCitaConflicto =
-    editCita &&
-    !editHoraFinInvalida &&
-    editForm.fecha &&
-    editForm.hora_inicio &&
-    editForm.hora_fin
-      ? encontrarCitaConflicto(
-          citas,
-          editForm.fecha,
-          editForm.hora_inicio,
-          editForm.hora_fin,
-          editCita.id
-        )
-      : null;
-
-  const editFranjaOcupada = !!editCitaConflicto;
-
   const citasDelDia = fecha
     ? citas
         .filter(
@@ -1302,56 +767,11 @@ export default function AgendasPage() {
     });
   }, [jornadaProf, horaInicio, fecha, citas]);
 
-  const editCitasDelDiaSlots = useMemo(() => {
-    if (!editForm.fecha) return [];
-    return citasDelDiaParaSlots(citas, editForm.fecha, editCita?.id);
-  }, [citas, editForm.fecha, editCita?.id]);
-
-  const slotsInicioEdit = useMemo(() => {
-    const base = generarBloquesHorarios(jornadaProf.inicio, jornadaProf.fin, 30, {
-      includeEnd: false,
-    });
-    if (!editForm.fecha) return base;
-    return base.filter((slot) => !slotOcupadoPorCitas(slot, editCitasDelDiaSlots));
-  }, [jornadaProf, editForm.fecha, editCitasDelDiaSlots]);
-
-  const slotsFinEdit = useMemo(() => {
-    const inicio = editForm.hora_inicio;
-    if (!inicio) {
-      const base = generarBloquesHorarios(jornadaProf.inicio, jornadaProf.fin, 30, {
-        includeEnd: true,
-      }).filter((s) => s > jornadaProf.inicio);
-      return filtrarSlotsFinLibres(base, {
-        citas,
-        fecha: editForm.fecha,
-        excludeId: editCita?.id,
-      });
-    }
-    const despues = generarBloquesHorarios(inicio, jornadaProf.fin, 30, {
-      includeEnd: true,
-    }).filter((s) => s > inicio);
-    return filtrarSlotsFinLibres(despues, {
-      citas,
-      fecha: editForm.fecha,
-      horaInicio: inicio,
-      excludeId: editCita?.id,
-    });
-  }, [jornadaProf, editForm.hora_inicio, editForm.fecha, citas, editCita?.id]);
-
   function onChangeHoraInicioCrear(value) {
     const inicio = toTimeHHMM(value);
     setHoraInicio(inicio);
     // Selección explícita de fin: no autocompletar duración fija.
     setHoraFin('');
-  }
-
-  function onChangeHoraInicioEdit(value) {
-    const inicio = toTimeHHMM(value);
-    setEditForm((prev) => ({
-      ...prev,
-      hora_inicio: inicio,
-      hora_fin: '',
-    }));
   }
 
   const citasFiltradas = useMemo(() => {
@@ -1398,19 +818,6 @@ export default function AgendasPage() {
     `${profSel?.id || ''}|${filtroTabla.trim()}|${mostrarCanceladas ? '1' : '0'}`
   );
 
-  const editCitasDelDia = editForm.fecha
-    ? citas
-        .filter(
-          (c) =>
-            String(c.id) !== String(editCita?.id) &&
-            toDateOnly(c.fecha) === toDateOnly(editForm.fecha)
-        )
-        .sort(
-          (a, b) =>
-            (horaAMinutos(a.hora_inicio) ?? 0) - (horaAMinutos(b.hora_inicio) ?? 0)
-        )
-    : [];
-
   const puedeAgendar =
     !!mascotaId &&
     idTarifas.length > 0 &&
@@ -1420,31 +827,8 @@ export default function AgendasPage() {
     !horaFinInvalida &&
     !franjaOcupada;
 
-  const puedeReprogramar =
-    !!editForm.id_mascota &&
-    (editForm.id_tarifas?.length || 0) > 0 &&
-    !!editForm.fecha &&
-    !!editForm.hora_inicio &&
-    !!editForm.hora_fin &&
-    !editHoraFinInvalida &&
-    !editFranjaOcupada;
-
   const tarifasActivas = tarifas.filter((t) => t.activo !== false);
-  const tarifasParaEditar = (() => {
-    const base = tarifasActivas;
-    const currentIds = (editForm.id_tarifas || []).map(String);
-    if (!currentIds.length) return base;
-    const extras = tarifas.filter(
-      (t) =>
-        currentIds.includes(String(t.id)) &&
-        !base.some((b) => String(b.id) === String(t.id))
-    );
-    return extras.length ? [...base, ...extras] : base;
-  })();
-
-  const inputErrorStyle = {
-    borderColor: '#dc2626',
-  };
+  const inputErrorStyle = AGENDA_INPUT_ERROR_STYLE;
 
   return (
     <div className="ui-page">
@@ -2243,305 +1627,16 @@ export default function AgendasPage() {
         </>
       )}
 
-      <Sheet
-        open={!!editCita}
+      <AgendasReprogramarSheet
+        open={!!reprogramCita}
         onClose={cerrarReprogramar}
-        title={editCita ? `Reprogramar cita #${editCita.id}` : 'Reprogramar cita'}
-        size="lg"
-        footer={
-          <>
-            <Button variant="ghost" onClick={cerrarReprogramar} disabled={loading}>
-              Cancelar
-            </Button>
-            <Button
-              variant="primary"
-              onClick={handleReprogramar}
-              disabled={loading || !puedeReprogramar}
-            >
-              {loading ? 'Guardando…' : editFranjaOcupada ? 'Cita ocupada' : 'Guardar cambios'}
-            </Button>
-          </>
-        }
-      >
-        {editCita && (
-          <div className="agenda-form">
-            {!(editForm.id_tarifas?.length) && (
-              <div className="ui-banner ui-banner--warn" style={{ marginBottom: 12 }}>
-                Esta cita no tiene tarifas asignadas. Selecciona al menos una tarifa para poder guardar.
-              </div>
-            )}
-            <div className="agenda-form__row">
-              <Field id="edit-buscador-cuidador" label="Cuidador" required>
-                <div ref={editBuscadorCuidadorRef} className="ui-combo">
-                  <Input
-                    id="edit-buscador-cuidador"
-                    type="text"
-                    role="combobox"
-                    aria-expanded={editListaCuidadoresAbierta}
-                    aria-controls="lista-cuidadores-edit"
-                    aria-autocomplete="list"
-                    placeholder="Buscar por nombre, teléfono o email…"
-                    value={editBusquedaCuidador}
-                    disabled={loading}
-                    onChange={(e) => {
-                      const value = e.target.value;
-                      setEditBusquedaCuidador(value);
-                      setEditListaCuidadoresAbierta(true);
-                      if (editCuidadorSel && value !== (editCuidadorSel.nombre || '')) {
-                        setEditCuidadorSel(null);
-                        setEditMascotas([]);
-                        setEditForm((prev) => ({ ...prev, id_mascota: '' }));
-                        setEditBusquedaMascota('');
-                      }
-                    }}
-                    onFocus={() => {
-                      void abrirListaCuidadoresEdit();
-                    }}
-                  />
-
-                  {editListaCuidadoresAbierta && (
-                    <ul id="lista-cuidadores-edit" role="listbox" className="ui-combo__list">
-                      {cuidadoresFiltrados.length === 0 ? (
-                        <li
-                          className="ui-combo__item"
-                          style={{ cursor: 'default', color: 'var(--color-purple-light)' }}
-                        >
-                          {editBusquedaCuidador.trim()
-                            ? `Sin resultados para “${editBusquedaCuidador.trim()}”`
-                            : 'No hay cuidadores registrados'}
-                        </li>
-                      ) : (
-                        cuidadoresFiltrados.map((c) => (
-                          <li
-                            key={c.id}
-                            role="option"
-                            aria-selected={editCuidadorSel?.id === c.id}
-                          >
-                            <button
-                              type="button"
-                              className={`ui-combo__item${
-                                editCuidadorSel?.id === c.id ? ' ui-combo__item--active' : ''
-                              }`}
-                              onClick={() => seleccionarCuidadorEdit(c)}
-                            >
-                              <div>{c.nombre}</div>
-                              <div
-                                style={{
-                                  fontSize: '0.75rem',
-                                  color: 'var(--color-purple-light)',
-                                  fontWeight: 400,
-                                }}
-                              >
-                                {[c.telefono, c.email].filter(Boolean).join(' · ') ||
-                                  'Sin contacto'}
-                              </div>
-                            </button>
-                          </li>
-                        ))
-                      )}
-                    </ul>
-                  )}
-                </div>
-              </Field>
-              <Field id="edit-buscador-mascota" label="Mascota" required>
-                <div ref={editBuscadorMascotaRef} className="ui-combo">
-                  <Input
-                    id="edit-buscador-mascota"
-                    type="text"
-                    role="combobox"
-                    aria-expanded={editListaMascotasAbierta}
-                    aria-controls="lista-mascotas-edit"
-                    aria-autocomplete="list"
-                    placeholder={
-                      editCuidadorSel || editMascotas.length > 0
-                        ? 'Buscar por nombre, raza, especie o tamaño…'
-                        : 'Seleccione primero un cuidador'
-                    }
-                    value={editBusquedaMascota}
-                    disabled={loading || (!editCuidadorSel && editMascotas.length === 0)}
-                    onChange={(e) => {
-                      const value = e.target.value;
-                      setEditBusquedaMascota(value);
-                      setEditListaMascotasAbierta(true);
-                      if (editForm.id_mascota) {
-                        const selected = editMascotas.find(
-                          (m) => String(m.id) === String(editForm.id_mascota)
-                        );
-                        if (!selected || value !== (selected.nombre || '')) {
-                          setEditForm((prev) => ({ ...prev, id_mascota: '' }));
-                        }
-                      }
-                    }}
-                    onFocus={() => {
-                      void abrirListaMascotasEdit();
-                    }}
-                  />
-
-                  {editListaMascotasAbierta && (editCuidadorSel || editMascotas.length > 0) && (
-                    <ul id="lista-mascotas-edit" role="listbox" className="ui-combo__list">
-                      {editMascotasFiltradas.length === 0 ? (
-                        <li
-                          className="ui-combo__item"
-                          style={{ cursor: 'default', color: 'var(--color-purple-light)' }}
-                        >
-                          {editMascotas.length === 0
-                            ? 'Este cuidador no tiene mascotas asignadas'
-                            : 'No se encontraron mascotas'}
-                        </li>
-                      ) : (
-                        editMascotasFiltradas.map((m) => (
-                          <li
-                            key={m.id}
-                            role="option"
-                            aria-selected={String(editForm.id_mascota) === String(m.id)}
-                          >
-                            <button
-                              type="button"
-                              className={`ui-combo__item${
-                                String(editForm.id_mascota) === String(m.id)
-                                  ? ' ui-combo__item--active'
-                                  : ''
-                              }`}
-                              onClick={() => seleccionarMascotaEdit(m)}
-                            >
-                              <div>{m.nombre}</div>
-                              <div
-                                style={{
-                                  fontSize: '0.75rem',
-                                  color: 'var(--color-purple-light)',
-                                  fontWeight: 400,
-                                }}
-                              >
-                                {[m.especie, m.raza, m.tamano].filter(Boolean).join(' · ')}
-                              </div>
-                            </button>
-                          </li>
-                        ))
-                      )}
-                    </ul>
-                  )}
-                </div>
-              </Field>
-            </div>
-            <div className="agenda-form__row">
-              <Field label="Fecha" required>
-                <DateInput
-                  value={editForm.fecha}
-                  onChange={(e) =>
-                    setEditForm((prev) => ({
-                      ...prev,
-                      fecha: e.target.value,
-                      hora_inicio: '',
-                      hora_fin: '',
-                    }))
-                  }
-                  disabled={loading}
-                  style={editFranjaOcupada ? inputErrorStyle : undefined}
-                />
-              </Field>
-            </div>
-            <div className="agenda-form__row">
-              <Field id="edit-tarifa-agenda" label="Tarifas" required>
-                <TarifaMultiSelect
-                  id="edit-tarifa-agenda"
-                  tarifas={tarifasParaEditar}
-                  value={editForm.id_tarifas || []}
-                  onChange={(ids) =>
-                    setEditForm((prev) => ({ ...prev, id_tarifas: ids }))
-                  }
-                  disabled={loading || tarifasParaEditar.length === 0}
-                  required
-                  emptyLabel="Sin tarifas configuradas"
-                />
-              </Field>
-            </div>
-            <div className="agenda-form__row">
-              <Field
-                id="edit-observacion-ingreso"
-                label="Observaciones de ingreso / mascota"
-              >
-                <Textarea
-                  id="edit-observacion-ingreso"
-                  value={editForm.observacion_ingreso || ''}
-                  onChange={(e) =>
-                    setEditForm((prev) => ({
-                      ...prev,
-                      observacion_ingreso: e.target.value,
-                    }))
-                  }
-                  placeholder="Notas al ingresar la mascota (opcional)"
-                  disabled={loading}
-                  rows={2}
-                />
-              </Field>
-            </div>
-            <div className="agenda-form__row agenda-form__row--times">
-              <Field label="Inicio" required>
-                <HorarioSlotSelect
-                  value={editForm.hora_inicio}
-                  slots={slotsInicioEdit}
-                  disabled={loading}
-                  required
-                  placeholder="Hora inicio"
-                  emptyLabel="Sin horarios libres"
-                  style={
-                    editFranjaOcupada || editHoraFinInvalida ? inputErrorStyle : undefined
-                  }
-                  onChange={onChangeHoraInicioEdit}
-                />
-              </Field>
-              <Field label="Fin" required>
-                <HorarioSlotSelect
-                  value={editForm.hora_fin}
-                  slots={slotsFinEdit}
-                  disabled={loading || !editForm.hora_inicio}
-                  required
-                  placeholder="Hora fin"
-                  emptyLabel="Sin horarios disponibles"
-                  style={
-                    editFranjaOcupada || editHoraFinInvalida ? inputErrorStyle : undefined
-                  }
-                  onChange={(v) =>
-                    setEditForm((prev) => ({ ...prev, hora_fin: toTimeHHMM(v) }))
-                  }
-                />
-              </Field>
-            </div>
-
-            {editHoraFinInvalida && (
-              <div className="ui-banner ui-banner--warn" role="alert" style={{ marginTop: 10 }}>
-                La hora final debe ser posterior a la hora de inicio.
-              </div>
-            )}
-
-            {editFranjaOcupada && (
-              <div className="ui-banner ui-banner--warn" role="alert" style={{ marginTop: 10 }}>
-                <strong>Cita ocupada.</strong> Este profesional ya tiene una cita el{' '}
-                {formatFecha(editCitaConflicto.fecha)} de {formatHora(editCitaConflicto.hora_inicio)}{' '}
-                a {formatHora(editCitaConflicto.hora_fin)}
-                {editCitaConflicto.mascota_nombre
-                  ? ` con ${editCitaConflicto.mascota_nombre}`
-                  : ''}
-                . Elige otra fecha u otra franja horaria.
-              </div>
-            )}
-
-            {editForm.fecha && editCitasDelDia.length > 0 && (
-              <div className="ui-banner" style={{ marginTop: 10 }}>
-                <div style={{ fontWeight: 600, marginBottom: 4 }}>
-                  Otras franjas ocupadas este día
-                </div>
-                {editCitasDelDia.map((c) => (
-                  <div key={c.id}>
-                    {formatHora(c.hora_inicio)} – {formatHora(c.hora_fin)}
-                    {c.mascota_nombre ? ` · ${c.mascota_nombre}` : ''}
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
-      </Sheet>
+        cita={reprogramCita}
+        profesional={profSel}
+        citas={citas}
+        tarifas={tarifas}
+        addToast={addToast}
+        onSuccess={onReprogramSuccess}
+      />
 
       <CobroFormSheet
         open={cobroModalOpen}
@@ -2557,122 +1652,23 @@ export default function AgendasPage() {
         lockAgendaContext
       />
 
-      <Sheet
+      <AgendasCancelarSheet
         open={deleteModalId != null}
+        agendaId={deleteModalId}
+        loading={loading}
+        observacion={observacionCancelacion}
+        onObservacionChange={setObservacionCancelacion}
         onClose={cerrarModalCancelar}
-        title="Cancelar agenda"
-        dismissible={!loading}
-        footer={
-          <div
-            className="ui-btn-row ui-btn-row--mobile-stack"
-            style={{ width: '100%', justifyContent: 'flex-end' }}
-          >
-            <Button variant="ghost" onClick={cerrarModalCancelar} disabled={loading}>
-              Volver
-            </Button>
-            <Button
-              variant="danger"
-              onClick={confirmCancelarAgenda}
-              disabled={loading}
-            >
-              {loading ? 'Cancelando…' : 'Cancelar agenda'}
-            </Button>
-          </div>
-        }
-      >
-        <p style={{ margin: '0 0 14px', fontSize: '0.875rem', color: 'var(--color-purple-light)', lineHeight: 1.5 }}>
-          ¿Cancelar la cita <b>#{deleteModalId}</b>? El registro se conserva en historial, la franja
-          horaria quedará libre y el cobro asociado pasará a estado anulado.
-        </p>
-        <Field id="observacion-cancelacion" label="Observación de cancelación">
-          <Textarea
-            id="observacion-cancelacion"
-            value={observacionCancelacion}
-            onChange={(e) => setObservacionCancelacion(e.target.value)}
-            placeholder="Motivo de la cancelación (opcional)"
-            disabled={loading}
-            rows={3}
-          />
-        </Field>
-      </Sheet>
+        onConfirm={confirmCancelarAgenda}
+      />
 
-      <Sheet
+      <AgendasPlantillasSheet
         open={plantillasOpen}
         onClose={() => setPlantillasOpen(false)}
-        title="Plantillas de WhatsApp (Agendas)"
-        description="Usa {cuidador}, {mascota}, {fecha}, {hora}, {hora_inicio}, {hora_fin}, {profesional}, {desglose_tarifas}, {valor_total}, {servicios}, {tarifa}, {valor}, {servicio}, {detalle}, {negocio}."
-        size="lg"
-        footer={
-          <>
-            <Button
-              variant="ghost"
-              onClick={() => {
-                setAgendaTemplates(resetAgendaPlantillas());
-                addToast('Plantillas restauradas a los textos por defecto.', 'success');
-              }}
-            >
-              Restaurar textos
-            </Button>
-            <Button
-              variant="primary"
-              onClick={() => {
-                const next = saveAgendaPlantillas(agendaTemplates);
-                setAgendaTemplates(next);
-                setPlantillasOpen(false);
-                addToast('Plantillas de agenda guardadas.', 'success');
-              }}
-            >
-              Guardar
-            </Button>
-          </>
-        }
-      >
-        <Field id="agenda-tpl-negocio" label="Nombre del negocio">
-          <Input
-            id="agenda-tpl-negocio"
-            value={agendaTemplates.negocio || ''}
-            onChange={(e) =>
-              setAgendaTemplates((p) => ({ ...p, negocio: e.target.value }))
-            }
-          />
-        </Field>
-        <Field id="agenda-tpl-confirmacion" label="Plantilla confirmación de cita">
-          <Textarea
-            id="agenda-tpl-confirmacion"
-            rows={8}
-            value={agendaTemplates.confirmacion || ''}
-            onChange={(e) =>
-              setAgendaTemplates((p) => ({ ...p, confirmacion: e.target.value }))
-            }
-          />
-        </Field>
-        <Field id="agenda-tpl-reprogramada" label="Plantilla reprogramación de cita">
-          <Textarea
-            id="agenda-tpl-reprogramada"
-            rows={8}
-            value={agendaTemplates.reprogramada || ''}
-            onChange={(e) =>
-              setAgendaTemplates((p) => ({ ...p, reprogramada: e.target.value }))
-            }
-          />
-        </Field>
-        <Field id="agenda-tpl-lista" label="Plantilla mascota lista / cita atendida">
-          <Textarea
-            id="agenda-tpl-lista"
-            rows={8}
-            value={agendaTemplates.mascota_lista || ''}
-            onChange={(e) =>
-              setAgendaTemplates((p) => ({ ...p, mascota_lista: e.target.value }))
-            }
-          />
-        </Field>
-        <p style={{ margin: '8px 0 0', fontSize: 12, color: 'var(--color-purple-light)' }}>
-          Si dejas un campo vacío, al guardar se usará el texto por defecto. También puedes
-          usar alias: {'{nombre_cuidador}'}, {'{nombre_mascota}'}, {'{nombre_profesional}'}.
-          En confirmación/reprogramación: {'{desglose_tarifas}'} lista cada servicio con
-          precio y {'{valor_total}'} muestra el total.
-        </p>
-      </Sheet>
+        templates={agendaTemplates}
+        onTemplatesChange={setAgendaTemplates}
+        addToast={addToast}
+      />
 
       <Toast toasts={toasts} removeToast={removeToast} />
     </div>

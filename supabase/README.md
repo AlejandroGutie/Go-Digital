@@ -51,10 +51,13 @@ Ejecutar en **Supabase → SQL Editor** en este orden (idempotente; se puede re-
 27. `migrations/20260828_000011_reprogramar_agenda_cobro_pendiente.sql` — reprogramar cita con cobro pendiente
 28. `migrations/20260828_000012_informe_fidelizacion.sql` — RPC fidelización + tabla de contactos WhatsApp
 29. `migrations/20260828_000013_informes_audit_metrics.sql` — auditoría métricas (excluir canceladas, rangos inclusivos, fidelización v2)
+30. `migrations/20260915_000001_fidelizacion_solo_cumpleanos_anuales.sql` — fidelización solo cumpleaños anuales
+31. `migrations/20260915_000002_fidelizacion_clientes_nuevos.sql` — clientes nuevos en fidelización
+32. `migrations/20260921_000001_reprogramar_agenda_atomico.sql` — RPC atómico reprogramar + sync tarifas
 
 ### BD nueva
 
-Aplica **1 → 29** en orden.
+Aplica **1 → 32** en orden.
 
 ### BD de producción (ya aplicada)
 
@@ -75,11 +78,13 @@ Para cancelar citas con anulación automática del cobro, ejecuta el paso **26**
 Para reprogramar citas con cobro pendiente, ejecuta el paso **27** (`20260828_000011_reprogramar_agenda_cobro_pendiente.sql`).  
 Para el informe de Fidelización (cumpleaños/mesarios e hitos), ejecuta el paso **28** (`20260828_000012_informe_fidelizacion.sql`).  
 Para correcciones de auditoría en métricas de informes, ejecuta el paso **29** (`20260828_000013_informes_audit_metrics.sql`).
+Para fidelización solo cumpleaños / clientes nuevos, ejecuta los pasos **30–31**.
+Para reprogramar citas de forma atómica (agenda + tarifas), ejecuta el paso **32** (`20260921_000001_reprogramar_agenda_atomico.sql`).
 
 ## Comportamiento importante
 
 - **Cancelar cita** = soft-cancel (`cancelada=true`); libera cupo y anula el cobro vigente (pendiente o pagado). Bloqueado solo si ya está cancelada o marcada Mascota lista.
-- **Reprogramar cita** = permitido con cobro `pendiente` (aunque `cobrada=true`); bloqueado si cobro `pagado`, cancelada o Mascota lista.
+- **Reprogramar cita** = RPC `reprogramar_agenda_atomico` (update + `sync_agenda_tarifas` en una transacción). Permitido con cobro `pendiente` (aunque `cobrada=true`); bloqueado si cobro `pagado`, cancelada o Mascota lista.
 - **Fidelización** = RPC `get_informe_fidelizacion` (v2 tras migración 29): cumpleaños/mesarios; hitos por visitas `atendida` no canceladas. En «Todos» prioriza hito global y, si no aplica, hito por profesional.
 - **Informes financieros** = ingresos/atenciones excluyen cobros `anulado`; `total_ingresos` incluye pendiente + pagado (facturación), no solo caja. Citas en agenda excluyen canceladas.
 - **Agendar** = RPC atómico agenda + cobro en `estado = pendiente` + confirma por WhatsApp; `agenda.cobrada = true`.

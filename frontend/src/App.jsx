@@ -17,10 +17,11 @@ import {
   BarChart3,
   LogOut,
 } from 'lucide-react';
-import { AuthProvider, useAuth } from './context/AuthContext';
+import ErrorBoundary from './components/ErrorBoundary';
 import ProtectedRoute from './components/ProtectedRoute';
 import Button from './components/ui/Button';
 import UserBrandBadge from './components/ui/UserBrandBadge';
+import { AuthProvider, useAuth } from './context/AuthContext';
 import LoginPage from './pages/LoginPage';
 import MascotasPage from './pages/MascotasPage';
 import CuidadoresPage from './pages/CuidadoresPage';
@@ -95,23 +96,25 @@ function ProtectedLayout() {
 
 export default function App() {
   return (
-    <AuthProvider>
-      <HashRouter>
-        <Routes>
-          <Route path="/login" element={<LoginPage />} />
-          <Route element={<ProtectedLayout />}>
-            <Route path="/" element={<Navigate to="/agendas" replace />} />
-            <Route path="/mascotas" element={<MascotasPage />} />
-            <Route path="/cuidadores" element={<CuidadoresPage />} />
-            <Route path="/profesionales" element={<ProfesionalesPage />} />
-            <Route path="/asignacion" element={<AsignacionPage />} />
-            <Route path="/agendas" element={<AgendasPage />} />
-            <Route path="/cobros" element={<CobrosPage />} />
-            <Route path="/informes" element={<InformesPage />} />
-            <Route path="*" element={<Navigate to="/agendas" replace />} />
-          </Route>
-        </Routes>
-      </HashRouter>
-    </AuthProvider>
+    <ErrorBoundary>
+      <AuthProvider>
+        <HashRouter>
+          <Routes>
+            <Route path="/login" element={<LoginPage />} />
+            <Route element={<ProtectedLayout />}>
+              <Route path="/" element={<Navigate to="/agendas" replace />} />
+              <Route path="/mascotas" element={<MascotasPage />} />
+              <Route path="/cuidadores" element={<CuidadoresPage />} />
+              <Route path="/profesionales" element={<ProfesionalesPage />} />
+              <Route path="/asignacion" element={<AsignacionPage />} />
+              <Route path="/agendas" element={<AgendasPage />} />
+              <Route path="/cobros" element={<CobrosPage />} />
+              <Route path="/informes" element={<InformesPage />} />
+              <Route path="*" element={<Navigate to="/agendas" replace />} />
+            </Route>
+          </Routes>
+        </HashRouter>
+      </AuthProvider>
+    </ErrorBoundary>
   );
 }

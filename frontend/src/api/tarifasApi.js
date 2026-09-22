@@ -16,12 +16,19 @@ export async function listTarifas(idProfesional, options = {}) {
       ? Math.min(1000, Math.max(1, parseInt(options.limit, 10) || 100))
       : null;
 
-  // Sin page/limit: carga completa paginada (hasta agotar)
+  // Sin page/limit: carga completa paginada (hasta agotar, con tope de seguridad)
   if (page == null || limit == null) {
     const all = [];
     let from = 0;
     const PAGE = 500;
+    const MAX_PAGES = 10; // 5000 tarifas por profesional (más que suficiente)
+    let pages = 0;
     for (;;) {
+      if (pages >= MAX_PAGES) {
+        throw new Error(
+          `Error al listar tarifas: demasiadas filas (tope ${MAX_PAGES * PAGE}).`
+        );
+      }
       const { data, error } = await supabase
         .from('tarifa')
         .select('*')
@@ -32,6 +39,7 @@ export async function listTarifas(idProfesional, options = {}) {
       throwIfError(error, 'Error al listar tarifas');
       const rows = data ?? [];
       all.push(...rows);
+      pages += 1;
       if (rows.length < PAGE) break;
       from += PAGE;
     }
