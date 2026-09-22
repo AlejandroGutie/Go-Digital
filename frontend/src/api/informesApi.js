@@ -19,19 +19,29 @@ import {
 
 /** Tamaño de página PostgREST; evita truncar silenciosamente en ~1000 filas. */
 const FETCH_PAGE_SIZE = 1000;
+/** Tope de seguridad: evita vaciar el tenant a memoria en fallbacks sin RPC. */
+const MAX_FETCH_PAGES = 5;
 
 /**
  * Ejecuta una query de Supabase paginando con .range hasta agotar filas.
  * `makeQuery` debe devolver una query fresca en cada llamada (sin .range previo).
+ * Si supera MAX_FETCH_PAGES, falla de forma explícita (desplegar RPC).
  */
 async function fetchAllRows(makeQuery, errorMsg) {
   const all = [];
   let from = 0;
+  let pages = 0;
   for (;;) {
+    if (pages >= MAX_FETCH_PAGES) {
+      throw new Error(
+        `${errorMsg}: demasiadas filas para el fallback cliente. Despliega los RPC de informes en Supabase.`
+      );
+    }
     const { data, error } = await makeQuery().range(from, from + FETCH_PAGE_SIZE - 1);
     throwIfError(error, errorMsg);
     const rows = data ?? [];
     all.push(...rows);
+    pages += 1;
     if (rows.length < FETCH_PAGE_SIZE) break;
     from += FETCH_PAGE_SIZE;
   }

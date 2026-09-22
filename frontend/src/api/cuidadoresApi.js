@@ -5,7 +5,7 @@ import {
   successOne,
   throwIfError,
   pageRange,
-  escapeIlike,
+  buildIlikeOrFilter,
 } from '../lib/apiResponse';
 import { hoyLocalISO } from '../utils/format';
 
@@ -17,11 +17,8 @@ export async function listCuidadores(page = 1, limit = 20, search = '') {
     .order('created_at', { ascending: false })
     .order('id', { ascending: false });
 
-  const term = search?.trim();
-  if (term) {
-    const q = escapeIlike(term);
-    query = query.or(`nombre.ilike.%${q}%,telefono.ilike.%${q}%,email.ilike.%${q}%`);
-  }
+  const orFilter = buildIlikeOrFilter(['nombre', 'telefono', 'email'], search);
+  if (orFilter) query = query.or(orFilter);
 
   const { data, error, count } = await query.range(from, to);
   throwIfError(error, 'Error al listar cuidadores');

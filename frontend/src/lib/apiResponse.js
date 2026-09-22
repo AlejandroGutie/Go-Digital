@@ -26,6 +26,15 @@ export function throwIfError(error, fallbackMsg = 'Error en la operación') {
   if (error.code === '23505') {
     throw new Error('Registro duplicado');
   }
+  // Exclusion constraint (solape de agenda) o mensajes del trigger
+  if (
+    error.code === '23P01' ||
+    /exclusion|solapa|overlap|agenda_no_solape/i.test(error.message || '')
+  ) {
+    throw new Error(
+      'Ya existe una cita que se solapa en ese horario. Elige otra fecha o franja.'
+    );
+  }
   if (error.code === 'PGRST116') {
     throw new Error('Registro no encontrado');
   }
@@ -58,11 +67,55 @@ export function escapeIlike(term) {
 }
 
 /**
- * Elimina caracteres que rompen el filtro `.or(...)` de PostgREST.
+ * Elimina caracteres que rompen o inyectan sintaxis en filtros `.or(...)` de PostgREST.
+ * Conserva letras, dígitos, espacios y puntuación segura para búsqueda de texto.
  */
 export function sanitizePostgrestOrTerm(term) {
   return String(term ?? '')
-    .replace(/[,.()]/g, ' ')
+    .replace(/[,.()*:!&|@{}[\]"'\\]/g, ' ')
     .replace(/\s+/g, ' ')
-    .trim();
+    .trim()
+    .slice(0, 120);
+}
+
+/** Solo enteros positivos (para .in / .eq en PostgREST). */
+export function positiveIntIds(ids = []) {
+  return [
+    ...new Set(
+      (Array.isArray(ids) ? ids : [ids])
+        .map((v) => Number(v))
+        .filter((n) => Number.isInteger(n) && n > 0)
+    ),
+  ];
+}
+
+/**
+ * Fragmento seguro `col.ilike.%term%` (term ya sanitizado + escapeIlike).
+ * Columnas solo [a-z0-9_].
+ */
+export function ilikeOrFragment(column, sanitizedTerm) {
+  const col = String(column || '');
+  if (!/^[a-z][a-z0-9_]*$/i.test(col)) {
+    throw new Error('Columna de filtro inválida');
+  }
+  const q = escapeIlike(sanitizePostgrestOrTerm(sanitizedTerm));
+  if (!q) return '';
+  return `${col}.ilike.%${q}%`;
+}
+
+/** Une fragmentos `.or` omitiendo vacíos. */
+export function joinOrFragments(parts = []) {
+  return (parts || []).filter(Boolean).join(',');
+}
+
+/**
+ * Arma filtro `.or` solo con ilike sobre columnas allowlist.
+ * @param {string[]} columns
+ * @param {string} rawTerm
+ */
+export function buildIlikeOrFilter(columns, rawTerm) {
+  const term = sanitizePostgrestOrTerm(rawTerm);
+  if (!term) return '';
+  const parts = (columns || []).map((c) => ilikeOrFragment(c, term)).filter(Boolean);
+  return joinOrFragments(parts);
 }

@@ -6,6 +6,9 @@ import {
   pageRange,
   escapeIlike,
   sanitizePostgrestOrTerm,
+  positiveIntIds,
+  ilikeOrFragment,
+  joinOrFragments,
 } from '../lib/apiResponse';
 import { hoyLocalISO, toDateOnly } from '../utils/format';
 
@@ -135,18 +138,21 @@ export async function listCobros(params = {}) {
   if (term) {
     const q = escapeIlike(term);
     const termLower = term.toLowerCase();
-    const [mascotaIds, profesionalIds] = await Promise.all([
+    const [mascotaIdsRaw, profesionalIdsRaw] = await Promise.all([
       idsPorNombreIlike('mascota', q),
       idsPorNombreIlike('profesional', q),
     ]);
+    const mascotaIds = positiveIntIds(mascotaIdsRaw);
+    const profesionalIds = positiveIntIds(profesionalIdsRaw);
 
     const estadosCoincidentes = ESTADOS_COBRO.filter((e) => e.includes(termLower));
 
     const orParts = [
-      `observacion.ilike.%${q}%`,
-      `metodo_pago.ilike.%${q}%`,
+      ilikeOrFragment('observacion', term),
+      ilikeOrFragment('metodo_pago', term),
     ];
     for (const estado of estadosCoincidentes) {
+      // Allowlist fija: no interpolar input crudo
       orParts.push(`estado.eq.${estado}`);
     }
     if (mascotaIds.length) {
@@ -156,11 +162,15 @@ export async function listCobros(params = {}) {
       orParts.push(`id_profesional.in.(${profesionalIds.join(',')})`);
     }
     if (/^\d+$/.test(term)) {
-      orParts.push(`id.eq.${term}`);
-      orParts.push(`valor.eq.${term}`);
+      const n = Number(term);
+      if (Number.isInteger(n) && n > 0) {
+        orParts.push(`id.eq.${n}`);
+        orParts.push(`valor.eq.${n}`);
+      }
     }
 
-    query = query.or(orParts.join(','));
+    const orFilter = joinOrFragments(orParts);
+    if (orFilter) query = query.or(orFilter);
   }
 
   const { data, error, count } = await query.range(from, to);

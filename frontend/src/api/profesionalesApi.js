@@ -5,7 +5,7 @@ import {
   successOne,
   throwIfError,
   pageRange,
-  escapeIlike,
+  buildIlikeOrFilter,
 } from '../lib/apiResponse';
 import {
   JORNADA_DEFAULT_FIN,
@@ -59,11 +59,8 @@ export async function listProfesionales(page = 1, limit = 20, search = '') {
     .order('created_at', { ascending: false })
     .order('id', { ascending: false });
 
-  const term = search?.trim();
-  if (term) {
-    const q = escapeIlike(term);
-    query = query.or(`nombre.ilike.%${q}%,telefono.ilike.%${q}%`);
-  }
+  const orFilter = buildIlikeOrFilter(['nombre', 'telefono'], search);
+  if (orFilter) query = query.or(orFilter);
 
   const { data, error, count } = await query.range(from, to);
   throwIfError(error, 'Error al listar profesionales');

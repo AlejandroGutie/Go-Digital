@@ -5,7 +5,8 @@ import {
   successOne,
   throwIfError,
   pageRange,
-  escapeIlike,
+  buildIlikeOrFilter,
+  positiveIntIds,
 } from '../lib/apiResponse';
 import { hoyLocalISO, toDateOnly } from '../utils/format';
 
@@ -34,13 +35,11 @@ export async function listMascotas(page = 1, limit = 20, search = '') {
     .order('created_at', { ascending: false })
     .order('id', { ascending: false });
 
-  const term = search?.trim();
-  if (term) {
-    const q = escapeIlike(term);
-    query = query.or(
-      `nombre.ilike.%${q}%,raza.ilike.%${q}%,especie.ilike.%${q}%,tamano.ilike.%${q}%`
-    );
-  }
+  const orFilter = buildIlikeOrFilter(
+    ['nombre', 'raza', 'especie', 'tamano'],
+    search
+  );
+  if (orFilter) query = query.or(orFilter);
 
   const { data, error, count } = await query.range(from, to);
   throwIfError(error, 'Error al listar mascotas');
@@ -62,13 +61,11 @@ export async function listMascotasConCuidadores(page = 1, limit = 20, search = '
     .order('created_at', { ascending: false })
     .order('id', { ascending: false });
 
-  const term = search?.trim();
-  if (term) {
-    const q = escapeIlike(term);
-    query = query.or(
-      `nombre.ilike.%${q}%,raza.ilike.%${q}%,especie.ilike.%${q}%,tamano.ilike.%${q}%`
-    );
-  }
+  const orFilter = buildIlikeOrFilter(
+    ['nombre', 'raza', 'especie', 'tamano'],
+    search
+  );
+  if (orFilter) query = query.or(orFilter);
 
   const { data, error, count } = await query.range(from, to);
   throwIfError(error, 'Error al listar mascotas');
@@ -233,14 +230,57 @@ export async function getMotivosMascotaNoEliminar(idsMascota = []) {
   }
 
   if (isMissingRpcError(error)) {
+    const safeIds = positiveIntIds(ids);
     const motivos = {};
-    await Promise.all(
-      ids.map(async (id) => {
-        if (await mascotaTieneCobrosClient(id)) {
-          motivos[id] = 'cobros';
-        }
-      })
-    );
+    if (safeIds.length === 0) return successOk(motivos);
+
+    // Batch: cobros directos por mascota (sin N+1)
+    const { data: cobrosDirectos, error: cobrosErr } = await supabase
+      .from('cobro')
+      .select('id_mascota')
+      .in('id_mascota', safeIds);
+    throwIfError(cobrosErr, 'Error al verificar cobros de mascotas');
+    for (const row of cobrosDirectos ?? []) {
+      const mid = Number(row.id_mascota);
+      if (mid) motivos[mid] = 'cobros';
+    }
+
+    const pending = safeIds.filter((id) => !motivos[id]);
+    if (pending.length === 0) return successOk(motivos);
+
+    // Batch: agendas de las pendientes + cobros vía agenda
+    const agendaIds = [];
+    const agendaToMascota = new Map();
+    let from = 0;
+    for (;;) {
+      const { data, error: agErr } = await supabase
+        .from('agenda')
+        .select('id, id_mascota')
+        .in('id_mascota', pending)
+        .range(from, from + COBRO_PAGE_SIZE - 1);
+      throwIfError(agErr, 'Error al verificar citas de mascotas');
+      const rows = data ?? [];
+      for (const r of rows) {
+        agendaIds.push(r.id);
+        agendaToMascota.set(Number(r.id), Number(r.id_mascota));
+      }
+      if (rows.length < COBRO_PAGE_SIZE) break;
+      from += COBRO_PAGE_SIZE;
+    }
+
+    for (let i = 0; i < agendaIds.length; i += 100) {
+      const slice = agendaIds.slice(i, i + 100);
+      const { data: viaAgenda, error: viaErr } = await supabase
+        .from('cobro')
+        .select('id_agenda')
+        .in('id_agenda', slice);
+      throwIfError(viaErr, 'Error al verificar cobros de las citas');
+      for (const c of viaAgenda ?? []) {
+        const mid = agendaToMascota.get(Number(c.id_agenda));
+        if (mid) motivos[mid] = 'cobros';
+      }
+    }
+
     return successOk(motivos);
   }
 

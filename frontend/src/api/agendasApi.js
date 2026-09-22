@@ -121,7 +121,7 @@ function isMissingRpcError(error) {
 
 function throwMissingRpc(nombreRpc) {
   throw new Error(
-    `Falta la función ${nombreRpc} en Supabase. Ejecuta las migraciones pendientes (incluye 20260827_000006_agenda_cancelacion.sql).`
+    `Falta la función ${nombreRpc} en Supabase. Ejecuta las migraciones pendientes (multi-tarifas / cancelación / sync_agenda_tarifas).`
   );
 }
 
@@ -178,15 +178,8 @@ async function syncAgendaTarifasClient(idAgenda, idTarifas) {
     p_id_tarifas: idTarifas.map(Number),
   });
   if (isMissingRpcError(error)) {
-    // Fallback: insert directo si el RPC aún no está
-    await supabase.from('agenda_tarifa').delete().eq('id_agenda', Number(idAgenda));
-    const rows = idTarifas.map((id_tarifa) => ({
-      id_agenda: Number(idAgenda),
-      id_tarifa: Number(id_tarifa),
-    }));
-    const { error: insErr } = await supabase.from('agenda_tarifa').insert(rows);
-    throwIfError(insErr, 'Error al guardar tarifas de la cita');
-    return;
+    // Fail-closed: no delete+insert cliente (estado parcial). Requiere RPC atómico.
+    throwMissingRpc('sync_agenda_tarifas');
   }
   throwIfError(error, 'Error al sincronizar tarifas de la cita');
 }
