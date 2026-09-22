@@ -50,6 +50,7 @@ import CobroFormSheet from '../components/cobros/CobroFormSheet';
 import AgendasReprogramarSheet from '../components/agendas/AgendasReprogramarSheet';
 import AgendasCancelarSheet from '../components/agendas/AgendasCancelarSheet';
 import AgendasPlantillasSheet from '../components/agendas/AgendasPlantillasSheet';
+import AgendasCitasListSheet from '../components/agendas/AgendasCitasListSheet';
 import TarifaMultiSelect, {
   formatTarifasLabel,
   sumTarifasValor,
@@ -139,6 +140,7 @@ export default function AgendasPage() {
   const [tarifas, setTarifas] = useState([]);
   const [loading, setLoading] = useState(false);
   const [plantillasOpen, setPlantillasOpen] = useState(false);
+  const [citasSheetOpen, setCitasSheetOpen] = useState(false);
   const [agendaTemplates, setAgendaTemplates] = useState(() => loadAgendaPlantillas());
   const [whatsappBusy, setWhatsappBusy] = useState(null); // { id, kind: 'confirm'|'lista' }
   const [pagarBusyId, setPagarBusyId] = useState(null);
@@ -257,6 +259,7 @@ export default function AgendasPage() {
     setCitas([]);
     setTarifas([]);
     setFiltroTabla('');
+    setCitasSheetOpen(false);
     limpiarCuidadorSeleccion();
     setFecha('');
     setHoraInicio('');
@@ -965,9 +968,27 @@ export default function AgendasPage() {
                       <div className="ui-selection-header__detail">{profSel.telefono}</div>
                     ) : null}
                   </div>
-                  <span className="ui-badge" style={{ background: 'var(--color-entorno)', color: 'var(--color-black)' }}>
+                  <button
+                    type="button"
+                    className="ui-badge"
+                    style={{
+                      background: 'var(--color-entorno)',
+                      color: 'var(--color-black)',
+                      border: 'none',
+                      cursor: citas.length === 0 ? 'default' : 'pointer',
+                      font: 'inherit',
+                    }}
+                    disabled={citas.length === 0}
+                    aria-label={`Ver listado de ${citas.length} cita${citas.length !== 1 ? 's' : ''}`}
+                    title={
+                      citas.length === 0
+                        ? 'Sin citas para mostrar'
+                        : 'Ver listado detallado de citas'
+                    }
+                    onClick={() => setCitasSheetOpen(true)}
+                  >
                     {citas.length} cita{citas.length !== 1 ? 's' : ''}
-                  </span>
+                  </button>
                 </div>
 
                 <div style={{ marginBottom: 20 }}>
@@ -1634,6 +1655,37 @@ export default function AgendasPage() {
         tarifas={tarifas}
         addToast={addToast}
         onSuccess={onReprogramSuccess}
+      />
+
+      <AgendasCitasListSheet
+        open={citasSheetOpen}
+        onClose={() => setCitasSheetOpen(false)}
+        profesionalNombre={profSel?.nombre || ''}
+        citas={citas}
+        citasPageRows={citasPageRows}
+        citasTotal={citasTotal}
+        citasPage={citasPage}
+        citasPages={citasPages}
+        citasPerPage={citasPerPage}
+        onPageChange={goToCitasPage}
+        onPageSizeChange={handleCitasPageSize}
+        filtroTabla={filtroTabla}
+        onFiltroTablaChange={setFiltroTabla}
+        onClearFiltro={() => setFiltroTabla('')}
+        mostrarCanceladas={mostrarCanceladas}
+        onMostrarCanceladasChange={setMostrarCanceladas}
+        loading={loading}
+        whatsappBusy={whatsappBusy}
+        pagarBusyId={pagarBusyId}
+        cobroModalOpen={cobroModalOpen}
+        onConfirmarWhatsApp={handleConfirmarWhatsApp}
+        onMascotaLista={handleMascotaListaWhatsApp}
+        onPagar={handlePagar}
+        onReprogramar={abrirReprogramar}
+        onCancelar={(c) => {
+          setObservacionCancelacion('');
+          setDeleteModalId(c.id);
+        }}
       />
 
       <CobroFormSheet
