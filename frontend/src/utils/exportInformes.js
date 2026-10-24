@@ -120,7 +120,7 @@ function drawFooter(doc, goDigitalLogoDataUrl) {
   doc.setLineWidth(0.6);
   doc.line(14, pageHeight - 12, pageWidth - 14, pageHeight - 12);
 
-  // Dimensiones nativas del logo Go-Digital (1219×1245 ≈ 1:1)
+  // Dimensiones nativas del logo Go-Delta (1219×1245 ≈ 1:1)
   const LOGO_NATURAL_W = 1219;
   const LOGO_NATURAL_H = 1245;
   const logoH = 5.5;
@@ -134,7 +134,7 @@ function drawFooter(doc, goDigitalLogoDataUrl) {
     doc.addImage(goDigitalLogoDataUrl, 'PNG', leftX, logoY, logoW, logoH);
   }
 
-  const copyright = `© ${new Date().getFullYear()} Go-Digital · Pelu Eli`;
+  const copyright = `© ${new Date().getFullYear()} Go-Delta · Pelu Eli`;
   const textX = leftX + (goDigitalLogoDataUrl ? logoW + gap : 0);
   doc.setFontSize(8);
   doc.setTextColor(...brand);

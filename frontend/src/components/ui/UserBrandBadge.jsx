@@ -4,7 +4,7 @@ import peluEliLogo from '../../assets/logo-pelu-eli.png';
 import goDigitalLogo from '../../assets/LogoGo-Digital.png';
 
 /**
- * Badge de sesión: Pelu Eli · Go-Digital · email del usuario autenticado.
+ * Badge de sesión: Pelu Eli · Go-Delta · email del usuario autenticado.
  * Se usa en el header global para que aparezca en todos los formularios/vistas.
  */
 export default function UserBrandBadge() {
@@ -21,7 +21,7 @@ export default function UserBrandBadge() {
       <span className="ui-user-badge__divider" aria-hidden="true" />
       <img
         src={goDigitalLogo}
-        alt="Go-Digital"
+        alt="Go-Delta"
         className="ui-user-badge__logo ui-user-badge__logo--provider"
       />
       {email ? (

@@ -118,11 +118,11 @@ export default function LoginPage() {
         <div className="ui-login__footer">
           <img
             src={goDigitalLogo}
-            alt="Go-Digital"
+            alt="Go-Delta"
             className="ui-login__footer-logo"
           />
           <span className="ui-login__footer-text">
-            © {new Date().getFullYear()} Go-Digital. Todos los derechos reservados.
+            © {new Date().getFullYear()} Go-Delta. Todos los derechos reservados.
           </span>
         </div>
       </div>

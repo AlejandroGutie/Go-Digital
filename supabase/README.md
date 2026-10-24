@@ -1,4 +1,4 @@
-# Supabase — Go-Digital
+# Supabase — Go-Delta
 
 Historial SQL alineado al esquema multi-tenant del proyecto.
 

@@ -48,13 +48,45 @@ export function estadoPagoCita(cita) {
   return estadoPagoAgenda(cita);
 }
 
+export function cuidadoresVisiblesMascota(m) {
+  return (m?.cuidadores || []).filter((c) => c?.id && c.activo !== false);
+}
+
+export function nombresCuidadoresMascota(m) {
+  return cuidadoresVisiblesMascota(m).map((c) => c?.nombre).filter(Boolean);
+}
+
+/** Segunda línea del combo de mascota: datos de la mascota y nombre del cuidador. */
+export function subtituloMascotaAgenda(m) {
+  const nombres = nombresCuidadoresMascota(m);
+  const cuidador = nombres.length > 0 ? nombres.join(', ') : 'Sin cuidador';
+  return [m?.especie, m?.raza, m?.tamano, cuidador].filter(Boolean).join(' · ') || '—';
+}
+
 export function filtrarMascotasLocal(lista, search) {
   const q = String(search || '')
     .trim()
     .toLowerCase();
   if (!q) return lista;
   return lista.filter((m) => {
-    const haystack = [m.nombre, m.especie, m.raza, m.tamano]
+    const haystack = [m.nombre, m.especie, m.raza, m.tamano, ...nombresCuidadoresMascota(m)]
+      .filter(Boolean)
+      .join(' ')
+      .toLowerCase();
+    return haystack.includes(q);
+  });
+}
+
+export function filtrarCuidadoresLocal(lista, search, seleccionado) {
+  const q = String(search || '')
+    .trim()
+    .toLowerCase();
+  const selectedName = String(seleccionado?.nombre || '')
+    .trim()
+    .toLowerCase();
+  if (!q || (seleccionado && q === selectedName)) return lista;
+  return (lista || []).filter((c) => {
+    const haystack = [c?.nombre, c?.telefono, c?.email]
       .filter(Boolean)
       .join(' ')
       .toLowerCase();

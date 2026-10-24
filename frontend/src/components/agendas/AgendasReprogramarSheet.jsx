@@ -3,8 +3,11 @@ import {
   actualizarCitaAgenda,
   motivoNoReprogramarAgenda,
 } from '../../api/agendasApi';
-import { getCuidadoresDeMascota, getMascotaById } from '../../api/mascotasApi';
-import { getMascotasDeCuidador, listCuidadores } from '../../api/cuidadoresApi';
+import {
+  getCuidadoresDeMascota,
+  getMascotaById,
+  listMascotasConCuidadores,
+} from '../../api/mascotasApi';
 import { normalizeListPayload } from '../../api/normalize';
 import { useMutationLock } from '../../hooks/useMutationLock';
 import { formatFecha, formatHora, toDateOnly } from '../../utils/format';
@@ -33,15 +36,18 @@ import {
   AGENDA_INPUT_ERROR_STYLE,
   AGENDA_LIST_LIMIT,
   emptyEditForm,
+  cuidadoresVisiblesMascota,
+  filtrarCuidadoresLocal,
   filtrarMascotasLocal,
   idsTarifaDesdeCita,
   resolverTarifaCita,
+  subtituloMascotaAgenda,
   tarifasParaEditarDesde,
 } from '../../pages/agendas/agendaPageHelpers';
 
 /**
  * Bottom sheet de reprogramación para AgendasPage.
- * Incluye selección de cuidador/mascota (a diferencia de ReprogramarCitaSheet).
+ * Incluye selección de mascota y, a partir de ella, sus cuidadores.
  */
 export default function AgendasReprogramarSheet({
   open,
@@ -60,33 +66,28 @@ export default function AgendasReprogramarSheet({
   const [editBusquedaMascota, setEditBusquedaMascota] = useState('');
   const [editListaMascotasAbierta, setEditListaMascotasAbierta] = useState(false);
   const [editMascotas, setEditMascotas] = useState([]);
-  const [cuidadores, setCuidadores] = useState([]);
   const [saving, setSaving] = useState(false);
   const { tryLock, unlock } = useMutationLock();
 
   const editBuscadorCuidadorRef = useRef(null);
   const editBuscadorMascotaRef = useRef(null);
-  const cuidadorSearchReq = useRef(0);
-  const mascotasCuidadorReq = useRef(0);
   const whatsappCancelRef = useRef(null);
   const loadGenRef = useRef(0);
 
-  async function cargarCuidadores(search = '') {
-    const reqId = ++cuidadorSearchReq.current;
-    const res = await listCuidadores(1, AGENDA_LIST_LIMIT, search);
-    if (reqId !== cuidadorSearchReq.current) return;
-    setCuidadores(normalizeListPayload(res));
-  }
-
-  async function cargarMascotasDeCuidador(idCuidador) {
-    const reqId = ++mascotasCuidadorReq.current;
-    const res = await getMascotasDeCuidador(idCuidador);
-    if (reqId !== mascotasCuidadorReq.current) return [];
-    const rows = normalizeListPayload(res).filter(
-      (m) => m?.id != null && m.activo !== false
-    );
-    setEditMascotas(rows);
-    return rows;
+  function cuidadoresActivos(lista) {
+    const out = [];
+    const seen = new Set();
+    for (const c of lista || []) {
+      if (!c?.id || c.activo === false || seen.has(c.id)) continue;
+      seen.add(c.id);
+      out.push({
+        id: c.id,
+        nombre: c.nombre,
+        telefono: c.telefono || null,
+        email: c.email || null,
+      });
+    }
+    return out;
   }
 
   function resetLocalState() {
@@ -97,7 +98,6 @@ export default function AgendasReprogramarSheet({
     setEditBusquedaMascota('');
     setEditListaMascotasAbierta(false);
     setEditMascotas([]);
-    setCuidadores([]);
     setSaving(false);
   }
 
@@ -130,7 +130,8 @@ export default function AgendasReprogramarSheet({
 
     (async () => {
       try {
-        const [resCuidadores, resDetalle] = await Promise.all([
+        const [resCatalogo, resCuidadores, resDetalle] = await Promise.all([
+          listMascotasConCuidadores(1, AGENDA_LIST_LIMIT),
           cita.id_mascota
             ? getCuidadoresDeMascota(cita.id_mascota)
             : Promise.resolve(null),
@@ -139,61 +140,49 @@ export default function AgendasReprogramarSheet({
             : Promise.resolve(null),
         ]);
         if (gen !== loadGenRef.current) return;
-        await cargarCuidadores('').catch(() => {});
-        if (gen !== loadGenRef.current) return;
 
-        const cuidadoresMascota = normalizeListPayload(resCuidadores);
-        const cuidadorPref =
-          cuidadoresMascota.find((x) => x.activo !== false && x.id) ||
-          cuidadoresMascota.find((x) => x.id) ||
-          null;
-        const mascotaDetalle =
-          resDetalle?.data?.[0] || resDetalle?.data || null;
+        const cuidadoresMascota = cuidadoresActivos(normalizeListPayload(resCuidadores));
+        const mascotaDetalle = resDetalle?.data?.[0] || resDetalle?.data || null;
+        let rows = normalizeListPayload(resCatalogo);
 
-        if (cuidadorPref?.id) {
-          setEditCuidadorSel(cuidadorPref);
-          setEditBusquedaCuidador(cuidadorPref.nombre || '');
-          const rows = await cargarMascotasDeCuidador(cuidadorPref.id);
-          if (gen !== loadGenRef.current) return;
-          const sigueVinculada = rows.some(
-            (m) => String(m.id) === String(cita.id_mascota)
-          );
-          if (!sigueVinculada && cita.id_mascota) {
-            setEditMascotas((prev) => [
-              {
-                id: cita.id_mascota,
-                nombre:
-                  mascotaDetalle?.nombre || cita.mascota_nombre || 'Mascota',
-                especie: mascotaDetalle?.especie || cita.especie || null,
-                raza: mascotaDetalle?.raza || cita.raza || null,
-                tamano: mascotaDetalle?.tamano || cita.tamano || null,
-                activo: true,
-              },
-              ...prev.filter((m) => String(m.id) !== String(cita.id_mascota)),
-            ]);
+        if (cita.id_mascota) {
+          const actual = {
+            id: cita.id_mascota,
+            nombre: mascotaDetalle?.nombre || cita.mascota_nombre || 'Mascota',
+            especie: mascotaDetalle?.especie || cita.especie || null,
+            raza: mascotaDetalle?.raza || cita.raza || null,
+            tamano: mascotaDetalle?.tamano || cita.tamano || null,
+            cuidadores: cuidadoresMascota,
+          };
+          const idx = rows.findIndex((m) => String(m.id) === String(cita.id_mascota));
+          if (idx >= 0) {
+            rows = rows.map((m, i) =>
+              i === idx
+                ? {
+                    ...m,
+                    ...actual,
+                    cuidadores: cuidadoresMascota.length
+                      ? cuidadoresMascota
+                      : m.cuidadores || [],
+                  }
+                : m
+            );
+          } else {
+            rows = [actual, ...rows];
           }
-        } else {
-          setEditCuidadorSel(null);
-          setEditBusquedaCuidador('');
-          setEditMascotas(
-            cita.id_mascota
-              ? [
-                  {
-                    id: cita.id_mascota,
-                    nombre:
-                      mascotaDetalle?.nombre || cita.mascota_nombre || 'Mascota',
-                    especie: mascotaDetalle?.especie || cita.especie || null,
-                    raza: mascotaDetalle?.raza || cita.raza || null,
-                    tamano: mascotaDetalle?.tamano || cita.tamano || null,
-                    activo: true,
-                  },
-                ]
-              : []
-          );
         }
+
+        const pet = rows.find((m) => String(m.id) === String(cita.id_mascota));
+        const lista = pet?.cuidadores || [];
+        const pref =
+          lista.find((c) => c.activo !== false && c.id) || lista.find((c) => c.id) || null;
+
+        setEditMascotas(rows);
+        setEditCuidadorSel(pref);
+        setEditBusquedaCuidador(pref?.nombre || '');
       } catch (e) {
         if (gen !== loadGenRef.current) return;
-        addToast?.(e?.message || 'No se pudo precargar cuidador/mascotas', 'error');
+        addToast?.(e?.message || 'No se pudo precargar mascota y cuidadores', 'error');
         setEditCuidadorSel(null);
         setEditBusquedaCuidador('');
         setEditMascotas(
@@ -205,7 +194,7 @@ export default function AgendasReprogramarSheet({
                   especie: cita.especie || null,
                   raza: cita.raza || null,
                   tamano: cita.tamano || null,
-                  activo: true,
+                  cuidadores: [],
                 },
               ]
             : []
@@ -219,19 +208,6 @@ export default function AgendasReprogramarSheet({
     // Solo reabrir/cargar cuando cambia la cita o se abre el sheet.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, cita?.id]);
-
-  useEffect(() => {
-    if (!open) return undefined;
-    if (editCuidadorSel) return undefined;
-    const q = editBusquedaCuidador.trim();
-    const timer = setTimeout(() => {
-      cargarCuidadores(q).catch((e) => {
-        addToast?.(e?.message || 'No se pudo actualizar el listado de cuidadores', 'error');
-      });
-    }, 300);
-    return () => clearTimeout(timer);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [editBusquedaCuidador, editCuidadorSel, open]);
 
   useEffect(() => {
     if (!open) return undefined;
@@ -259,7 +235,19 @@ export default function AgendasReprogramarSheet({
     };
   }, []);
 
-  const cuidadoresFiltrados = cuidadores;
+  const cuidadoresDeMascota = useMemo(() => {
+    if (!editForm.id_mascota) return [];
+    const mascota = editMascotas.find(
+      (m) => String(m.id) === String(editForm.id_mascota)
+    );
+    return cuidadoresVisiblesMascota(mascota);
+  }, [editMascotas, editForm.id_mascota]);
+
+  const cuidadoresFiltrados = useMemo(
+    () => filtrarCuidadoresLocal(cuidadoresDeMascota, editBusquedaCuidador, editCuidadorSel),
+    [cuidadoresDeMascota, editBusquedaCuidador, editCuidadorSel]
+  );
+
   const editMascotasFiltradas = useMemo(
     () =>
       filtrarMascotasLocal(
@@ -269,43 +257,46 @@ export default function AgendasReprogramarSheet({
     [editMascotas, editBusquedaMascota, editForm.id_mascota]
   );
 
-  async function seleccionarCuidadorEdit(c) {
+  function seleccionarCuidadorEdit(c) {
     setEditCuidadorSel(c);
     setEditBusquedaCuidador(c.nombre || '');
     setEditListaCuidadoresAbierta(false);
-    setEditForm((prev) => ({ ...prev, id_mascota: '' }));
-    setEditBusquedaMascota('');
-    setEditListaMascotasAbierta(false);
-    try {
-      await cargarMascotasDeCuidador(c.id);
-    } catch (e) {
-      setEditMascotas([]);
-      addToast?.(e?.message || 'No se pudieron cargar las mascotas del cuidador', 'error');
-    }
   }
 
   function seleccionarMascotaEdit(m) {
+    const lista = cuidadoresVisiblesMascota(m);
+    const sigue = lista.find((c) => String(c.id) === String(editCuidadorSel?.id));
+    const siguiente = sigue || (lista.length === 1 ? lista[0] : null);
     setEditForm((prev) => ({ ...prev, id_mascota: String(m.id) }));
     setEditBusquedaMascota(m.nombre || '');
     setEditListaMascotasAbierta(false);
+    setEditCuidadorSel(siguiente);
+    setEditBusquedaCuidador(siguiente?.nombre || '');
+    setEditListaCuidadoresAbierta(false);
   }
 
-  async function abrirListaCuidadoresEdit() {
-    setEditListaCuidadoresAbierta(true);
-    if (editCuidadorSel) return;
-    try {
-      await cargarCuidadores(editBusquedaCuidador.trim());
-    } catch (e) {
-      addToast?.(e?.message || 'No se pudo actualizar el listado de cuidadores', 'error');
+  function abrirListaCuidadoresEdit() {
+    if (!editForm.id_mascota) {
+      setEditListaCuidadoresAbierta(false);
+      return;
     }
+    setEditListaCuidadoresAbierta(true);
   }
 
   async function abrirListaMascotasEdit() {
-    if (!editCuidadorSel && editMascotas.length === 0) {
-      setEditListaMascotasAbierta(false);
-      return;
-    }
     setEditListaMascotasAbierta(true);
+    try {
+      const res = await listMascotasConCuidadores(1, AGENDA_LIST_LIMIT);
+      const rows = normalizeListPayload(res);
+      setEditMascotas((prev) => {
+        const extras = prev.filter(
+          (m) => m?.id != null && !rows.some((r) => String(r.id) === String(m.id))
+        );
+        return [...extras, ...rows];
+      });
+    } catch (e) {
+      addToast?.(e?.message || 'No se pudo actualizar el listado de mascotas', 'error');
+    }
   }
 
   const jornadaProf = useMemo(
@@ -582,6 +573,83 @@ export default function AgendasReprogramarSheet({
             </div>
           )}
           <div className="agenda-form__row">
+            <Field id="edit-buscador-mascota" label="Mascota" required>
+              <div ref={editBuscadorMascotaRef} className="ui-combo">
+                <Input
+                  id="edit-buscador-mascota"
+                  type="text"
+                  role="combobox"
+                  aria-expanded={editListaMascotasAbierta}
+                  aria-controls="lista-mascotas-edit"
+                  aria-autocomplete="list"
+                  placeholder="Buscar por nombre, raza, especie, tamaño o cuidador…"
+                  value={editBusquedaMascota}
+                  disabled={saving}
+                  onChange={(e) => {
+                    const value = e.target.value;
+                    setEditBusquedaMascota(value);
+                    setEditListaMascotasAbierta(true);
+                    if (editForm.id_mascota) {
+                      const selected = editMascotas.find(
+                        (m) => String(m.id) === String(editForm.id_mascota)
+                      );
+                      if (!selected || value !== (selected.nombre || '')) {
+                        setEditForm((prev) => ({ ...prev, id_mascota: '' }));
+                        setEditCuidadorSel(null);
+                        setEditBusquedaCuidador('');
+                      }
+                    }
+                  }}
+                  onFocus={() => {
+                    void abrirListaMascotasEdit();
+                  }}
+                />
+
+                {editListaMascotasAbierta && (
+                  <ul id="lista-mascotas-edit" role="listbox" className="ui-combo__list">
+                    {editMascotasFiltradas.length === 0 ? (
+                      <li
+                        className="ui-combo__item"
+                        style={{ cursor: 'default', color: 'var(--color-purple-light)' }}
+                      >
+                        {editMascotas.length === 0
+                          ? 'No hay mascotas registradas'
+                          : 'No se encontraron mascotas'}
+                      </li>
+                    ) : (
+                      editMascotasFiltradas.map((m) => (
+                        <li
+                          key={m.id}
+                          role="option"
+                          aria-selected={String(editForm.id_mascota) === String(m.id)}
+                        >
+                          <button
+                            type="button"
+                            className={`ui-combo__item${
+                              String(editForm.id_mascota) === String(m.id)
+                                ? ' ui-combo__item--active'
+                                : ''
+                            }`}
+                            onClick={() => seleccionarMascotaEdit(m)}
+                          >
+                            <div>{m.nombre}</div>
+                            <div
+                              style={{
+                                fontSize: '0.75rem',
+                                color: 'var(--color-purple-light)',
+                                fontWeight: 400,
+                              }}
+                            >
+                              {subtituloMascotaAgenda(m)}
+                            </div>
+                          </button>
+                        </li>
+                      ))
+                    )}
+                  </ul>
+                )}
+              </div>
+            </Field>
             <Field id="edit-buscador-cuidador" label="Cuidador" required>
               <div ref={editBuscadorCuidadorRef} className="ui-combo">
                 <Input
@@ -591,35 +659,36 @@ export default function AgendasReprogramarSheet({
                   aria-expanded={editListaCuidadoresAbierta}
                   aria-controls="lista-cuidadores-edit"
                   aria-autocomplete="list"
-                  placeholder="Buscar por nombre, teléfono o email…"
+                  placeholder={
+                    editForm.id_mascota
+                      ? 'Buscar por nombre, teléfono o email…'
+                      : 'Seleccione primero una mascota'
+                  }
                   value={editBusquedaCuidador}
-                  disabled={saving}
+                  disabled={saving || !editForm.id_mascota}
                   onChange={(e) => {
                     const value = e.target.value;
                     setEditBusquedaCuidador(value);
                     setEditListaCuidadoresAbierta(true);
                     if (editCuidadorSel && value !== (editCuidadorSel.nombre || '')) {
                       setEditCuidadorSel(null);
-                      setEditMascotas([]);
-                      setEditForm((prev) => ({ ...prev, id_mascota: '' }));
-                      setEditBusquedaMascota('');
                     }
                   }}
                   onFocus={() => {
-                    void abrirListaCuidadoresEdit();
+                    abrirListaCuidadoresEdit();
                   }}
                 />
 
-                {editListaCuidadoresAbierta && (
+                {editListaCuidadoresAbierta && editForm.id_mascota && (
                   <ul id="lista-cuidadores-edit" role="listbox" className="ui-combo__list">
                     {cuidadoresFiltrados.length === 0 ? (
                       <li
                         className="ui-combo__item"
                         style={{ cursor: 'default', color: 'var(--color-purple-light)' }}
                       >
-                        {editBusquedaCuidador.trim()
-                          ? `Sin resultados para “${editBusquedaCuidador.trim()}”`
-                          : 'No hay cuidadores registrados'}
+                        {cuidadoresDeMascota.length === 0
+                          ? 'Esta mascota no tiene cuidadores asignados'
+                          : `Sin resultados para “${editBusquedaCuidador.trim()}”`}
                       </li>
                     ) : (
                       cuidadoresFiltrados.map((c) => (
@@ -652,86 +721,6 @@ export default function AgendasReprogramarSheet({
                     )}
                   </ul>
                 )}
-              </div>
-            </Field>
-            <Field id="edit-buscador-mascota" label="Mascota" required>
-              <div ref={editBuscadorMascotaRef} className="ui-combo">
-                <Input
-                  id="edit-buscador-mascota"
-                  type="text"
-                  role="combobox"
-                  aria-expanded={editListaMascotasAbierta}
-                  aria-controls="lista-mascotas-edit"
-                  aria-autocomplete="list"
-                  placeholder={
-                    editCuidadorSel || editMascotas.length > 0
-                      ? 'Buscar por nombre, raza, especie o tamaño…'
-                      : 'Seleccione primero un cuidador'
-                  }
-                  value={editBusquedaMascota}
-                  disabled={saving || (!editCuidadorSel && editMascotas.length === 0)}
-                  onChange={(e) => {
-                    const value = e.target.value;
-                    setEditBusquedaMascota(value);
-                    setEditListaMascotasAbierta(true);
-                    if (editForm.id_mascota) {
-                      const selected = editMascotas.find(
-                        (m) => String(m.id) === String(editForm.id_mascota)
-                      );
-                      if (!selected || value !== (selected.nombre || '')) {
-                        setEditForm((prev) => ({ ...prev, id_mascota: '' }));
-                      }
-                    }
-                  }}
-                  onFocus={() => {
-                    void abrirListaMascotasEdit();
-                  }}
-                />
-
-                {editListaMascotasAbierta &&
-                  (editCuidadorSel || editMascotas.length > 0) && (
-                    <ul id="lista-mascotas-edit" role="listbox" className="ui-combo__list">
-                      {editMascotasFiltradas.length === 0 ? (
-                        <li
-                          className="ui-combo__item"
-                          style={{ cursor: 'default', color: 'var(--color-purple-light)' }}
-                        >
-                          {editMascotas.length === 0
-                            ? 'Este cuidador no tiene mascotas asignadas'
-                            : 'No se encontraron mascotas'}
-                        </li>
-                      ) : (
-                        editMascotasFiltradas.map((m) => (
-                          <li
-                            key={m.id}
-                            role="option"
-                            aria-selected={String(editForm.id_mascota) === String(m.id)}
-                          >
-                            <button
-                              type="button"
-                              className={`ui-combo__item${
-                                String(editForm.id_mascota) === String(m.id)
-                                  ? ' ui-combo__item--active'
-                                  : ''
-                              }`}
-                              onClick={() => seleccionarMascotaEdit(m)}
-                            >
-                              <div>{m.nombre}</div>
-                              <div
-                                style={{
-                                  fontSize: '0.75rem',
-                                  color: 'var(--color-purple-light)',
-                                  fontWeight: 400,
-                                }}
-                              >
-                                {[m.especie, m.raza, m.tamano].filter(Boolean).join(' · ')}
-                              </div>
-                            </button>
-                          </li>
-                        ))
-                      )}
-                    </ul>
-                  )}
               </div>
             </Field>
           </div>

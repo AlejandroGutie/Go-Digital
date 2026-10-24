@@ -41,7 +41,7 @@ export function rangoDesdePreset(presetId) {
     case 'mes':
       return {
         fecha_desde: toDateOnly(startOfMonth(hoy)),
-        fecha_hasta: toDateOnly(hoy),
+        fecha_hasta: toDateOnly(endOfMonth(hoy)),
       };
     case 'mes_anterior': {
       const prev = new Date(hoy.getFullYear(), hoy.getMonth() - 1, 1);

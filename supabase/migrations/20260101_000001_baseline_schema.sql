@@ -1,6 +1,6 @@
 -- =============================================================================
 -- 20260101_000001_baseline_schema.sql
--- Esquema multi-tenant alineado al ERD actual de Go-Digital.
+-- Esquema multi-tenant alineado al ERD actual de Go-Delta.
 -- Idempotente: seguro en BD nueva o ya existente (CREATE IF NOT EXISTS).
 -- No incluye políticas RLS abiertas; ver migración 20260808_000004.
 -- =============================================================================

@@ -56,7 +56,7 @@ export async function listMascotasConCuidadores(page = 1, limit = 20, search = '
   let query = supabase
     .from('mascota')
     .select(
-      `${MASCOTA_COLUMNS}, cuidador_mascota(cuidador(id, nombre))`,
+      `${MASCOTA_COLUMNS}, cuidador_mascota(activo, cuidador(id, nombre, telefono, email))`,
       { count: 'exact' }
     )
     .order('created_at', { ascending: false })
@@ -73,14 +73,24 @@ export async function listMascotasConCuidadores(page = 1, limit = 20, search = '
 
   const rows = (data ?? []).map((row) => {
     const cuidadores = (row.cuidador_mascota ?? [])
-      .map((link) => link?.cuidador)
+      .map((link) =>
+        link?.cuidador
+          ? { ...link.cuidador, activo: link.activo !== false }
+          : null
+      )
       .filter((c) => c?.id && c?.nombre);
     const seen = new Set();
     const cuidadoresUnicos = [];
     for (const c of cuidadores) {
       if (seen.has(c.id)) continue;
       seen.add(c.id);
-      cuidadoresUnicos.push({ id: c.id, nombre: c.nombre });
+      cuidadoresUnicos.push({
+        id: c.id,
+        nombre: c.nombre,
+        telefono: c.telefono || null,
+        email: c.email || null,
+        activo: c.activo !== false,
+      });
     }
     return {
       id: row.id,

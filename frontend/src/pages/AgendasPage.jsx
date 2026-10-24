@@ -79,6 +79,7 @@ import {
   estadoPagoCita,
   resolverTarifaCita as resolverTarifaCitaHelper,
   AGENDA_INPUT_ERROR_STYLE,
+  subtituloMascotaAgenda,
 } from './agendas/agendaPageHelpers';
 
 /** Convierte "HH:MM" o "HH:MM:SS" a minutos desde medianoche. */
@@ -93,7 +94,6 @@ export default function AgendasPage() {
   const {
     profesionales,
     mascotas,
-    setMascotas,
     initLoading,
     initError,
     busquedaProf,
@@ -119,6 +119,7 @@ export default function AgendasPage() {
     buscadorMascotaRef,
     profesionalesFiltrados,
     cuidadoresFiltrados,
+    cuidadoresDeMascota,
     mascotasFiltradas,
     limpiarMascotaSeleccion,
     limpiarCuidadorSeleccion,
@@ -994,6 +995,90 @@ export default function AgendasPage() {
                 <div style={{ marginBottom: 20 }}>
                     <div className="agenda-form">
                       <div className="agenda-form__row">
+                        <Field id="buscador-mascota" label="Mascota">
+                          <div ref={buscadorMascotaRef} className="ui-combo">
+                            <Input
+                              id="buscador-mascota"
+                              type="text"
+                              role="combobox"
+                              aria-expanded={listaMascotasAbierta}
+                              aria-controls="lista-mascotas"
+                              aria-autocomplete="list"
+                              placeholder="Buscar por nombre, raza, especie, tamaño o cuidador…"
+                              value={busquedaMascota}
+                              disabled={loading}
+                              onChange={(e) => {
+                                const value = e.target.value;
+                                setBusquedaMascota(value);
+                                setListaMascotasAbierta(true);
+                                if (mascotaId) {
+                                  const selected = mascotas.find(
+                                    (m) => String(m.id) === String(mascotaId)
+                                  );
+                                  if (!selected || value !== (selected.nombre || '')) {
+                                    setMascotaId('');
+                                    setCuidadorSel(null);
+                                    setBusquedaCuidador('');
+                                  }
+                                }
+                              }}
+                              onFocus={() => {
+                                void abrirListaMascotasCrear();
+                              }}
+                            />
+
+                            {listaMascotasAbierta && (
+                              <ul
+                                id="lista-mascotas"
+                                role="listbox"
+                                className="ui-combo__list"
+                              >
+                                {mascotasFiltradas.length === 0 ? (
+                                  <li
+                                    className="ui-combo__item"
+                                    style={{
+                                      cursor: 'default',
+                                      color: 'var(--color-purple-light)',
+                                    }}
+                                  >
+                                    {mascotas.length === 0
+                                      ? 'No hay mascotas registradas'
+                                      : 'No se encontraron mascotas'}
+                                  </li>
+                                ) : (
+                                  mascotasFiltradas.map((m) => (
+                                    <li
+                                      key={m.id}
+                                      role="option"
+                                      aria-selected={String(mascotaId) === String(m.id)}
+                                    >
+                                      <button
+                                        type="button"
+                                        className={`ui-combo__item${
+                                          String(mascotaId) === String(m.id)
+                                            ? ' ui-combo__item--active'
+                                            : ''
+                                        }`}
+                                        onClick={() => seleccionarMascota(m)}
+                                      >
+                                        <div>{m.nombre}</div>
+                                        <div
+                                          style={{
+                                            fontSize: '0.75rem',
+                                            color: 'var(--color-purple-light)',
+                                            fontWeight: 400,
+                                          }}
+                                        >
+                                          {subtituloMascotaAgenda(m)}
+                                        </div>
+                                      </button>
+                                    </li>
+                                  ))
+                                )}
+                              </ul>
+                            )}
+                          </div>
+                        </Field>
                         <Field id="buscador-cuidador-agenda" label="Cuidador">
                           <div ref={buscadorCuidadorRef} className="ui-combo">
                             <Input
@@ -1003,25 +1088,27 @@ export default function AgendasPage() {
                               aria-expanded={listaCuidadoresAbierta}
                               aria-controls="lista-cuidadores-agenda"
                               aria-autocomplete="list"
-                              placeholder="Buscar por nombre, teléfono o email…"
+                              placeholder={
+                                mascotaId
+                                  ? 'Buscar por nombre, teléfono o email…'
+                                  : 'Seleccione primero una mascota'
+                              }
                               value={busquedaCuidador}
-                              disabled={loading}
+                              disabled={loading || !mascotaId}
                               onChange={(e) => {
                                 const value = e.target.value;
                                 setBusquedaCuidador(value);
                                 setListaCuidadoresAbierta(true);
                                 if (cuidadorSel && value !== (cuidadorSel.nombre || '')) {
                                   setCuidadorSel(null);
-                                  setMascotas([]);
-                                  limpiarMascotaSeleccion();
                                 }
                               }}
                               onFocus={() => {
-                                void abrirListaCuidadoresCrear();
+                                abrirListaCuidadoresCrear();
                               }}
                             />
 
-                            {listaCuidadoresAbierta && (
+                            {listaCuidadoresAbierta && mascotaId && (
                               <ul
                                 id="lista-cuidadores-agenda"
                                 role="listbox"
@@ -1035,9 +1122,9 @@ export default function AgendasPage() {
                                       color: 'var(--color-purple-light)',
                                     }}
                                   >
-                                    {busquedaCuidador.trim()
-                                      ? `Sin resultados para “${busquedaCuidador.trim()}”`
-                                      : 'No hay cuidadores registrados'}
+                                    {cuidadoresDeMascota.length === 0
+                                      ? 'Esta mascota no tiene cuidadores asignados'
+                                      : `Sin resultados para “${busquedaCuidador.trim()}”`}
                                   </li>
                                 ) : (
                                   cuidadoresFiltrados.map((c) => (
@@ -1065,94 +1152,6 @@ export default function AgendasPage() {
                                         >
                                           {[c.telefono, c.email].filter(Boolean).join(' · ') ||
                                             'Sin contacto'}
-                                        </div>
-                                      </button>
-                                    </li>
-                                  ))
-                                )}
-                              </ul>
-                            )}
-                          </div>
-                        </Field>
-                        <Field id="buscador-mascota" label="Mascota">
-                          <div ref={buscadorMascotaRef} className="ui-combo">
-                            <Input
-                              id="buscador-mascota"
-                              type="text"
-                              role="combobox"
-                              aria-expanded={listaMascotasAbierta}
-                              aria-controls="lista-mascotas"
-                              aria-autocomplete="list"
-                              placeholder={
-                                cuidadorSel
-                                  ? 'Buscar por nombre, raza, especie o tamaño…'
-                                  : 'Seleccione primero un cuidador'
-                              }
-                              value={busquedaMascota}
-                              disabled={loading || !cuidadorSel}
-                              onChange={(e) => {
-                                const value = e.target.value;
-                                setBusquedaMascota(value);
-                                setListaMascotasAbierta(true);
-                                if (mascotaId) {
-                                  const selected = mascotas.find(
-                                    (m) => String(m.id) === String(mascotaId)
-                                  );
-                                  if (!selected || value !== (selected.nombre || '')) {
-                                    setMascotaId('');
-                                  }
-                                }
-                              }}
-                              onFocus={() => {
-                                void abrirListaMascotasCrear();
-                              }}
-                            />
-
-                            {listaMascotasAbierta && cuidadorSel && (
-                              <ul
-                                id="lista-mascotas"
-                                role="listbox"
-                                className="ui-combo__list"
-                              >
-                                {mascotasFiltradas.length === 0 ? (
-                                  <li
-                                    className="ui-combo__item"
-                                    style={{
-                                      cursor: 'default',
-                                      color: 'var(--color-purple-light)',
-                                    }}
-                                  >
-                                    {mascotas.length === 0
-                                      ? 'Este cuidador no tiene mascotas asignadas'
-                                      : 'No se encontraron mascotas'}
-                                  </li>
-                                ) : (
-                                  mascotasFiltradas.map((m) => (
-                                    <li
-                                      key={m.id}
-                                      role="option"
-                                      aria-selected={String(mascotaId) === String(m.id)}
-                                    >
-                                      <button
-                                        type="button"
-                                        className={`ui-combo__item${
-                                          String(mascotaId) === String(m.id)
-                                            ? ' ui-combo__item--active'
-                                            : ''
-                                        }`}
-                                        onClick={() => seleccionarMascota(m)}
-                                      >
-                                        <div>{m.nombre}</div>
-                                        <div
-                                          style={{
-                                            fontSize: '0.75rem',
-                                            color: 'var(--color-purple-light)',
-                                            fontWeight: 400,
-                                          }}
-                                        >
-                                          {[m.especie, m.raza, m.tamano]
-                                            .filter(Boolean)
-                                            .join(' · ')}
                                         </div>
                                       </button>
                                     </li>

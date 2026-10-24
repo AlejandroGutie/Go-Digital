@@ -1,19 +1,20 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { listProfesionales } from '../api/profesionalesApi';
-import { getMascotasDeCuidador, listCuidadores } from '../api/cuidadoresApi';
+import { listMascotasConCuidadores } from '../api/mascotasApi';
 import { normalizeListPayload } from '../api/normalize';
 import {
   AGENDA_LIST_LIMIT,
+  cuidadoresVisiblesMascota,
+  filtrarCuidadoresLocal,
   filtrarMascotasLocal,
 } from '../pages/agendas/agendaPageHelpers';
 
 /**
- * Catálogo de profesionales / cuidadores / mascotas para AgendasPage:
- * loaders, init, debounce de búsqueda y click-outside de combos.
+ * Catálogo de profesionales / mascotas / cuidadores para AgendasPage.
+ * La mascota se elige primero; el cuidador se limita a los de esa mascota.
  */
 export function useAgendasCatalog({ addToast } = {}) {
   const [profesionales, setProfesionales] = useState([]);
-  const [cuidadores, setCuidadores] = useState([]);
   const [mascotas, setMascotas] = useState([]);
   const [initLoading, setInitLoading] = useState(true);
   const [initError, setInitError] = useState(null);
@@ -32,26 +33,14 @@ export function useAgendasCatalog({ addToast } = {}) {
   const buscadorRef = useRef(null);
   const buscadorCuidadorRef = useRef(null);
   const buscadorMascotaRef = useRef(null);
-  const cuidadorSearchReq = useRef(0);
-  const mascotasCuidadorReq = useRef(0);
+  const mascotasSearchReq = useRef(0);
   const profesionalSearchReq = useRef(0);
 
-  async function cargarCuidadores(search = '') {
-    const reqId = ++cuidadorSearchReq.current;
-    const res = await listCuidadores(1, AGENDA_LIST_LIMIT, search);
-    if (reqId !== cuidadorSearchReq.current) return;
-    setCuidadores(normalizeListPayload(res));
-  }
-
-  async function cargarMascotasDeCuidador(idCuidador) {
-    const reqId = ++mascotasCuidadorReq.current;
-    const res = await getMascotasDeCuidador(idCuidador);
-    if (reqId !== mascotasCuidadorReq.current) return [];
-    const rows = normalizeListPayload(res).filter(
-      (m) => m?.id != null && m.activo !== false
-    );
-    setMascotas(rows);
-    return rows;
+  async function cargarMascotas() {
+    const reqId = ++mascotasSearchReq.current;
+    const res = await listMascotasConCuidadores(1, AGENDA_LIST_LIMIT);
+    if (reqId !== mascotasSearchReq.current) return;
+    setMascotas(normalizeListPayload(res));
   }
 
   async function cargarProfesionales(search = '') {
@@ -66,16 +55,16 @@ export function useAgendasCatalog({ addToast } = {}) {
       setInitLoading(true);
       setInitError(null);
       try {
-        const [resProf, resCuid] = await Promise.all([
+        const [resProf, resMasc] = await Promise.all([
           listProfesionales(1, AGENDA_LIST_LIMIT),
-          listCuidadores(1, AGENDA_LIST_LIMIT),
+          listMascotasConCuidadores(1, AGENDA_LIST_LIMIT),
         ]);
         setProfesionales(normalizeListPayload(resProf));
-        setCuidadores(normalizeListPayload(resCuid));
+        setMascotas(normalizeListPayload(resMasc));
       } catch (e) {
         const msg =
           e?.message ||
-          'No se pudieron cargar profesionales o cuidadores (sesión, red o permisos de base de datos).';
+          'No se pudieron cargar profesionales o mascotas (sesión, red o permisos de base de datos).';
         setInitError(msg);
         addToast?.(msg, 'error');
       } finally {
@@ -100,22 +89,6 @@ export function useAgendasCatalog({ addToast } = {}) {
     return () => clearTimeout(timer);
   }, [busquedaProf, profSel]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Actualiza cuidadores al buscar (crear cita)
-  useEffect(() => {
-    if (!profSel) return undefined;
-    if (cuidadorSel) return undefined;
-    const q = busquedaCuidador.trim();
-    const timer = setTimeout(() => {
-      cargarCuidadores(q).catch((e) => {
-        addToast?.(
-          e?.message || 'No se pudo actualizar el listado de cuidadores',
-          'error'
-        );
-      });
-    }, 300);
-    return () => clearTimeout(timer);
-  }, [busquedaCuidador, profSel, cuidadorSel]); // eslint-disable-line react-hooks/exhaustive-deps
-
   useEffect(() => {
     function handleClickOutside(e) {
       if (buscadorRef.current && !buscadorRef.current.contains(e.target)) {
@@ -139,7 +112,18 @@ export function useAgendasCatalog({ addToast } = {}) {
   }, []);
 
   const profesionalesFiltrados = profesionales;
-  const cuidadoresFiltrados = cuidadores;
+
+  const cuidadoresDeMascota = useMemo(() => {
+    if (!mascotaId) return [];
+    const mascota = mascotas.find((m) => String(m.id) === String(mascotaId));
+    return cuidadoresVisiblesMascota(mascota);
+  }, [mascotas, mascotaId]);
+
+  const cuidadoresFiltrados = useMemo(
+    () => filtrarCuidadoresLocal(cuidadoresDeMascota, busquedaCuidador, cuidadorSel),
+    [cuidadoresDeMascota, busquedaCuidador, cuidadorSel]
+  );
+
   const mascotasFiltradas = useMemo(
     () => filtrarMascotasLocal(mascotas, mascotaId ? '' : busquedaMascota),
     [mascotas, busquedaMascota, mascotaId]
@@ -149,57 +133,51 @@ export function useAgendasCatalog({ addToast } = {}) {
     setMascotaId('');
     setBusquedaMascota('');
     setListaMascotasAbierta(false);
-  }
-
-  function limpiarCuidadorSeleccion() {
     setCuidadorSel(null);
     setBusquedaCuidador('');
     setListaCuidadoresAbierta(false);
-    setMascotas([]);
+  }
+
+  function limpiarCuidadorSeleccion() {
     limpiarMascotaSeleccion();
   }
 
-  async function seleccionarCuidador(c) {
+  function seleccionarCuidador(c) {
     setCuidadorSel(c);
     setBusquedaCuidador(c.nombre || '');
     setListaCuidadoresAbierta(false);
-    limpiarMascotaSeleccion();
-    try {
-      await cargarMascotasDeCuidador(c.id);
-    } catch (e) {
-      setMascotas([]);
-      addToast?.(
-        e?.message || 'No se pudieron cargar las mascotas del cuidador',
-        'error'
-      );
-    }
   }
 
   function seleccionarMascota(m) {
+    const lista = cuidadoresVisiblesMascota(m);
+    const sigue = lista.find((c) => String(c.id) === String(cuidadorSel?.id));
+    const siguiente = sigue || (lista.length === 1 ? lista[0] : null);
     setMascotaId(String(m.id));
     setBusquedaMascota(m.nombre || '');
     setListaMascotasAbierta(false);
+    setCuidadorSel(siguiente);
+    setBusquedaCuidador(siguiente?.nombre || '');
+    setListaCuidadoresAbierta(false);
   }
 
-  async function abrirListaCuidadoresCrear() {
-    setListaCuidadoresAbierta(true);
-    if (cuidadorSel) return;
-    try {
-      await cargarCuidadores(busquedaCuidador.trim());
-    } catch (e) {
-      addToast?.(
-        e?.message || 'No se pudo actualizar el listado de cuidadores',
-        'error'
-      );
+  function abrirListaCuidadoresCrear() {
+    if (!mascotaId) {
+      setListaCuidadoresAbierta(false);
+      return;
     }
+    setListaCuidadoresAbierta(true);
   }
 
   async function abrirListaMascotasCrear() {
-    if (!cuidadorSel) {
-      setListaMascotasAbierta(false);
-      return;
-    }
     setListaMascotasAbierta(true);
+    try {
+      await cargarMascotas();
+    } catch (e) {
+      addToast?.(
+        e?.message || 'No se pudo actualizar el listado de mascotas',
+        'error'
+      );
+    }
   }
 
   async function abrirListaProfesionales() {
@@ -219,8 +197,6 @@ export function useAgendasCatalog({ addToast } = {}) {
     AGENDA_LIST_LIMIT,
     profesionales,
     setProfesionales,
-    cuidadores,
-    setCuidadores,
     mascotas,
     setMascotas,
     initLoading,
@@ -248,9 +224,8 @@ export function useAgendasCatalog({ addToast } = {}) {
     buscadorMascotaRef,
     profesionalesFiltrados,
     cuidadoresFiltrados,
+    cuidadoresDeMascota,
     mascotasFiltradas,
-    cargarCuidadores,
-    cargarMascotasDeCuidador,
     cargarProfesionales,
     limpiarMascotaSeleccion,
     limpiarCuidadorSeleccion,
