@@ -1,7 +1,7 @@
 import { User } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import peluEliLogo from '../../assets/logo-pelu-eli.png';
-import goDigitalLogo from '../../assets/LogoGo-Digital.png';
+import goDeltaLogo from '../../assets/GO-DELTA.png';
 
 /**
  * Badge de sesión: Pelu Eli · Go-Delta · email del usuario autenticado.
@@ -20,7 +20,7 @@ export default function UserBrandBadge() {
       />
       <span className="ui-user-badge__divider" aria-hidden="true" />
       <img
-        src={goDigitalLogo}
+        src={goDeltaLogo}
         alt="Go-Delta"
         className="ui-user-badge__logo ui-user-badge__logo--provider"
       />

@@ -56,7 +56,7 @@ export async function listMascotasConCuidadores(page = 1, limit = 20, search = '
   let query = supabase
     .from('mascota')
     .select(
-      `${MASCOTA_COLUMNS}, cuidador_mascota(activo, cuidador(id, nombre, telefono, email))`,
+      `${MASCOTA_COLUMNS}, cuidador_mascota(activo, cuidador(id, nombre, telefono, email, direccion))`,
       { count: 'exact' }
     )
     .order('created_at', { ascending: false })
@@ -89,6 +89,7 @@ export async function listMascotasConCuidadores(page = 1, limit = 20, search = '
         nombre: c.nombre,
         telefono: c.telefono || null,
         email: c.email || null,
+        direccion: c.direccion || null,
         activo: c.activo !== false,
       });
     }

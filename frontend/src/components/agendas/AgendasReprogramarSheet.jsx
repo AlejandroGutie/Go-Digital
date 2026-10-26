@@ -41,6 +41,7 @@ import {
   filtrarMascotasLocal,
   idsTarifaDesdeCita,
   resolverTarifaCita,
+  direccionMascotaAgenda,
   subtituloMascotaAgenda,
   tarifasParaEditarDesde,
 } from '../../pages/agendas/agendaPageHelpers';
@@ -85,6 +86,7 @@ export default function AgendasReprogramarSheet({
         nombre: c.nombre,
         telefono: c.telefono || null,
         email: c.email || null,
+        direccion: c.direccion || null,
       });
     }
     return out;
@@ -582,7 +584,7 @@ export default function AgendasReprogramarSheet({
                   aria-expanded={editListaMascotasAbierta}
                   aria-controls="lista-mascotas-edit"
                   aria-autocomplete="list"
-                  placeholder="Buscar por nombre, raza, especie, tamaño o cuidador…"
+                  placeholder="Buscar por nombre, raza, especie, tamaño, cuidador o dirección…"
                   value={editBusquedaMascota}
                   disabled={saving}
                   onChange={(e) => {
@@ -617,7 +619,9 @@ export default function AgendasReprogramarSheet({
                           : 'No se encontraron mascotas'}
                       </li>
                     ) : (
-                      editMascotasFiltradas.map((m) => (
+                        editMascotasFiltradas.map((m) => {
+                        const direccion = direccionMascotaAgenda(m);
+                        return (
                         <li
                           key={m.id}
                           role="option"
@@ -642,9 +646,21 @@ export default function AgendasReprogramarSheet({
                             >
                               {subtituloMascotaAgenda(m)}
                             </div>
+                            {direccion ? (
+                              <div
+                                style={{
+                                  fontSize: '0.75rem',
+                                  color: 'var(--color-purple-light)',
+                                  fontWeight: 400,
+                                }}
+                              >
+                                {direccion}
+                              </div>
+                            ) : null}
                           </button>
                         </li>
-                      ))
+                        );
+                      })
                     )}
                   </ul>
                 )}

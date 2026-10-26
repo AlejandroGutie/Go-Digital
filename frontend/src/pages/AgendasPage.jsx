@@ -79,6 +79,7 @@ import {
   estadoPagoCita,
   resolverTarifaCita as resolverTarifaCitaHelper,
   AGENDA_INPUT_ERROR_STYLE,
+  direccionMascotaAgenda,
   subtituloMascotaAgenda,
 } from './agendas/agendaPageHelpers';
 
@@ -1004,7 +1005,7 @@ export default function AgendasPage() {
                               aria-expanded={listaMascotasAbierta}
                               aria-controls="lista-mascotas"
                               aria-autocomplete="list"
-                              placeholder="Buscar por nombre, raza, especie, tamaño o cuidador…"
+                              placeholder="Buscar por nombre, raza, especie, tamaño, cuidador o dirección…"
                               value={busquedaMascota}
                               disabled={loading}
                               onChange={(e) => {
@@ -1046,7 +1047,9 @@ export default function AgendasPage() {
                                       : 'No se encontraron mascotas'}
                                   </li>
                                 ) : (
-                                  mascotasFiltradas.map((m) => (
+                                  mascotasFiltradas.map((m) => {
+                                    const direccion = direccionMascotaAgenda(m);
+                                    return (
                                     <li
                                       key={m.id}
                                       role="option"
@@ -1071,9 +1074,21 @@ export default function AgendasPage() {
                                         >
                                           {subtituloMascotaAgenda(m)}
                                         </div>
+                                        {direccion ? (
+                                          <div
+                                            style={{
+                                              fontSize: '0.75rem',
+                                              color: 'var(--color-purple-light)',
+                                              fontWeight: 400,
+                                            }}
+                                          >
+                                            {direccion}
+                                          </div>
+                                        ) : null}
                                       </button>
                                     </li>
-                                  ))
+                                    );
+                                  })
                                 )}
                               </ul>
                             )}

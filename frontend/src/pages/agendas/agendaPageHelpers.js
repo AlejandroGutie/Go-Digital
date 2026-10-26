@@ -56,11 +56,21 @@ export function nombresCuidadoresMascota(m) {
   return cuidadoresVisiblesMascota(m).map((c) => c?.nombre).filter(Boolean);
 }
 
-/** Segunda línea del combo de mascota: datos de la mascota y nombre del cuidador. */
+export function direccionesCuidadoresMascota(m) {
+  return cuidadoresVisiblesMascota(m).map((c) => c?.direccion).filter(Boolean);
+}
+
+/** Segunda línea del combo de mascota: datos de la mascota y cuidador. */
 export function subtituloMascotaAgenda(m) {
   const nombres = nombresCuidadoresMascota(m);
   const cuidador = nombres.length > 0 ? nombres.join(', ') : 'Sin cuidador';
   return [m?.especie, m?.raza, m?.tamano, cuidador].filter(Boolean).join(' · ') || '—';
+}
+
+/** Tercera línea del combo de mascota: dirección del cuidador. */
+export function direccionMascotaAgenda(m) {
+  const direcciones = direccionesCuidadoresMascota(m);
+  return direcciones.length > 0 ? direcciones.join(', ') : '';
 }
 
 export function filtrarMascotasLocal(lista, search) {
@@ -69,7 +79,14 @@ export function filtrarMascotasLocal(lista, search) {
     .toLowerCase();
   if (!q) return lista;
   return lista.filter((m) => {
-    const haystack = [m.nombre, m.especie, m.raza, m.tamano, ...nombresCuidadoresMascota(m)]
+    const haystack = [
+      m.nombre,
+      m.especie,
+      m.raza,
+      m.tamano,
+      ...nombresCuidadoresMascota(m),
+      ...direccionesCuidadoresMascota(m),
+    ]
       .filter(Boolean)
       .join(' ')
       .toLowerCase();

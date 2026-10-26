@@ -2,7 +2,7 @@ import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { formatFecha, formatHora, formatMoneda, hoyLocalISO } from './format';
 import clientLogoUrl from '../assets/logo-pelu-eli.png';
-import goDigitalLogoUrl from '../assets/LogoGo-Digital.png';
+import goDeltaLogoUrl from '../assets/GO-DELTA.png';
 
 export { formatMoneda };
 
@@ -10,7 +10,7 @@ export { formatMoneda };
 const COLOR_ENTORNO_FALLBACK = [183, 65, 146]; // #B74192
 
 export function formatMesLabel(mes) {
-  if (!mes) return 'â€”';
+  if (!mes) return '—';
   const [year, month] = String(mes).split('-');
   const date = new Date(Number(year), Number(month) - 1, 1);
   const label = date.toLocaleDateString('es-CO', { year: 'numeric', month: 'long' });
@@ -63,7 +63,7 @@ function getBrandColor() {
 }
 
 let logoDataUrlCache = null;
-let goDigitalLogoDataUrlCache = null;
+let goDeltaLogoDataUrlCache = null;
 
 async function loadImageAsDataUrl(url) {
   try {
@@ -86,13 +86,13 @@ async function getLogoDataUrl() {
   return logoDataUrlCache;
 }
 
-async function getGoDigitalLogoDataUrl() {
-  if (goDigitalLogoDataUrlCache) return goDigitalLogoDataUrlCache;
-  goDigitalLogoDataUrlCache = await loadImageAsDataUrl(goDigitalLogoUrl);
-  return goDigitalLogoDataUrlCache;
+async function getGoDeltaLogoDataUrl() {
+  if (goDeltaLogoDataUrlCache) return goDeltaLogoDataUrlCache;
+  goDeltaLogoDataUrlCache = await loadImageAsDataUrl(goDeltaLogoUrl);
+  return goDeltaLogoDataUrlCache;
 }
 
-/** Alto del membrete (logo + franja) reservado en cada pÃ¡gina. */
+/** Alto del membrete (logo + franja) reservado en cada página. */
 const LETTERHEAD_HEIGHT = 30;
 
 function drawLetterhead(doc, logoDataUrl) {
@@ -100,18 +100,18 @@ function drawLetterhead(doc, logoDataUrl) {
   const brand = getBrandColor();
 
   if (logoDataUrl) {
-    // RelaciÃ³n landscape ~2:1; tamaÃ±o a la mitad, alineado a la derecha
+    // Relación landscape ~2:1; tamaño a la mitad, alineado a la derecha
     const logoW = 21;
     const logoH = 9;
     doc.addImage(logoDataUrl, 'PNG', pageWidth - 14 - logoW, 8, logoW, logoH);
   }
 
-  // LÃ­nea decorativa con color de entorno
+  // Línea decorativa con color de entorno
   doc.setFillColor(...brand);
   doc.rect(0, 26, pageWidth, 2.2, 'F');
 }
 
-function drawFooter(doc, goDigitalLogoDataUrl) {
+function drawFooter(doc, goDeltaLogoDataUrl) {
   const pageWidth = doc.internal.pageSize.getWidth();
   const pageHeight = doc.internal.pageSize.getHeight();
   const brand = getBrandColor();
@@ -120,9 +120,9 @@ function drawFooter(doc, goDigitalLogoDataUrl) {
   doc.setLineWidth(0.6);
   doc.line(14, pageHeight - 12, pageWidth - 14, pageHeight - 12);
 
-  // Dimensiones nativas del logo Go-Delta (1219Ã—1245 â‰ˆ 1:1)
-  const LOGO_NATURAL_W = 1219;
-  const LOGO_NATURAL_H = 1245;
+  // Dimensiones nativas del logo Go-Delta (1200x1200)
+  const LOGO_NATURAL_W = 1200;
+  const LOGO_NATURAL_H = 1200;
   const logoH = 5.5;
   const logoW = logoH * (LOGO_NATURAL_W / LOGO_NATURAL_H);
   const gap = 3;
@@ -130,20 +130,20 @@ function drawFooter(doc, goDigitalLogoDataUrl) {
   const baselineY = pageHeight - 7;
   const logoY = baselineY - logoH / 2 - 1.1;
 
-  if (goDigitalLogoDataUrl) {
-    doc.addImage(goDigitalLogoDataUrl, 'PNG', leftX, logoY, logoW, logoH);
+  if (goDeltaLogoDataUrl) {
+    doc.addImage(goDeltaLogoDataUrl, 'PNG', leftX, logoY, logoW, logoH);
   }
 
-  const copyright = `Â© ${new Date().getFullYear()} Go-Delta Â· Pelu Eli`;
-  const textX = leftX + (goDigitalLogoDataUrl ? logoW + gap : 0);
+  const copyright = `© ${new Date().getFullYear()} Go-Delta · Pelu Eli`;
+  const textX = leftX + (goDeltaLogoDataUrl ? logoW + gap : 0);
   doc.setFontSize(8);
   doc.setTextColor(...brand);
-  // AlineaciÃ³n vertical centrada con el logo (baseline â‰ˆ centro del icono)
+  // Alineación vertical centrada con el logo (baseline ˜ centro del icono)
   doc.text(copyright, textX, baselineY);
 
   try {
     const n = doc.internal.getCurrentPageInfo().pageNumber;
-    doc.text(`PÃ¡g. ${n}`, pageWidth - 14, baselineY, { align: 'right' });
+    doc.text(`Pág. ${n}`, pageWidth - 14, baselineY, { align: 'right' });
   } catch {
     /* ignore */
   }
@@ -151,9 +151,9 @@ function drawFooter(doc, goDigitalLogoDataUrl) {
   doc.setTextColor(0, 0, 0);
 }
 
-function applyPageChrome(doc, logoDataUrl, goDigitalLogoDataUrl) {
+function applyPageChrome(doc, logoDataUrl, goDeltaLogoDataUrl) {
   drawLetterhead(doc, logoDataUrl);
-  drawFooter(doc, goDigitalLogoDataUrl);
+  drawFooter(doc, goDeltaLogoDataUrl);
 }
 
 const tableBaseStyles = {
@@ -230,7 +230,7 @@ export function exportDashboardCSV(dashboard, filtros) {
 }
 
 export function exportAgendaCSV(rows, filtros) {
-  const lines = ['Fecha,Inicio,Fin,Profesional,Mascota,Cuidador,Especie,Raza,TamaÃ±o'];
+  const lines = ['Fecha,Inicio,Fin,Profesional,Mascota,Cuidador,Especie,Raza,Tamaño'];
   for (const r of rows || []) {
     lines.push(
       [
@@ -257,7 +257,7 @@ export function exportAgendaCSV(rows, filtros) {
 function toCsvDate(f) {
   if (!f) return '';
   const formatted = formatFecha(f);
-  return formatted === 'â€”' ? '' : formatted;
+  return formatted === '—' ? '' : formatted;
 }
 
 function drawReportTitle(doc, title, subtitleLines, startY) {
@@ -283,17 +283,17 @@ function drawReportTitle(doc, title, subtitleLines, startY) {
 export async function exportDashboardPDF(dashboard, filtros) {
   const doc = new jsPDF();
   const logoDataUrl = await getLogoDataUrl();
-  const goDigitalLogoDataUrl = await getGoDigitalLogoDataUrl();
+  const goDeltaLogoDataUrl = await getGoDeltaLogoDataUrl();
   const k = dashboard?.kpis || {};
 
-  applyPageChrome(doc, logoDataUrl, goDigitalLogoDataUrl);
+  applyPageChrome(doc, logoDataUrl, goDeltaLogoDataUrl);
 
   const y = drawReportTitle(
     doc,
     'Informe financiero',
     [
       `Generado: ${formatFecha(hoyLocalISO())}`,
-      `Periodo: ${filtros.fecha_desde ? formatFecha(filtros.fecha_desde) : 'â€”'} a ${filtros.fecha_hasta ? formatFecha(filtros.fecha_hasta) : 'â€”'}`,
+      `Periodo: ${filtros.fecha_desde ? formatFecha(filtros.fecha_desde) : '—'} a ${filtros.fecha_hasta ? formatFecha(filtros.fecha_hasta) : '—'}`,
       `Profesional: ${filtros.id_profesional || 'Todos'} | Estado: ${filtros.estado || 'Todos'}`,
     ],
     LETTERHEAD_HEIGHT + 8
@@ -304,7 +304,7 @@ export async function exportDashboardPDF(dashboard, filtros) {
     headStyles: headStylesFromBrand(),
     alternateRowStyles: { fillColor: [252, 248, 251] },
     margin: { top: LETTERHEAD_HEIGHT + 6, left: 14, right: 14, bottom: 18 },
-    didDrawPage: () => applyPageChrome(doc, logoDataUrl, goDigitalLogoDataUrl),
+    didDrawPage: () => applyPageChrome(doc, logoDataUrl, goDeltaLogoDataUrl),
   };
 
   autoTable(doc, {
@@ -352,7 +352,7 @@ export async function exportDashboardPDF(dashboard, filtros) {
   const totalPages = doc.internal.getNumberOfPages();
   for (let i = 1; i <= totalPages; i++) {
     doc.setPage(i);
-    applyPageChrome(doc, logoDataUrl, goDigitalLogoDataUrl);
+    applyPageChrome(doc, logoDataUrl, goDeltaLogoDataUrl);
   }
 
   doc.save(`informe_financiero_${hoyLocalISO()}.pdf`);
@@ -361,15 +361,15 @@ export async function exportDashboardPDF(dashboard, filtros) {
 export async function exportAgendaPDF(rows, filtros) {
   const doc = new jsPDF({ orientation: 'landscape' });
   const logoDataUrl = await getLogoDataUrl();
-  const goDigitalLogoDataUrl = await getGoDigitalLogoDataUrl();
+  const goDeltaLogoDataUrl = await getGoDeltaLogoDataUrl();
 
-  applyPageChrome(doc, logoDataUrl, goDigitalLogoDataUrl);
+  applyPageChrome(doc, logoDataUrl, goDeltaLogoDataUrl);
 
   const y = drawReportTitle(
     doc,
     'Informe de agendas',
     [
-      `Periodo: ${filtros.fecha_desde ? formatFecha(filtros.fecha_desde) : 'â€”'} a ${filtros.fecha_hasta ? formatFecha(filtros.fecha_hasta) : 'â€”'} | Generado: ${formatFecha(hoyLocalISO())}`,
+      `Periodo: ${filtros.fecha_desde ? formatFecha(filtros.fecha_desde) : '—'} a ${filtros.fecha_hasta ? formatFecha(filtros.fecha_hasta) : '—'} | Generado: ${formatFecha(hoyLocalISO())}`,
       `Profesional: ${filtros.id_profesional || 'Todos'}`,
     ],
     LETTERHEAD_HEIGHT + 8
@@ -382,23 +382,23 @@ export async function exportAgendaPDF(rows, filtros) {
       formatFecha(r.fecha),
       formatHora(r.hora_inicio),
       formatHora(r.hora_fin),
-      r.profesional_nombre || 'â€”',
-      r.mascota_nombre || 'â€”',
-      r.cuidador_nombre || 'â€”',
-      r.especie || 'â€”',
-      r.raza || 'â€”',
+      r.profesional_nombre || '—',
+      r.mascota_nombre || '—',
+      r.cuidador_nombre || '—',
+      r.especie || '—',
+      r.raza || '—',
     ]),
     styles: { ...tableBaseStyles, fontSize: 8 },
     headStyles: headStylesFromBrand(),
     alternateRowStyles: { fillColor: [252, 248, 251] },
     margin: { top: LETTERHEAD_HEIGHT + 6, left: 14, right: 14, bottom: 18 },
-    didDrawPage: () => applyPageChrome(doc, logoDataUrl, goDigitalLogoDataUrl),
+    didDrawPage: () => applyPageChrome(doc, logoDataUrl, goDeltaLogoDataUrl),
   });
 
   const totalPages = doc.internal.getNumberOfPages();
   for (let i = 1; i <= totalPages; i++) {
     doc.setPage(i);
-    applyPageChrome(doc, logoDataUrl, goDigitalLogoDataUrl);
+    applyPageChrome(doc, logoDataUrl, goDeltaLogoDataUrl);
   }
 
   const suffix = filtros.id_profesional ? `_prof${filtros.id_profesional}` : '';
@@ -431,15 +431,15 @@ export function exportAgendaLibresCSV(rows, filtros) {
 export async function exportAgendaLibresPDF(rows, filtros) {
   const doc = new jsPDF({ orientation: 'landscape' });
   const logoDataUrl = await getLogoDataUrl();
-  const goDigitalLogoDataUrl = await getGoDigitalLogoDataUrl();
+  const goDeltaLogoDataUrl = await getGoDeltaLogoDataUrl();
 
-  applyPageChrome(doc, logoDataUrl, goDigitalLogoDataUrl);
+  applyPageChrome(doc, logoDataUrl, goDeltaLogoDataUrl);
 
   const y = drawReportTitle(
     doc,
     'Informe de horarios libres',
     [
-      `Periodo: ${filtros.fecha_desde ? formatFecha(filtros.fecha_desde) : 'â€”'} a ${filtros.fecha_hasta ? formatFecha(filtros.fecha_hasta) : 'â€”'} | Generado: ${formatFecha(hoyLocalISO())}`,
+      `Periodo: ${filtros.fecha_desde ? formatFecha(filtros.fecha_desde) : '—'} a ${filtros.fecha_hasta ? formatFecha(filtros.fecha_hasta) : '—'} | Generado: ${formatFecha(hoyLocalISO())}`,
       `Profesional: ${filtros.id_profesional || 'Todos'}`,
     ],
     LETTERHEAD_HEIGHT + 8
@@ -449,7 +449,7 @@ export async function exportAgendaLibresPDF(rows, filtros) {
     startY: y,
     head: [['Profesional', 'Fecha', 'Horario libre', 'Estado']],
     body: (rows || []).map((r) => [
-      r.profesional_nombre || 'â€”',
+      r.profesional_nombre || '—',
       formatFecha(r.fecha),
       r.horario_label || `${formatHora(r.hora_inicio)} - ${formatHora(r.hora_fin)}`,
       r.estado || 'Disponible',
@@ -458,13 +458,13 @@ export async function exportAgendaLibresPDF(rows, filtros) {
     headStyles: headStylesFromBrand(),
     alternateRowStyles: { fillColor: [252, 248, 251] },
     margin: { top: LETTERHEAD_HEIGHT + 6, left: 14, right: 14, bottom: 18 },
-    didDrawPage: () => applyPageChrome(doc, logoDataUrl, goDigitalLogoDataUrl),
+    didDrawPage: () => applyPageChrome(doc, logoDataUrl, goDeltaLogoDataUrl),
   });
 
   const totalPages = doc.internal.getNumberOfPages();
   for (let i = 1; i <= totalPages; i++) {
     doc.setPage(i);
-    applyPageChrome(doc, logoDataUrl, goDigitalLogoDataUrl);
+    applyPageChrome(doc, logoDataUrl, goDeltaLogoDataUrl);
   }
 
   const suffix = filtros.id_profesional ? `_prof${filtros.id_profesional}` : '';
@@ -485,16 +485,16 @@ export async function exportAgendaConfirmacionPDF(data) {
 
   const doc = new jsPDF();
   const logoDataUrl = await getLogoDataUrl();
-  const goDigitalLogoDataUrl = await getGoDigitalLogoDataUrl();
+  const goDeltaLogoDataUrl = await getGoDeltaLogoDataUrl();
 
-  applyPageChrome(doc, logoDataUrl, goDigitalLogoDataUrl);
+  applyPageChrome(doc, logoDataUrl, goDeltaLogoDataUrl);
 
   const y = drawReportTitle(
     doc,
-    'ConfirmaciÃ³n de agenda',
+    'Confirmación de agenda',
     [
       `Generado: ${formatFecha(hoyLocalISO())}`,
-      `Cita #${agenda.id ?? 'â€”'} Â· Estado: Asignada`,
+      `Cita #${agenda.id ?? '—'} · Estado: Asignada`,
     ],
     LETTERHEAD_HEIGHT + 8
   );
@@ -504,23 +504,23 @@ export async function exportAgendaConfirmacionPDF(data) {
     headStyles: headStylesFromBrand(),
     alternateRowStyles: { fillColor: [252, 248, 251] },
     margin: { top: LETTERHEAD_HEIGHT + 6, left: 14, right: 14, bottom: 18 },
-    didDrawPage: () => applyPageChrome(doc, logoDataUrl, goDigitalLogoDataUrl),
+    didDrawPage: () => applyPageChrome(doc, logoDataUrl, goDeltaLogoDataUrl),
   };
 
   const tarifaTxt =
     agenda.tarifa_descripcion || agenda.tarifa_valor != null
       ? `${agenda.tarifa_descripcion || 'Tarifa'}${
-          agenda.tarifa_valor != null ? ` Â· ${formatMoneda(agenda.tarifa_valor)}` : ''
+          agenda.tarifa_valor != null ? ` · ${formatMoneda(agenda.tarifa_valor)}` : ''
         }`
-      : 'â€”';
+      : '—';
 
   autoTable(doc, {
     ...sharedTableOpts,
     startY: y,
     head: [['Datos del profesional', '']],
     body: [
-      ['Nombre', profesional.nombre || 'â€”'],
-      ['TelÃ©fono', profesional.telefono || 'â€”'],
+      ['Nombre', profesional.nombre || '—'],
+      ['Teléfono', profesional.telefono || '—'],
     ],
     columnStyles: { 0: { cellWidth: 45, fontStyle: 'bold' } },
   });
@@ -530,10 +530,10 @@ export async function exportAgendaConfirmacionPDF(data) {
     startY: (doc.lastAutoTable?.finalY || y) + 8,
     head: [['Datos del cuidador', '']],
     body: [
-      ['Nombre', cuidador.nombre || 'â€”'],
-      ['TelÃ©fono', cuidador.telefono || 'â€”'],
-      ['DirecciÃ³n', cuidador.direccion || 'â€”'],
-      ['Email', cuidador.email || 'â€”'],
+      ['Nombre', cuidador.nombre || '—'],
+      ['Teléfono', cuidador.telefono || '—'],
+      ['Dirección', cuidador.direccion || '—'],
+      ['Email', cuidador.email || '—'],
     ],
     columnStyles: { 0: { cellWidth: 45, fontStyle: 'bold' } },
   });
@@ -543,13 +543,13 @@ export async function exportAgendaConfirmacionPDF(data) {
     startY: (doc.lastAutoTable?.finalY || y) + 8,
     head: [['Datos de la mascota', '']],
     body: [
-      ['Nombre', agenda.mascota_nombre || mascota.nombre || 'â€”'],
-      ['Especie', mascota.especie || agenda.especie || 'â€”'],
-      ['Raza', agenda.raza || mascota.raza || 'â€”'],
-      ['TamaÃ±o', agenda.tamano || mascota.tamano || 'â€”'],
+      ['Nombre', agenda.mascota_nombre || mascota.nombre || '—'],
+      ['Especie', mascota.especie || agenda.especie || '—'],
+      ['Raza', agenda.raza || mascota.raza || '—'],
+      ['Tamaño', agenda.tamano || mascota.tamano || '—'],
       [
         'Fecha de nacimiento',
-        mascota.fecha_nacimiento ? formatFecha(mascota.fecha_nacimiento) : 'â€”',
+        mascota.fecha_nacimiento ? formatFecha(mascota.fecha_nacimiento) : '—',
       ],
     ],
     columnStyles: { 0: { cellWidth: 45, fontStyle: 'bold' } },
@@ -572,7 +572,7 @@ export async function exportAgendaConfirmacionPDF(data) {
   const totalPages = doc.internal.getNumberOfPages();
   for (let i = 1; i <= totalPages; i++) {
     doc.setPage(i);
-    applyPageChrome(doc, logoDataUrl, goDigitalLogoDataUrl);
+    applyPageChrome(doc, logoDataUrl, goDeltaLogoDataUrl);
   }
 
   const fechaFile = toCsvDate(agenda.fecha) || hoyLocalISO();

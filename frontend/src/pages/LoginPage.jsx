@@ -6,7 +6,7 @@ import { Toast } from '../components/Toast';
 import Field, { Input } from '../components/ui/Field';
 import Button from '../components/ui/Button';
 import clientLogo from '../assets/logo-pelu-eli.png';
-import goDigitalLogo from '../assets/LogoGo-Digital.png';
+import goDeltaLogo from '../assets/GO-DELTA.png';
 import { safeReturnPath } from '../utils/authRedirect';
 import '../index.css';
 
@@ -117,7 +117,7 @@ export default function LoginPage() {
 
         <div className="ui-login__footer">
           <img
-            src={goDigitalLogo}
+            src={goDeltaLogo}
             alt="Go-Delta"
             className="ui-login__footer-logo"
           />
