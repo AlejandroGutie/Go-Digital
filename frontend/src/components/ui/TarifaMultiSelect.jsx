@@ -1,8 +1,16 @@
 /**
  * Selector múltiple de tarifas como botones toggle.
- * Las seleccionadas se muestran primero para fácil visualización.
+ * Orden: seleccionadas → domicilio/transporte → resto.
  */
+import { useLayoutEffect, useRef } from 'react';
 import { formatMoneda } from '../../utils/format';
+
+function normalizarDescTarifa(t) {
+  return String(t?.descripcion || t?.tarifa_descripcion || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase();
+}
 
 export function sumTarifasValor(tarifas = [], selectedIds = []) {
   const set = new Set((selectedIds || []).map(String));
@@ -48,11 +56,12 @@ export function formatTarifasLabel(tarifas = []) {
 }
 
 function esServicioIntegral(t) {
-  const desc = String(t?.descripcion || t?.tarifa_descripcion || '')
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .toLowerCase();
-  return desc.includes('servicio integral');
+  return normalizarDescTarifa(t).includes('servicio integral');
+}
+
+function esDomicilioOTransporte(t) {
+  const desc = normalizarDescTarifa(t);
+  return desc.includes('domicilio') || desc.includes('transporte');
 }
 
 /**
@@ -71,7 +80,10 @@ export function filtrarTarifasIntegralUnica(tarifas = [], selectedIds = []) {
   );
 }
 
-/** Orden: seleccionadas primero (orden de value), luego el resto del catálogo. */
+/**
+ * Orden: seleccionadas (orden de value) → domicilio/transporte → resto.
+ * Conserva el orden relativo del catálogo dentro de cada grupo.
+ */
 export function ordenarTarifasSeleccionadasPrimero(tarifas = [], selectedIds = []) {
   const list = tarifas || [];
   const selected = (selectedIds || []).map(String);
@@ -83,7 +95,25 @@ export function ordenarTarifasSeleccionadasPrimero(tarifas = [], selectedIds = [
     if (row) first.push(row);
   }
   const rest = list.filter((t) => !selectedSet.has(String(t.id)));
-  return [...first, ...rest];
+  const domicilioTransporte = rest.filter(esDomicilioOTransporte);
+  const otras = rest.filter((t) => !esDomicilioOTransporte(t));
+  return [...first, ...domicilioTransporte, ...otras];
+}
+
+function leerScrollY() {
+  return (
+    window.scrollY ||
+    window.pageYOffset ||
+    document.documentElement.scrollTop ||
+    document.body.scrollTop ||
+    0
+  );
+}
+
+function fijarScrollY(y) {
+  window.scrollTo(0, y);
+  if (document.documentElement) document.documentElement.scrollTop = y;
+  if (document.body) document.body.scrollTop = y;
 }
 
 export default function TarifaMultiSelect({
@@ -99,9 +129,19 @@ export default function TarifaMultiSelect({
   const selectedSet = new Set(selected);
   const visibles = filtrarTarifasIntegralUnica(tarifas, selected);
   const ordered = ordenarTarifasSeleccionadasPrimero(visibles, selected);
+  const scrollLockRef = useRef(null);
+
+  useLayoutEffect(() => {
+    if (scrollLockRef.current == null) return;
+    const y = scrollLockRef.current;
+    scrollLockRef.current = null;
+    fijarScrollY(y);
+    requestAnimationFrame(() => fijarScrollY(y));
+  }, [selected.join('|'), ordered.length]);
 
   function toggle(tid) {
     if (disabled) return;
+    scrollLockRef.current = leerScrollY();
     const key = String(tid);
     if (selectedSet.has(key)) {
       onChange?.(selected.filter((x) => x !== key));
@@ -142,6 +182,10 @@ export default function TarifaMultiSelect({
                 className={`tarifa-multi__btn${checked ? ' tarifa-multi__btn--on' : ''}`}
                 aria-pressed={checked}
                 disabled={disabled}
+                onMouseDown={(e) => {
+                  // Evita que el foco mueva el viewport (salto a arriba en móvil).
+                  e.preventDefault();
+                }}
                 onClick={() => toggle(t.id)}
               >
                 <span className="tarifa-multi__btn-text">

@@ -184,6 +184,7 @@ body {
   max-height: 220px;
   overflow: auto;
   padding: 2px;
+  overflow-anchor: none;
 }
 
 .tarifa-multi__empty {
@@ -208,6 +209,8 @@ body {
   font-weight: 600;
   line-height: 1.25;
   cursor: pointer;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
   transition: border-color 0.15s ease, background 0.15s ease, box-shadow 0.15s ease;
 }
 
