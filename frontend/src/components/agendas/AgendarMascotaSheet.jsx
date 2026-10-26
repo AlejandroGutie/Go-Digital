@@ -30,6 +30,7 @@ import {
   jornadaDelProfesional,
   toTimeHHMM,
 } from '../../utils/horarios';
+import { idsTarifaSugeridaIntegral } from '../../utils/tarifaSugerida';
 
 const inputErrorStyle = { borderColor: 'var(--color-entorno)' };
 
@@ -99,8 +100,15 @@ export default function AgendarMascotaSheet({
     ])
       .then(([resT, resA]) => {
         if (cancelled) return;
-        setTarifas(normalizeListPayload(resT));
+        const rows = normalizeListPayload(resT);
+        setTarifas(rows);
         setCitasProf(normalizeListPayload(resA));
+        setForm((prev) => {
+          if ((prev.id_tarifas || []).length > 0) return prev;
+          const sugeridas = idsTarifaSugeridaIntegral(rows, mascota);
+          if (!sugeridas.length) return prev;
+          return { ...prev, id_tarifas: sugeridas };
+        });
       })
       .catch((e) => {
         if (cancelled) return;

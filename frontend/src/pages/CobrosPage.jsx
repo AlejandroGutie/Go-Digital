@@ -28,6 +28,7 @@ import TablePagination, {
 } from '../components/ui/TablePagination';
 import CobroFormSheet from '../components/cobros/CobroFormSheet';
 import { totalTarifasSeleccionadas } from '../components/ui/TarifaMultiSelect';
+import { idsTarifaSugeridaIntegral } from '../utils/tarifaSugerida';
 import '../index.css';
 import { TABLE_STICKY_COLS_1 } from '../lib/tableSticky';
 
@@ -291,7 +292,17 @@ export default function CobrosPage() {
             : [];
       const tarifasParaSuma =
         Array.isArray(agenda.tarifas) && agenda.tarifas.length ? agenda.tarifas : tarifas;
-      const { ids, total } = totalTarifasSeleccionadas(tarifasParaSuma, idsRaw);
+      let { ids, total } = totalTarifasSeleccionadas(tarifasParaSuma, idsRaw);
+      if (!ids.length) {
+        const sugeridas = idsTarifaSugeridaIntegral(tarifas, {
+          especie: agenda.especie,
+          raza: agenda.raza,
+          tamano: agenda.tamano,
+        });
+        if (sugeridas.length) {
+          ({ ids, total } = totalTarifasSeleccionadas(tarifas, sugeridas));
+        }
+      }
       setNuevoCobro((prev) => ({
         ...prev,
         id_agenda,

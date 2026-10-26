@@ -45,6 +45,7 @@ import {
   subtituloMascotaAgenda,
   tarifasParaEditarDesde,
 } from '../../pages/agendas/agendaPageHelpers';
+import { idsTarifaSugeridaIntegral } from '../../utils/tarifaSugerida';
 
 /**
  * Bottom sheet de reprogramación para AgendasPage.
@@ -269,7 +270,15 @@ export default function AgendasReprogramarSheet({
     const lista = cuidadoresVisiblesMascota(m);
     const sigue = lista.find((c) => String(c.id) === String(editCuidadorSel?.id));
     const siguiente = sigue || (lista.length === 1 ? lista[0] : null);
-    setEditForm((prev) => ({ ...prev, id_mascota: String(m.id) }));
+    const cambioMascota = String(m.id) !== String(editForm.id_mascota);
+    const sugeridas = cambioMascota
+      ? idsTarifaSugeridaIntegral(tarifas, m)
+      : [];
+    setEditForm((prev) => ({
+      ...prev,
+      id_mascota: String(m.id),
+      ...(sugeridas.length ? { id_tarifas: sugeridas } : {}),
+    }));
     setEditBusquedaMascota(m.nombre || '');
     setEditListaMascotasAbierta(false);
     setEditCuidadorSel(siguiente);

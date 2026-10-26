@@ -1,6 +1,6 @@
 /**
- * Selector múltiple de tarifas (checkboxes + chips).
- * Conserva el look del form existente; no cambia layout global.
+ * Selector múltiple de tarifas como botones toggle.
+ * Las seleccionadas se muestran primero para fácil visualización.
  */
 import { formatMoneda } from '../../utils/format';
 
@@ -47,6 +47,45 @@ export function formatTarifasLabel(tarifas = []) {
   return `${tarifas.length} tarifas · ${formatMoneda(total)}`;
 }
 
+function esServicioIntegral(t) {
+  const desc = String(t?.descripcion || t?.tarifa_descripcion || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase();
+  return desc.includes('servicio integral');
+}
+
+/**
+ * Si hay al menos un Servicio integral seleccionado, oculta el resto de
+ * servicios integrales (gato/perro) para dejar visibles extras y la elegida.
+ */
+export function filtrarTarifasIntegralUnica(tarifas = [], selectedIds = []) {
+  const list = tarifas || [];
+  const selectedSet = new Set((selectedIds || []).map(String));
+  const hayIntegralSeleccionada = list.some(
+    (t) => selectedSet.has(String(t.id)) && esServicioIntegral(t)
+  );
+  if (!hayIntegralSeleccionada) return list;
+  return list.filter(
+    (t) => !esServicioIntegral(t) || selectedSet.has(String(t.id))
+  );
+}
+
+/** Orden: seleccionadas primero (orden de value), luego el resto del catálogo. */
+export function ordenarTarifasSeleccionadasPrimero(tarifas = [], selectedIds = []) {
+  const list = tarifas || [];
+  const selected = (selectedIds || []).map(String);
+  const selectedSet = new Set(selected);
+  const byId = new Map(list.map((t) => [String(t.id), t]));
+  const first = [];
+  for (const id of selected) {
+    const row = byId.get(id);
+    if (row) first.push(row);
+  }
+  const rest = list.filter((t) => !selectedSet.has(String(t.id)));
+  return [...first, ...rest];
+}
+
 export default function TarifaMultiSelect({
   id = 'tarifas-multi',
   tarifas = [],
@@ -58,47 +97,34 @@ export default function TarifaMultiSelect({
 }) {
   const selected = (value || []).map(String);
   const selectedSet = new Set(selected);
+  const visibles = filtrarTarifasIntegralUnica(tarifas, selected);
+  const ordered = ordenarTarifasSeleccionadasPrimero(visibles, selected);
 
   function toggle(tid) {
     if (disabled) return;
     const key = String(tid);
-    const next = selectedSet.has(key)
-      ? selected.filter((x) => x !== key)
-      : [...selected, key];
-    onChange?.(next);
+    if (selectedSet.has(key)) {
+      onChange?.(selected.filter((x) => x !== key));
+      return;
+    }
+    const row = (tarifas || []).find((t) => String(t.id) === key);
+    // Al elegir un Servicio integral, quitar cualquier otra integral previa.
+    let next = selected;
+    if (row && esServicioIntegral(row)) {
+      next = selected.filter((idSel) => {
+        const t = (tarifas || []).find((x) => String(x.id) === idSel);
+        return !t || !esServicioIntegral(t);
+      });
+    }
+    onChange?.([...next, key]);
   }
 
-  function remove(tid) {
-    if (disabled) return;
-    onChange?.(selected.filter((x) => x !== String(tid)));
-  }
-
-  const selectedRows = (tarifas || []).filter((t) => selectedSet.has(String(t.id)));
   const total = sumTarifasValor(tarifas, selected);
 
   return (
     <div className="tarifa-multi" id={id}>
-      {selectedRows.length > 0 && (
-        <div className="tarifa-multi__chips" aria-live="polite">
-          {selectedRows.map((t) => (
-            <button
-              key={t.id}
-              type="button"
-              className="tarifa-multi__chip"
-              onClick={() => remove(t.id)}
-              disabled={disabled}
-              title="Quitar tarifa"
-            >
-              <span>{t.descripcion || 'Tarifa'}</span>
-              <span className="tarifa-multi__chip-val">{formatMoneda(t.valor)}</span>
-              <span aria-hidden="true">×</span>
-            </button>
-          ))}
-        </div>
-      )}
-
       <div
-        className="tarifa-multi__list"
+        className="tarifa-multi__buttons"
         role="group"
         aria-required={required || undefined}
         aria-label="Seleccionar tarifas"
@@ -106,27 +132,23 @@ export default function TarifaMultiSelect({
         {tarifas.length === 0 ? (
           <div className="tarifa-multi__empty">{emptyLabel}</div>
         ) : (
-          tarifas.map((t) => {
+          ordered.map((t) => {
             const checked = selectedSet.has(String(t.id));
-            const inputId = `${id}-${t.id}`;
             return (
-              <label
+              <button
                 key={t.id}
-                htmlFor={inputId}
-                className={`tarifa-multi__option${checked ? ' tarifa-multi__option--on' : ''}`}
+                type="button"
+                id={`${id}-${t.id}`}
+                className={`tarifa-multi__btn${checked ? ' tarifa-multi__btn--on' : ''}`}
+                aria-pressed={checked}
+                disabled={disabled}
+                onClick={() => toggle(t.id)}
               >
-                <input
-                  id={inputId}
-                  type="checkbox"
-                  checked={checked}
-                  disabled={disabled}
-                  onChange={() => toggle(t.id)}
-                />
-                <span className="tarifa-multi__option-text">
-                  <span>{t.descripcion || 'Tarifa'}</span>
-                  <span className="tarifa-multi__option-val">{formatMoneda(t.valor)}</span>
+                <span className="tarifa-multi__btn-text">
+                  {t.descripcion || 'Tarifa'}
                 </span>
-              </label>
+                <span className="tarifa-multi__btn-val">{formatMoneda(t.valor)}</span>
+              </button>
             );
           })
         )}

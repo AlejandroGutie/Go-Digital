@@ -31,6 +31,7 @@ import EmptyState from '../EmptyState';
 import CobroFormSheet from '../cobros/CobroFormSheet';
 import ReprogramarCitaSheet from './ReprogramarCitaSheet';
 import { formatTarifasLabel, totalTarifasSeleccionadas } from '../ui/TarifaMultiSelect';
+import { idsTarifaSugeridaIntegral } from '../../utils/tarifaSugerida';
 import Button from '../ui/Button';
 import Sheet from '../ui/Sheet';
 import Skeleton from '../ui/Skeleton';
@@ -293,7 +294,17 @@ export default function CitasMascotaAccionesSheet({
           : cita.id_tarifa != null
             ? [String(cita.id_tarifa)]
             : [];
-      const { ids, total } = totalTarifasSeleccionadas(tarifasProf, idsRaw);
+      let { ids, total } = totalTarifasSeleccionadas(tarifasProf, idsRaw);
+      if (!ids.length) {
+        const sugeridas = idsTarifaSugeridaIntegral(tarifasProf, {
+          especie: cita.especie || mascota?.especie,
+          raza: cita.raza || mascota?.raza,
+          tamano: cita.tamano || mascota?.tamano,
+        });
+        if (sugeridas.length) {
+          ({ ids, total } = totalTarifasSeleccionadas(tarifasProf, sugeridas));
+        }
+      }
 
       setCobroTarifas(tarifasProf);
       setCobroForm({

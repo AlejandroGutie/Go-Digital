@@ -71,6 +71,7 @@ import {
   slotOcupadoPorCitas,
 } from '../utils/agendaConflictos';
 import { loadAgendaPlantillas } from '../utils/agendaPlantillas';
+import { idsTarifaSugeridaIntegral } from '../utils/tarifaSugerida';
 import '../index.css';
 import { TABLE_STICKY_COLS_1 } from '../lib/tableSticky';
 import {
@@ -157,12 +158,28 @@ export default function AgendasPage() {
   const [cobroTarifas, setCobroTarifas] = useState([]);
   const profesionalAgendaReq = useRef(0);
   const whatsappCancelRef = useRef(null);
+  const tarifaSugeridaKeyRef = useRef('');
 
   useEffect(() => {
     return () => {
       whatsappCancelRef.current?.cancel?.();
     };
   }, []);
+
+  // Sugerir Servicio Integral al elegir/cambiar mascota (o al cargar tarifas del profesional).
+  useEffect(() => {
+    if (!mascotaId) {
+      tarifaSugeridaKeyRef.current = '';
+      return;
+    }
+    const mascota = mascotas.find((m) => String(m.id) === String(mascotaId));
+    if (!mascota || !tarifas.length) return;
+    const key = `${mascotaId}|${tarifas.map((t) => t.id).join(',')}`;
+    if (tarifaSugeridaKeyRef.current === key) return;
+    tarifaSugeridaKeyRef.current = key;
+    const ids = idsTarifaSugeridaIntegral(tarifas, mascota);
+    if (ids.length) setIdTarifas(ids);
+  }, [mascotaId, mascotas, tarifas]);
 
   // Refresco al volver a la pestaña (sin Realtime): evita UI desfasada vs Cobros/Cuidadores
   useEffect(() => {
@@ -280,6 +297,7 @@ export default function AgendasPage() {
     setHoraInicio('');
     setHoraFin('');
     setIdTarifas([]);
+    tarifaSugeridaKeyRef.current = '';
     setObservacionIngreso('');
     setCobroMetodoPago('');
     setCobroObservacion('');
@@ -1020,6 +1038,8 @@ export default function AgendasPage() {
                                     setMascotaId('');
                                     setCuidadorSel(null);
                                     setBusquedaCuidador('');
+                                    setIdTarifas([]);
+                                    tarifaSugeridaKeyRef.current = '';
                                   }
                                 }
                               }}
